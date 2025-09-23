@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 220 40% 30%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 220 15% 95%;
+    --secondary-foreground: 220 40% 30%;
+    --muted: 220 15% 95%;
+    --muted-foreground: 220 10% 45%;
+    --accent: 180 60% 25%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 15% 90%;
+    --input: 220 15% 90%;
+    --ring: 220 40% 30%;
+    --radius: 1rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 220 40% 30%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 220 15% 15%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 220 15% 15%;
+    --muted-foreground: 220 10% 65%;
+    --accent: 180 60% 25%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 15% 20%;
+    --input: 220 15% 20%;
+    --ring: 220 40% 30%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-poppins);
+    font-weight: 600;
+  }
+  p {
+    font-family: var(--font-inter);
+  }
+  .luxury-gradient {
+    @apply bg-gradient-to-r from-primary to-accent;
+  }
+  .luxury-shadow {
+    @apply shadow-[0_4px_20px_rgba(0,0,0,0.1)];
+  }
+  .luxury-card {
+    @apply bg-white rounded-xl luxury-shadow transition-all duration-300 hover:shadow-[0_8px_30px_rgba(0,0,0,0.12)];
+  }
+  .luxury-button {
+    @apply bg-accent text-white rounded-xl px-6 py-3 font-medium transition-all duration-300 hover:shadow-[0_4px_20px_rgba(214,164,79,0.4)] hover:-translate-y-1;
+  }
+  .luxury-input {
+    @apply border-2 border-secondary rounded-xl px-4 py-3 focus:border-primary focus:ring-1 focus:ring-primary transition-all duration-300;
+  }
+  
+  /* Responsive utilities */
+  .line-clamp-1 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+  
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  
+  .line-clamp-3 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+  
+  /* Responsive text sizes */
+  .text-responsive-sm {
+    @apply text-xs sm:text-sm;
+  }
+  
+  .text-responsive-base {
+    @apply text-sm sm:text-base;
+  }
+  
+  .text-responsive-lg {
+    @apply text-base sm:text-lg;
+  }
+  
+  .text-responsive-xl {
+    @apply text-lg sm:text-xl;
+  }
+  
+  .text-responsive-2xl {
+    @apply text-xl sm:text-2xl;
+  }
+  
+  .text-responsive-3xl {
+    @apply text-2xl sm:text-3xl;
+  }
+
+  .bg-mint-green {
+    background-color: #1FC77A !important;
+  }
+  .hover\:bg-mint-green\/90:hover {
+    background-color: #19B86C !important;
+  }
+  .text-mint-green {
+    color: #1FC77A !important;
+  }
+  .hover\:bg-mint-green-light:hover {
+    background-color: #e6faf3 !important;
+  }
+  .hover\:text-mint-green:hover {
+    color: #1FC77A !important;
+  }
+
+  /* Button Colors */
+  .btn-primary {
+    background-color: #263C7C !important;
+    color: white !important;
+  }
+  .btn-primary:hover {
+    background-color: #1e2f5f !important;
+  }
+  .btn-secondary {
+    background-color: #8B99B9 !important;
+    color: white !important;
+  }
+  .btn-secondary:hover {
+    background-color: #6b7a9a !important;
+  }
+
+  /* Icon Colors */
+  .icon-primary {
+    color: #263C7C !important;
+  }
+  .icon-secondary {
+    color: #8B99B9 !important;
+  }
+}
