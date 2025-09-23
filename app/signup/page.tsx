@@ -3,7 +3,7 @@
 import React, { useState } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { ShirtIcon, Eye, EyeOff, AlertCircle, UserPlus } from "lucide-react"
+import { ShirtIcon, Eye, EyeOff, AlertCircle, UserPlus, Monitor } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -90,10 +90,10 @@ export default function Signup() {
         <div className="p-8">
           <div className="flex flex-col items-center justify-center mb-8">
             <div className="w-16 h-16 rounded-full bg-primary flex items-center justify-center mb-4">
-              <UserPlus className="w-8 h-8 text-white" />
+              <Monitor className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-center">Create Account</h1>
-            <p className="text-text-light text-center mt-2">Join our luxury laundry service</p>
+            <p className="text-text-light text-center mt-2">Join OMOTECH HUB - Your trusted technology partner</p>
           </div>
 
           {error && (
@@ -230,7 +230,7 @@ export default function Signup() {
           <div className="mt-6 text-center">
             <p className="text-sm text-text-light">
               Already have an account?{" "}
-              <Link href="/admin/login" className="font-medium text-primary hover:underline">
+              <Link href="/login" className="font-medium text-primary hover:underline">
                 Sign in here
               </Link>
             </p>

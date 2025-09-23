@@ -3,12 +3,13 @@
 import { useAuth } from '@/contexts/AuthContext'
 
 export function useClientAuth() {
-  const { user, isAuthenticated, isLoading, checkAuth } = useAuth()
+  const { user, isAuthenticated, isLoading, checkAuth, logout } = useAuth()
 
   return {
     user,
     isAuthenticated,
     isLoading,
-    checkAuth
+    checkAuth,
+    logout
   }
 }
