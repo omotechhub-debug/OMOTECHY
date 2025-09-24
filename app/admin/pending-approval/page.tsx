@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { motion } from "framer-motion"
 import { 
@@ -19,7 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import Link from "next/link"
 
-export default function PendingApproval() {
+function PendingApprovalContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [userEmail, setUserEmail] = useState("")
@@ -241,5 +241,20 @@ export default function PendingApproval() {
         </Card>
       </motion.div>
     </div>
+  )
+}
+
+export default function PendingApproval() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-[#F0F2FE] to-white flex items-center justify-center p-4">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p>Loading...</p>
+        </div>
+      </div>
+    }>
+      <PendingApprovalContent />
+    </Suspense>
   )
 }

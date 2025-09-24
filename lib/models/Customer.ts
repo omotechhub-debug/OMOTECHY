@@ -85,8 +85,6 @@ const customerSchema = new mongoose.Schema<ICustomer>({
 });
 
 // Index for efficient queries
-customerSchema.index({ phone: 1 });
-customerSchema.index({ email: 1 });
 customerSchema.index({ status: 1 });
 
 export default mongoose.models.Customer || mongoose.model<ICustomer>('Customer', customerSchema); 
