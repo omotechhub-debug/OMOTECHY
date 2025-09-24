@@ -996,20 +996,29 @@ Need help? Call us at +254 757 883 799`;
 
   const selectedLocationInfo = locations.find(loc => loc.id === selectedLocation);
 
-  // Load order for editing after services are loaded
+  // Load order for editing after services and products are loaded
   useEffect(() => {
-    if (services.length > 0 && isEditing && editingOrderId) {
+    if (services.length > 0 && products.length > 0 && isEditing && editingOrderId) {
       setOrderLoading(true);
       (async () => {
         try {
+          console.log('Loading order for editing:', editingOrderId);
           const response = await fetch(`/api/orders/${editingOrderId}`, {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
           });
+          
+          console.log('Order fetch response:', response.status, response.ok);
+          
           if (response.ok) {
             const data = await response.json();
             const order = data.order;
+            
+            console.log('Order data loaded:', order);
+            console.log('Order services:', order.services);
+            console.log('Available services:', services.length);
+            console.log('Available products:', products.length);
             
             // Store previous statuses for SMS comparison
             setPreviousPaymentStatus(order.paymentStatus || 'unpaid');
@@ -1017,8 +1026,8 @@ Need help? Call us at +254 757 883 799`;
             setCustomerInfo({
               name: order.customer.name,
               phone: order.customer.phone,
-              email: '',
-              address: '',
+              email: order.customer.email || '',
+              address: order.customer.address || '',
               pickupDate: '',
               pickupTime: '',
               notes: '',
@@ -1027,17 +1036,39 @@ Need help? Call us at +254 757 883 799`;
               paymentStatus: order.paymentStatus || 'unpaid',
               partialAmount: order.partialAmount?.toString() || '',
             });
+            
             const cartItems = order.services.map((service: any) => {
+              console.log('Processing service:', service);
+              
+              // First try to find in services
               const serviceObj = services.find(s => s._id === service.serviceId);
               if (serviceObj) {
+                console.log('Found service:', serviceObj.name);
                 return {
-                  service: serviceObj,
+                  item: serviceObj,
+                  type: 'service' as const,
                   quantity: service.quantity,
                   price: String(service.price),
                 };
               }
+              
+              // If not found in services, try to find in products
+              const productObj = products.find(p => p._id === service.serviceId);
+              if (productObj) {
+                console.log('Found product:', productObj.name);
+                return {
+                  item: productObj,
+                  type: 'product' as const,
+                  quantity: service.quantity,
+                  price: service.price,
+                };
+              }
+              
+              console.log('Service/Product not found for ID:', service.serviceId);
               return null;
             }).filter(Boolean);
+            
+            console.log('Cart items created:', cartItems);
             setCart(cartItems);
             setSelectedLocation(order.location || 'main-branch');
             setPromoCode(order.promoCode || "");
@@ -1049,6 +1080,8 @@ Need help? Call us at +254 757 883 799`;
               setPromoValid(true);
               setPromoMessage(`Locked-in promotion: ${order.promotionDetails.promoCode}`);
             }
+          } else {
+            console.error('Failed to fetch order:', response.status, response.statusText);
           }
         } catch (error) {
           console.error('Error loading order for editing:', error);
@@ -1057,14 +1090,16 @@ Need help? Call us at +254 757 883 799`;
         }
       })();
     }
-  }, [services, isEditing, editingOrderId, token]);
+  }, [services, products, isEditing, editingOrderId, token]);
 
   // Add this useEffect at the top of the component
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
       const editOrderId = urlParams.get('editOrder');
+      console.log('URL params check - editOrderId:', editOrderId);
       if (editOrderId) {
+        console.log('Setting editing order ID:', editOrderId);
         setEditingOrderId(editOrderId);
         setIsEditing(true);
       }

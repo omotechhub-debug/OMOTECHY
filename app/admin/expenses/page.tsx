@@ -3,10 +3,45 @@
 import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, FileText, DollarSign, Loader2, Calendar, Tag, StickyNote, Edit, Trash2, ChevronLeft, ChevronRight, Download } from "lucide-react";
-import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { 
+  Plus, 
+  FileText, 
+  DollarSign, 
+  Loader2, 
+  Calendar, 
+  Tag, 
+  StickyNote, 
+  Edit, 
+  Trash2, 
+  ChevronLeft, 
+  ChevronRight, 
+  Download,
+  Search,
+  Filter,
+  TrendingUp,
+  TrendingDown,
+  BarChart3,
+  PieChart,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  Eye,
+  MoreHorizontal,
+  Receipt,
+  CreditCard,
+  Building,
+  Car,
+  Wrench,
+  Megaphone,
+  ShoppingCart,
+  Zap
+} from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 interface Expense {
@@ -19,18 +54,29 @@ interface Expense {
 }
 
 const expenseCategories = [
-  "Supplies",
-  "Utilities",
-  "Salaries",
-  "Maintenance",
-  "Transport",
-  "Marketing",
-  "Other",
+  { value: "Supplies", label: "Supplies", icon: ShoppingCart, color: "bg-blue-100 text-blue-800" },
+  { value: "Utilities", label: "Utilities", icon: Zap, color: "bg-yellow-100 text-yellow-800" },
+  { value: "Salaries", label: "Salaries", icon: Building, color: "bg-green-100 text-green-800" },
+  { value: "Maintenance", label: "Maintenance", icon: Wrench, color: "bg-orange-100 text-orange-800" },
+  { value: "Transport", label: "Transport", icon: Car, color: "bg-purple-100 text-purple-800" },
+  { value: "Marketing", label: "Marketing", icon: Megaphone, color: "bg-pink-100 text-pink-800" },
+  { value: "Other", label: "Other", icon: Receipt, color: "bg-gray-100 text-gray-800" },
 ];
+
+const getCategoryIcon = (category: string) => {
+  const cat = expenseCategories.find(c => c.value === category);
+  return cat ? cat.icon : Receipt;
+};
+
+const getCategoryColor = (category: string) => {
+  const cat = expenseCategories.find(c => c.value === category);
+  return cat ? cat.color : "bg-gray-100 text-gray-800";
+};
 
 export default function ExpensesPage() {
   const { token } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [filteredExpenses, setFilteredExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -53,7 +99,111 @@ export default function ExpensesPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const ITEMS_PER_PAGE = 10;
+  // New state for enhanced functionality
+  const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("date");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [showStats, setShowStats] = useState(true);
+
+  const ITEMS_PER_PAGE = 12;
+
+  // Calculate statistics
+  const calculateStats = () => {
+    const total = filteredExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+    const thisMonth = filteredExpenses.filter(exp => {
+      const expDate = new Date(exp.date);
+      const now = new Date();
+      return expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear();
+    }).reduce((sum, exp) => sum + exp.amount, 0);
+    
+    const categoryStats = expenseCategories.map(cat => ({
+      ...cat,
+      total: filteredExpenses.filter(exp => exp.category === cat.value).reduce((sum, exp) => sum + exp.amount, 0),
+      count: filteredExpenses.filter(exp => exp.category === cat.value).length
+    })).filter(cat => cat.total > 0);
+
+    return { total, thisMonth, categoryStats };
+  };
+
+  // Filter and sort expenses
+  const filterAndSortExpenses = () => {
+    let filtered = [...expenses];
+
+    // Search filter
+    if (searchTerm) {
+      filtered = filtered.filter(exp => 
+        exp.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        exp.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (exp.notes && exp.notes.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    }
+
+    // Category filter
+    if (categoryFilter !== "all") {
+      filtered = filtered.filter(exp => exp.category === categoryFilter);
+    }
+
+    // Date filter
+    if (dateFilter !== "all") {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      filtered = filtered.filter(exp => {
+        const expDate = new Date(exp.date);
+        switch (dateFilter) {
+          case "today":
+            return expDate >= today;
+          case "week":
+            const weekAgo = new Date(today);
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            return expDate >= weekAgo;
+          case "month":
+            const monthAgo = new Date(today);
+            monthAgo.setMonth(monthAgo.getMonth() - 1);
+            return expDate >= monthAgo;
+          case "year":
+            const yearAgo = new Date(today);
+            yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+            return expDate >= yearAgo;
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      let aValue, bValue;
+      switch (sortBy) {
+        case "amount":
+          aValue = a.amount;
+          bValue = b.amount;
+          break;
+        case "title":
+          aValue = a.title.toLowerCase();
+          bValue = b.title.toLowerCase();
+          break;
+        case "category":
+          aValue = a.category.toLowerCase();
+          bValue = b.category.toLowerCase();
+          break;
+        default: // date
+          aValue = new Date(a.date).getTime();
+          bValue = new Date(b.date).getTime();
+      }
+
+      if (sortOrder === "asc") {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+
+    setFilteredExpenses(filtered);
+  };
 
   // Fetch expenses
   const fetchExpenses = async () => {
@@ -62,11 +212,7 @@ export default function ExpensesPage() {
       const res = await fetch("/api/expenses");
       const data = await res.json();
       if (data.success) {
-        // Sort by latest first
-        const sortedExpenses = data.expenses.sort((a: Expense, b: Expense) => 
-          new Date(b.date).getTime() - new Date(a.date).getTime()
-        );
-        setExpenses(sortedExpenses);
+        setExpenses(data.expenses);
       }
     } catch (e) {
       // handle error
@@ -77,6 +223,10 @@ export default function ExpensesPage() {
   useEffect(() => {
     fetchExpenses();
   }, []);
+
+  useEffect(() => {
+    filterAndSortExpenses();
+  }, [expenses, searchTerm, categoryFilter, dateFilter, sortBy, sortOrder]);
 
   // Handle form input
   const handleInput = (field: string, value: string) => {
@@ -238,37 +388,46 @@ export default function ExpensesPage() {
   };
 
   // Pagination
-  const totalPages = Math.ceil(expenses.length / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(filteredExpenses.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const endIndex = startIndex + ITEMS_PER_PAGE;
-  const currentExpenses = expenses.slice(startIndex, endIndex);
+  const currentExpenses = filteredExpenses.slice(startIndex, endIndex);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, categoryFilter, dateFilter, sortBy, sortOrder]);
 
   const goToPage = (page: number) => {
     setCurrentPage(page);
   };
 
+  const stats = calculateStats();
+
   return (
-    <div className="min-h-screen space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+    <div className="min-h-screen bg-gray-50 p-6">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">Expenses</h1>
-          <p className="text-text-light text-sm sm:text-base">Track and manage your business expenses</p>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Expense Management</h1>
+            <p className="text-gray-600">Track, analyze, and manage your business expenses efficiently</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
           <Dialog open={isDownloadDialogOpen} onOpenChange={setIsDownloadDialogOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" className="rounded-xl w-full sm:w-auto">
+                <Button variant="outline" className="rounded-xl">
                 <Download className="mr-2 w-4 h-4" />
-                Download Report
+                  Export Report
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md w-[95vw] sm:w-full">
+              <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>Download Expense Report</DialogTitle>
+                  <DialogTitle>Export Expense Report</DialogTitle>
                 <DialogDescription>Select a date range to download expenses for that period.</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-2">
-                <div className="space-y-1">
+                  <div className="space-y-2">
                   <label className="font-medium">Start Date</label>
                   <Input
                     type="date"
@@ -276,7 +435,7 @@ export default function ExpensesPage() {
                     onChange={(e) => handleDownloadRangeInput("startDate", e.target.value)}
                   />
                 </div>
-                <div className="space-y-1">
+                  <div className="space-y-2">
                   <label className="font-medium">End Date</label>
                   <Input
                     type="date"
@@ -284,18 +443,12 @@ export default function ExpensesPage() {
                     onChange={(e) => handleDownloadRangeInput("endDate", e.target.value)}
                   />
                 </div>
-                {error && <div className="text-red-600 text-sm pt-1">{error}</div>}
-                {success && <div className="text-green-600 text-sm pt-1">{success}</div>}
+                  {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+                  {success && <Alert><AlertDescription className="text-green-600">{success}</AlertDescription></Alert>}
               </div>
               <DialogFooter>
-                <Button variant="outline" className="rounded-xl" onClick={handleCloseDownloadDialog}>
-                  Cancel
-                </Button>
-                <Button
-                  className="bg-primary hover:bg-primary/90 text-white rounded-xl"
-                  onClick={handleDownloadExpenses}
-                  disabled={isDownloading}
-                >
+                  <Button variant="outline" onClick={handleCloseDownloadDialog}>Cancel</Button>
+                  <Button onClick={handleDownloadExpenses} disabled={isDownloading}>
                   {isDownloading ? <Loader2 className="mr-2 w-4 h-4 animate-spin" /> : <Download className="mr-2 w-4 h-4" />}
                   Download CSV
                 </Button>
@@ -304,27 +457,27 @@ export default function ExpensesPage() {
           </Dialog>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary/90 text-white rounded-xl w-full sm:w-auto">
+                <Button className="bg-primary hover:bg-primary/90 text-white rounded-xl">
                 <Plus className="mr-2 w-4 h-4" />
                 Add Expense
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md w-[95vw] sm:w-full">
+              <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>{isEditMode ? 'Edit Expense' : 'Add New Expense'}</DialogTitle>
-                <DialogDescription>Fill in the details below to {isEditMode ? 'update' : 'add'} an expense (in Ksh).</DialogDescription>
+                  <DialogDescription>Fill in the details below to {isEditMode ? 'update' : 'add'} an expense.</DialogDescription>
               </DialogHeader>
-              <div className="space-y-3 py-2">
-                <div className="space-y-1">
+                <div className="space-y-4 py-2">
+                  <div className="space-y-2">
                   <label className="font-medium">Title</label>
                   <Input
-                    placeholder="e.g. Cleaning Supplies"
+                      placeholder="e.g. Office Supplies"
                     value={form.title}
                     onChange={(e) => handleInput("title", e.target.value)}
                     maxLength={60}
                   />
                 </div>
-                <div className="space-y-1">
+                  <div className="space-y-2">
                   <label className="font-medium">Amount (Ksh)</label>
                   <Input
                     type="number"
@@ -334,7 +487,7 @@ export default function ExpensesPage() {
                     onChange={(e) => handleInput("amount", e.target.value)}
                   />
                 </div>
-                <div className="space-y-1">
+                  <div className="space-y-2">
                   <label className="font-medium">Date</label>
                   <Input
                     type="date"
@@ -342,20 +495,28 @@ export default function ExpensesPage() {
                     onChange={(e) => handleInput("date", e.target.value)}
                   />
                 </div>
-                <div className="space-y-1">
+                  <div className="space-y-2">
                   <label className="font-medium">Category</label>
-                  <select
-                    className="luxury-input w-full"
-                    value={form.category}
-                    onChange={(e) => handleInput("category", e.target.value)}
-                  >
-                    <option value="">Select category</option>
-                    {expenseCategories.map((cat) => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
+                    <Select value={form.category} onValueChange={(value) => handleInput("category", value)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {expenseCategories.map((cat) => {
+                          const IconComponent = cat.icon;
+                          return (
+                            <SelectItem key={cat.value} value={cat.value}>
+                              <div className="flex items-center gap-2">
+                                <IconComponent className="w-4 h-4" />
+                                {cat.label}
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
                 </div>
-                <div className="space-y-1">
+                  <div className="space-y-2">
                   <label className="font-medium">Notes (optional)</label>
                   <Textarea
                     placeholder="Additional details..."
@@ -364,18 +525,12 @@ export default function ExpensesPage() {
                     maxLength={120}
                   />
                 </div>
-                {error && <div className="text-red-600 text-sm pt-1">{error}</div>}
-                {success && <div className="text-green-600 text-sm pt-1">{success}</div>}
+                  {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+                  {success && <Alert><AlertDescription className="text-green-600">{success}</AlertDescription></Alert>}
               </div>
               <DialogFooter>
-                <Button variant="outline" className="rounded-xl" onClick={handleCloseDialog}>
-                  Cancel
-                </Button>
-                <Button
-                  className="bg-primary hover:bg-primary/90 text-white rounded-xl"
-                  onClick={handleSubmitExpense}
-                  disabled={isSubmitting}
-                >
+                  <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>
+                  <Button onClick={handleSubmitExpense} disabled={isSubmitting}>
                   {isSubmitting ? <Loader2 className="mr-2 w-4 h-4 animate-spin" /> : <DollarSign className="mr-2 w-4 h-4" />}
                   {isEditMode ? 'Update Expense' : 'Add Expense'}
                 </Button>
@@ -384,59 +539,246 @@ export default function ExpensesPage() {
           </Dialog>
         </div>
       </div>
+      </div>
 
-      {/* Expenses List */}
-      <Card className="luxury-card">
-        <CardHeader>
-          <CardTitle>Expenses List</CardTitle>
-          <CardDescription>All your business expenses will appear here.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center text-text-light">
-              <Loader2 className="w-8 h-8 animate-spin mb-4 text-accent/60" />
-              <p className="text-base font-medium">Loading expenses...</p>
+      {/* Statistics Cards */}
+      {showStats && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-blue-100 text-sm font-medium">Total Expenses</p>
+                  <p className="text-2xl font-bold">Ksh {stats.total.toLocaleString()}</p>
+                </div>
+                <DollarSign className="w-8 h-8 text-blue-200" />
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-r from-green-500 to-green-600 text-white">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-green-100 text-sm font-medium">This Month</p>
+                  <p className="text-2xl font-bold">Ksh {stats.thisMonth.toLocaleString()}</p>
+                </div>
+                <Calendar className="w-8 h-8 text-green-200" />
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-r from-purple-500 to-purple-600 text-white">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-purple-100 text-sm font-medium">Total Records</p>
+                  <p className="text-2xl font-bold">{filteredExpenses.length}</p>
+                </div>
+                <FileText className="w-8 h-8 text-purple-200" />
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-r from-orange-500 to-orange-600 text-white">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-orange-100 text-sm font-medium">Categories</p>
+                  <p className="text-2xl font-bold">{stats.categoryStats.length}</p>
+                </div>
+                <PieChart className="w-8 h-8 text-orange-200" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Filters and Controls */}
+      <Card className="mb-6">
+        <CardContent className="p-6">
+          <div className="flex flex-col lg:flex-row gap-4">
+            {/* Search */}
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Input
+                  placeholder="Search expenses..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
             </div>
-          ) : expenses.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center text-text-light">
-              <FileText className="w-12 h-12 mb-4 text-accent/60" />
-              <p className="text-lg font-semibold mb-2">No expenses recorded yet</p>
-              <p className="text-sm mb-4">Start tracking your business expenses to get better insights.</p>
-              <Button className="bg-primary hover:bg-primary/90 text-white rounded-xl" onClick={() => setIsDialogOpen(true)}>
-                <DollarSign className="mr-2 w-4 h-4" />
-                Add Your First Expense
+            
+            {/* Category Filter */}
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-full lg:w-48">
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {expenseCategories.map((cat) => {
+                  const IconComponent = cat.icon;
+                  return (
+                    <SelectItem key={cat.value} value={cat.value}>
+                      <div className="flex items-center gap-2">
+                        <IconComponent className="w-4 h-4" />
+                        {cat.label}
+                      </div>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+            
+            {/* Date Filter */}
+            <Select value={dateFilter} onValueChange={setDateFilter}>
+              <SelectTrigger className="w-full lg:w-48">
+                <SelectValue placeholder="All Time" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Time</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="week">This Week</SelectItem>
+                <SelectItem value="month">This Month</SelectItem>
+                <SelectItem value="year">This Year</SelectItem>
+              </SelectContent>
+            </Select>
+            
+            {/* Sort */}
+            <Select value={`${sortBy}-${sortOrder}`} onValueChange={(value) => {
+              const [field, order] = value.split('-');
+              setSortBy(field);
+              setSortOrder(order as "asc" | "desc");
+            }}>
+              <SelectTrigger className="w-full lg:w-48">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date-desc">Date (Newest)</SelectItem>
+                <SelectItem value="date-asc">Date (Oldest)</SelectItem>
+                <SelectItem value="amount-desc">Amount (High to Low)</SelectItem>
+                <SelectItem value="amount-asc">Amount (Low to High)</SelectItem>
+                <SelectItem value="title-asc">Title (A-Z)</SelectItem>
+                <SelectItem value="title-desc">Title (Z-A)</SelectItem>
+              </SelectContent>
+            </Select>
+            
+            {/* View Toggle */}
+            <div className="flex gap-2">
+              <Button
+                variant={viewMode === "grid" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setViewMode("grid")}
+                className="px-3"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </Button>
+              <Button
+                variant={viewMode === "list" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setViewMode("list")}
+                className="px-3"
+              >
+                <FileText className="w-4 h-4" />
               </Button>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Expenses Display */}
+      <div className="space-y-6">
+        {/* Results Summary */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-semibold text-gray-900">
+              {filteredExpenses.length} {filteredExpenses.length === 1 ? 'Expense' : 'Expenses'}
+            </h2>
+            {(searchTerm || categoryFilter !== "all" || dateFilter !== "all") && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchTerm("");
+                  setCategoryFilter("all");
+                  setDateFilter("all");
+                }}
+                className="text-gray-500"
+              >
+                Clear Filters
+              </Button>
+            )}
+          </div>
+          <div className="text-sm text-gray-500">
+            Showing {startIndex + 1}-{Math.min(endIndex, filteredExpenses.length)} of {filteredExpenses.length}
+          </div>
+        </div>
+
+        {loading ? (
+          <Card>
+            <CardContent className="p-12">
+              <div className="flex flex-col items-center justify-center text-center">
+                <Loader2 className="w-8 h-8 animate-spin mb-4 text-primary" />
+                <p className="text-lg font-medium text-gray-900">Loading expenses...</p>
+                <p className="text-sm text-gray-500">Please wait while we fetch your data</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : filteredExpenses.length === 0 ? (
+          <Card>
+            <CardContent className="p-12">
+              <div className="flex flex-col items-center justify-center text-center">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                  <FileText className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  {expenses.length === 0 ? 'No expenses recorded yet' : 'No expenses match your filters'}
+                </h3>
+                <p className="text-gray-500 mb-6 max-w-md">
+                  {expenses.length === 0 
+                    ? 'Start tracking your business expenses to get better insights and analytics.'
+                    : 'Try adjusting your search terms or filters to find what you\'re looking for.'
+                  }
+                </p>
+                {expenses.length === 0 && (
+                  <Button onClick={() => setIsDialogOpen(true)} className="bg-primary hover:bg-primary/90">
+                    <Plus className="mr-2 w-4 h-4" />
+                    Add Your First Expense
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
           ) : (
             <>
-              {/* Desktop Table */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="bg-secondary">
-                      <th className="px-4 py-2 text-left font-semibold">Title</th>
-                      <th className="px-4 py-2 text-left font-semibold">Amount (Ksh)</th>
-                      <th className="px-4 py-2 text-left font-semibold">Date</th>
-                      <th className="px-4 py-2 text-left font-semibold">Category</th>
-                      <th className="px-4 py-2 text-left font-semibold">Notes</th>
-                      <th className="px-4 py-2 text-left font-semibold">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {expenses.map((exp) => (
-                      <tr key={exp._id} className="border-b last:border-0">
-                        <td className="px-4 py-2 font-medium text-gray-900">{exp.title}</td>
-                        <td className="px-4 py-2 text-primary font-semibold">Ksh {exp.amount.toLocaleString()}</td>
-                        <td className="px-4 py-2">{new Date(exp.date).toLocaleDateString()}</td>
-                        <td className="px-4 py-2">{exp.category}</td>
-                        <td className="px-4 py-2 text-text-light max-w-xs truncate">{exp.notes}</td>
-                        <td className="px-4 py-2">
-                          <div className="flex gap-2">
+            {/* Grid View */}
+            {viewMode === "grid" ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {currentExpenses.map((exp) => {
+                  const CategoryIcon = getCategoryIcon(exp.category);
+                  const categoryColor = getCategoryColor(exp.category);
+                  
+                  return (
+                    <Card key={exp._id} className="hover:shadow-lg transition-all duration-200 group">
+                      <CardContent className="p-6">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${categoryColor}`}>
+                              <CategoryIcon className="w-5 h-5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold text-gray-900 truncate">{exp.title}</h3>
+                              <p className="text-sm text-gray-500">{exp.category}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => handleEdit(exp)}
-                              className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700"
+                              className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                             >
                               <Edit className="w-4 h-4" />
                             </Button>
@@ -444,74 +786,116 @@ export default function ExpensesPage() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleDelete(exp._id)}
-                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-2xl font-bold text-gray-900">Ksh {exp.amount.toLocaleString()}</span>
+                            <Badge variant="outline" className="text-xs">
+                              {new Date(exp.date).toLocaleDateString()}
+                            </Badge>
+                          </div>
+                          
+                          {exp.notes && (
+                            <p className="text-sm text-gray-600 line-clamp-2">{exp.notes}</p>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
-              {/* Mobile Card/List */}
-              <div className="md:hidden space-y-4">
-                {currentExpenses.map((exp) => (
-                  <div key={exp._id} className="rounded-2xl border bg-white p-4 flex flex-col gap-2 shadow luxury-shadow">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-primary/10">
-                          <DollarSign className="w-5 h-5 text-primary" />
-                        </span>
-                        <span className="font-inter font-semibold text-base text-gray-900 capitalize truncate max-w-[9rem]">{exp.title}</span>
+            ) : (
+              /* List View */
+              <Card>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expense</th>
+                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
+                          <th className="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {currentExpenses.map((exp) => {
+                          const CategoryIcon = getCategoryIcon(exp.category);
+                          const categoryColor = getCategoryColor(exp.category);
+                          
+                          return (
+                            <tr key={exp._id} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="flex items-center">
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center mr-3 ${categoryColor}`}>
+                                    <CategoryIcon className="w-4 h-4" />
                       </div>
-                      <div className="text-right">
-                        <span className="block text-lg font-bold text-primary font-inter">Ksh {exp.amount.toLocaleString()}</span>
-                        <span className="block text-xs text-gray-400 mt-0.5 flex items-center gap-1 justify-end">
-                          <Calendar className="w-3.5 h-3.5 mr-1 text-gray-400" />
-                          {new Date(exp.date).toLocaleDateString()}
-                        </span>
+                                  <div>
+                                    <div className="text-sm font-medium text-gray-900">{exp.title}</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="flex items-center gap-1 bg-primary/10 text-primary px-3 py-0.5 rounded-full text-xs font-medium font-inter">
-                        <Tag className="w-3.5 h-3.5" />
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <Badge variant="outline" className={categoryColor}>
                         {exp.category}
-                      </span>
-                    </div>
-                    {exp.notes && (
-                      <div className="flex items-start gap-2 text-xs text-gray-500 italic border-t pt-2 mt-2 font-inter">
-                        <StickyNote className="w-3.5 h-3.5 mt-0.5 text-gray-400" />
-                        <span>{exp.notes}</span>
-                      </div>
-                    )}
-                    <div className="flex gap-2 mt-2 pt-2 border-t">
+                                </Badge>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-semibold text-gray-900">Ksh {exp.amount.toLocaleString()}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {new Date(exp.date).toLocaleDateString()}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
+                                {exp.notes || '-'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                <div className="flex items-center justify-end gap-2">
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleEdit(exp)}
-                        className="flex-1 h-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                    className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                       >
-                        <Edit className="w-4 h-4 mr-1" />
-                        Edit
+                                    <Edit className="w-4 h-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDelete(exp._id)}
-                        className="flex-1 h-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
-                        <Trash2 className="w-4 h-4 mr-1" />
-                        Delete
+                                    <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                ))}
+                </CardContent>
+              </Card>
+            )}
                 
-                {/* Mobile Pagination */}
+            {/* Pagination */}
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-6 pt-4 border-t">
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-gray-700">
+                      Page {currentPage} of {totalPages}
+                    </div>
+                    <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"
@@ -522,9 +906,24 @@ export default function ExpensesPage() {
                       <ChevronLeft className="w-4 h-4" />
                       Previous
                     </Button>
-                    <span className="text-sm text-gray-600">
-                      Page {currentPage} of {totalPages}
-                    </span>
+                      
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                          const page = i + 1;
+                          return (
+                            <Button
+                              key={page}
+                              variant={currentPage === page ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => goToPage(page)}
+                              className="w-8 h-8 p-0"
+                            >
+                              {page}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      
                     <Button
                       variant="outline"
                       size="sm"
@@ -536,12 +935,13 @@ export default function ExpensesPage() {
                       <ChevronRight className="w-4 h-4" />
                     </Button>
                   </div>
+                  </div>
+                </CardContent>
+              </Card>
                 )}
-              </div>
             </>
           )}
-        </CardContent>
-      </Card>
+      </div>
     </div>
   );
 } 
