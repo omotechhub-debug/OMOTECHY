@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,7 +42,8 @@ import {
   Shirt,
   Wrench,
   Settings,
-  Loader2
+  Loader2,
+  TrendingUp
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -108,7 +109,9 @@ const UNITS = [
 export default function InventoryPage() {
   const { token } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [allInventory, setAllInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -116,6 +119,7 @@ export default function InventoryPage() {
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all');
@@ -152,11 +156,93 @@ export default function InventoryPage() {
     warranty: ''
   });
 
+  // Debounce search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Show search loading when search term changes
+  useEffect(() => {
+    if (searchTerm !== debouncedSearchTerm) {
+      setSearchLoading(true);
+    } else {
+      setSearchLoading(false);
+    }
+  }, [searchTerm, debouncedSearchTerm]);
+
+  // Fetch all inventory data once
   useEffect(() => {
     if (token) {
-      fetchInventory();
+      fetchAllInventory();
     }
-  }, [token, currentPage, searchTerm, categoryFilter, statusFilter, stockFilter]);
+  }, [token]);
+
+  // Client-side filtering and pagination
+  const filteredInventory = useMemo(() => {
+    let filtered = allInventory;
+
+    // Apply search filter
+    if (debouncedSearchTerm) {
+      const searchLower = debouncedSearchTerm.toLowerCase();
+      filtered = filtered.filter(item =>
+        item.name.toLowerCase().includes(searchLower) ||
+        item.description.toLowerCase().includes(searchLower) ||
+        item.sku.toLowerCase().includes(searchLower) ||
+        item.brand?.toLowerCase().includes(searchLower) ||
+        item.model?.toLowerCase().includes(searchLower) ||
+        item.tags.some(tag => tag.toLowerCase().includes(searchLower))
+      );
+    }
+
+    // Apply category filter
+    if (categoryFilter !== 'all') {
+      filtered = filtered.filter(item => item.category === categoryFilter);
+    }
+
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(item => item.status === statusFilter);
+    }
+
+    // Apply stock filter
+    if (stockFilter !== 'all') {
+      filtered = filtered.filter(item => {
+        const stockStatus = item.stockStatus || 'in_stock';
+        return stockStatus === stockFilter;
+      });
+    }
+
+    return filtered;
+  }, [allInventory, debouncedSearchTerm, categoryFilter, statusFilter, stockFilter]);
+
+  // Paginate filtered results
+  const paginatedInventory = useMemo(() => {
+    const itemsPerPage = 12;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredInventory.slice(startIndex, endIndex);
+  }, [filteredInventory, currentPage]);
+
+  // Update total pages and items
+  useEffect(() => {
+    const itemsPerPage = 12;
+    const totalPages = Math.ceil(filteredInventory.length / itemsPerPage);
+    setTotalPages(totalPages);
+    setTotalItems(filteredInventory.length);
+    
+    // Reset to page 1 if current page is beyond total pages
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [filteredInventory.length, currentPage]);
+
+  // Update displayed inventory
+  useEffect(() => {
+    setInventory(paginatedInventory);
+  }, [paginatedInventory]);
 
   // Auto-remove success messages after 3 seconds
   useEffect(() => {
@@ -178,20 +264,10 @@ export default function InventoryPage() {
     }
   }, [error]);
 
-  const fetchInventory = async () => {
+  const fetchAllInventory = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: '12'
-      });
-      
-      if (searchTerm) params.append('search', searchTerm);
-      if (categoryFilter !== 'all') params.append('category', categoryFilter);
-      if (statusFilter !== 'all') params.append('status', statusFilter);
-      if (stockFilter !== 'all') params.append('stockStatus', stockFilter);
-
-      const response = await fetch(`/api/inventory?${params}`, {
+      const response = await fetch('/api/inventory?limit=1000', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -200,9 +276,7 @@ export default function InventoryPage() {
 
       if (response.ok) {
         const data = await response.json();
-        setInventory(data.data);
-        setTotalPages(data.pagination.pages);
-        setTotalItems(data.pagination.total);
+        setAllInventory(data.data);
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to fetch inventory');
@@ -233,7 +307,7 @@ export default function InventoryPage() {
         setSuccess('Inventory item created successfully!');
         setIsCreateDialogOpen(false);
         resetForm();
-        fetchInventory();
+        fetchAllInventory();
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to create inventory item');
@@ -265,7 +339,7 @@ export default function InventoryPage() {
         setIsEditDialogOpen(false);
         setSelectedItem(null);
         resetForm();
-        fetchInventory();
+        fetchAllInventory();
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to update inventory item');
@@ -292,7 +366,7 @@ export default function InventoryPage() {
 
       if (response.ok) {
         setSuccess('Inventory item deleted successfully!');
-        fetchInventory();
+        fetchAllInventory();
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to delete inventory item');
@@ -450,7 +524,11 @@ export default function InventoryPage() {
           <CardContent className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                {searchLoading ? (
+                  <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 animate-spin" />
+                ) : (
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                )}
                 <Input
                   placeholder="Search inventory..."
                   value={searchTerm}
@@ -505,16 +583,52 @@ export default function InventoryPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {inventory.map((item) => {
             const CategoryIcon = getCategoryIcon(item.category);
+            const isLowStock = item.stock <= item.minStock;
+            const isOutOfStock = item.stock === 0;
+            const isOverstock = item.stock >= item.maxStock;
+            
             return (
-              <Card key={item._id} className="luxury-card hover:shadow-xl transition-all duration-300">
-                <CardHeader className="pb-3">
+              <Card key={item._id} className={`luxury-card hover:shadow-xl transition-all duration-300 relative ${
+                isOutOfStock ? 'border-red-200 bg-red-50' : 
+                isLowStock ? 'border-amber-200 bg-amber-50' : 
+                isOverstock ? 'border-blue-200 bg-blue-50' : ''
+              }`}>
+                {/* Low Stock Alert Badge */}
+                {(isLowStock || isOutOfStock) && (
+                  <div className="absolute top-3 right-3 z-10">
+                    <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium shadow-sm ${
+                      isOutOfStock 
+                        ? 'bg-red-100 text-red-800 border border-red-200' 
+                        : 'bg-amber-100 text-amber-800 border border-amber-200'
+                    }`}>
+                      <AlertTriangle className="w-3 h-3" />
+                      {isOutOfStock ? 'OUT OF STOCK' : 'LOW STOCK'}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Overstock Alert Badge */}
+                {isOverstock && (
+                  <div className="absolute top-3 right-3 z-10">
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium shadow-sm bg-blue-100 text-blue-800 border border-blue-200">
+                      <TrendingUp className="w-3 h-3" />
+                      OVERSTOCK
+                    </div>
+                  </div>
+                )}
+
+                <CardHeader className="pb-3 pr-20">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
                         <CategoryIcon className="w-5 h-5 text-primary" />
                       </div>
                       <div>
-                        <CardTitle className="text-lg font-bold text-gray-900 line-clamp-1">
+                        <CardTitle className={`text-lg font-bold line-clamp-1 ${
+                          isOutOfStock ? 'text-red-900' : 
+                          isLowStock ? 'text-amber-900' : 
+                          'text-gray-900'
+                        }`}>
                           {item.name}
                         </CardTitle>
                         <p className="text-sm text-gray-600">{item.subcategory}</p>
@@ -600,11 +714,49 @@ export default function InventoryPage() {
                   {/* Stock Status */}
                   <div className="space-y-2 mb-4">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Stock:</span>
-                      <span className="text-sm font-medium">
+                      <span className={`text-sm ${
+                        isOutOfStock ? 'text-red-600' : 
+                        isLowStock ? 'text-amber-600' : 
+                        'text-gray-600'
+                      }`}>
+                        Stock:
+                      </span>
+                      <span className={`text-sm font-medium ${
+                        isOutOfStock ? 'text-red-700' : 
+                        isLowStock ? 'text-amber-700' : 
+                        'text-gray-700'
+                      }`}>
                         {item.stock} {item.unit}
+                        {isLowStock && !isOutOfStock && (
+                          <span className="text-amber-600 ml-1 text-xs">
+                            (Min: {item.minStock})
+                          </span>
+                        )}
                       </span>
                     </div>
+                    
+                    {/* Stock Level Progress Bar */}
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 bg-gray-200 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full transition-all duration-300 ${
+                              isOutOfStock ? 'bg-red-500' :
+                              isLowStock ? 'bg-amber-500' :
+                              isOverstock ? 'bg-blue-500' :
+                              'bg-green-500'
+                            }`}
+                            style={{
+                              width: `${Math.min(100, (item.stock / item.maxStock) * 100)}%`
+                            }}
+                          />
+                        </div>
+                        <span className="text-xs text-gray-500">
+                          {Math.round((item.stock / item.maxStock) * 100)}%
+                        </span>
+                      </div>
+                    </div>
+                    
                     <Badge className={`text-xs ${getStockStatusColor(item.stockStatus || 'in_stock')}`}>
                       {getStockStatusLabel(item.stockStatus || 'in_stock')}
                     </Badge>

@@ -108,7 +108,7 @@ export function getAccessiblePages(user: IUser | null): string[] {
   if (user.role === 'superadmin') {
     return [
       'dashboard', 'orders', 'pos', 'customers', 'services', 'categories',
-      'reports', 'mpesa-transactions', 'users', 'expenses', 'gallery', 'testimonials', 'promotions', 'inventory'
+      'reports', 'mpesa-transactions', 'users', 'expenses', 'gallery', 'testimonials', 'promotions', 'inventory', 'inventory-management'
     ];
   }
 
@@ -166,6 +166,7 @@ export const ADMIN_PAGES = {
   testimonials: { label: 'Testimonials', icon: 'MessageSquare', path: '/admin/testimonials' },
   promotions: { label: 'Promotions', icon: 'Tag', path: '/admin/promotions' },
   inventory: { label: 'Inventory', icon: 'Package', path: '/admin/inventory' },
+  'inventory-management': { label: 'Inventory Management', icon: 'BarChart3', path: '/admin/inventory-management' },
 } as const;
 
 /**

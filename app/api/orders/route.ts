@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
+import Inventory from '@/lib/models/Inventory';
+import InventoryMovement from '@/lib/models/InventoryMovement';
 import { requireAuth } from '@/lib/auth';
 import { smsService } from '@/lib/sms';
 import Promotion from '@/lib/models/Promotion';
@@ -130,6 +133,50 @@ export async function POST(request: NextRequest) {
     });
 
     await order.save();
+
+    // Deduct inventory for products in the order
+    try {
+      for (const service of orderData.services) {
+        // Check if this is a product (has serviceId that exists in inventory)
+        const inventoryItem = await Inventory.findById(service.serviceId);
+        if (inventoryItem) {
+          // This is a product, deduct from inventory
+          const previousStock = inventoryItem.stock;
+          const quantityToDeduct = service.quantity;
+          
+          if (inventoryItem.stock < quantityToDeduct) {
+            console.warn(`⚠️ Insufficient stock for ${inventoryItem.name}. Available: ${inventoryItem.stock}, Required: ${quantityToDeduct}`);
+            // You might want to handle this differently - either fail the order or allow overselling
+            // For now, we'll allow overselling but log a warning
+          }
+          
+          // Deduct the quantity from stock
+          inventoryItem.stock = Math.max(0, inventoryItem.stock - quantityToDeduct);
+          await inventoryItem.save();
+          
+          // Create inventory movement record
+          const movement = new InventoryMovement({
+            inventoryItem: inventoryItem._id,
+            movementType: 'sale',
+            quantity: -quantityToDeduct, // Negative for deduction
+            previousStock: previousStock,
+            newStock: inventoryItem.stock,
+            reason: `Sold via order ${order.orderNumber}`,
+            reference: order._id.toString(),
+            referenceType: 'order',
+            performedBy: new mongoose.Types.ObjectId(), // You might want to get this from auth
+            notes: `Order: ${order.orderNumber}, Customer: ${orderData.customer.name || orderData.customer.phone}`
+          });
+          await movement.save();
+          
+          console.log(`📦 Inventory updated for ${inventoryItem.name}: -${quantityToDeduct} units. New stock: ${inventoryItem.stock}`);
+        }
+      }
+    } catch (inventoryError) {
+      console.error('Error updating inventory:', inventoryError);
+      // Don't fail the order creation if inventory update fails
+      // You might want to handle this differently based on your business requirements
+    }
 
     // Send SMS confirmation
     try {
