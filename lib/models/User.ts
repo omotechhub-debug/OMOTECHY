@@ -15,6 +15,7 @@ export interface IUser extends mongoose.Document {
   role: 'superadmin' | 'admin' | 'user';
   isActive: boolean;
   approved: boolean;
+  reasonForAdminAccess?: string; // Reason provided when requesting admin access
   pagePermissions: IPagePermission[];
   createdAt: Date;
   updatedAt: Date;
@@ -85,7 +86,14 @@ const userSchema = new mongoose.Schema<IUser>({
   approved: {
     type: Boolean,
     default: function() {
-      return this.role === 'user' ? false : true;
+      // Auto-approve regular users, require approval for admin/superadmin
+      return this.role === 'user' ? true : false;
+    },
+  },
+  reasonForAdminAccess: {
+    type: String,
+    required: function() {
+      return this.role === 'admin' || this.role === 'superadmin';
     },
   },
   pagePermissions: {

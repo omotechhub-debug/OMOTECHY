@@ -16,12 +16,8 @@ async function approveUser(request: NextRequest) {
       );
     }
 
-    // Find and update user
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { approved: true },
-      { new: true }
-    ).select('-password');
+    // Find user first
+    const user = await User.findById(userId).select('-password');
 
     if (!user) {
       return NextResponse.json(
@@ -29,6 +25,27 @@ async function approveUser(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    // Set up page permissions for admin users when approving
+    if (user.role === 'admin' || user.role === 'superadmin') {
+      const defaultPages = [
+        'dashboard', 'orders', 'pos', 'customers', 'services', 'categories',
+        'reports', 'users', 'expenses', 'gallery', 'testimonials', 'promotions', 'settings'
+      ];
+      
+      const defaultPermissions = defaultPages.map(page => ({
+        page,
+        canView: true,
+        canEdit: user.role === 'superadmin' ? true : ['dashboard', 'orders', 'pos', 'customers', 'services', 'categories'].includes(page),
+        canDelete: user.role === 'superadmin' ? true : ['orders', 'customers'].includes(page)
+      }));
+
+      user.pagePermissions = defaultPermissions;
+    }
+
+    // Approve the user
+    user.approved = true;
+    await user.save();
 
     return NextResponse.json({
       success: true,

@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch('/api/auth/admin-login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const data = await response.json();
 
-      if (response.ok) {
+      if (response.ok && data.success) {
         // Update state immediately
         setUser(data.user);
         setToken(data.token);
@@ -84,15 +84,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { 
           success: true, 
           user: data.user,
-          message: data.message || (
-            data.user.role === 'admin' || data.user.role === 'superadmin' 
-              ? 'Login successful! Redirecting to admin panel...' 
-              : 'Login successful!'
-          )
+          message: data.message || 'Login successful! Redirecting to admin panel...'
         };
       } else {
-        if (data.error === 'pending_approval') {
-          return { success: false, pendingApproval: true, error: data.message };
+        if (data.code === 'PENDING_APPROVAL' || data.error === 'Admin account is pending approval') {
+          return { success: false, pendingApproval: true, error: data.error };
         }
         return { success: false, error: data.error };
       }

@@ -36,6 +36,7 @@ import {
   MessageSquare,
   UserPlus,
   UserCheck,
+  Gift,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -123,7 +124,7 @@ interface CustomerInfo {
   pickDropAmount: string;
   discount: string;
   paymentStatus: 'unpaid' | 'paid' | 'partial';
-  laundryStatus: 'to-be-picked' | 'picked' | 'in-progress' | 'ready' | 'delivered';
+  partialAmount: string; // Amount paid for partial payments
 }
 
 const locations = [
@@ -179,7 +180,7 @@ export default function POSPage() {
     pickDropAmount: '',
     discount: '',
     paymentStatus: 'unpaid',
-    laundryStatus: 'to-be-picked',
+    partialAmount: '',
   });
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
@@ -196,31 +197,30 @@ export default function POSPage() {
   const [sendSMS, setSendSMS] = useState(true);
   const [sendSimplifiedSMS, setSendSimplifiedSMS] = useState(false);
   const [previousPaymentStatus, setPreviousPaymentStatus] = useState<string>('unpaid');
-  const [previousLaundryStatus, setPreviousLaundryStatus] = useState<string>('to-be-picked');
 
   // Promo Code State
   const [promoCode, setPromoCode] = useState("");
   const [promoDiscount, setPromoDiscount] = useState(0);
   const [promoError, setPromoError] = useState("");
-  const [lockedPromotion, setLockedPromotion] = useState(null); // Store locked-in promotion details
+  const [lockedPromotion, setLockedPromotion] = useState<any>(null); // Store locked-in promotion details
 
   // Add promo validation state
-  const [promoValid, setPromoValid] = useState(null);
+  const [promoValid, setPromoValid] = useState<boolean | null>(null);
   const [promoMessage, setPromoMessage] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
 
   // Customer search state
   const [customerSearch, setCustomerSearch] = useState("");
-  const [customerSuggestions, setCustomerSuggestions] = useState([]);
+  const [customerSuggestions, setCustomerSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [isExistingCustomer, setIsExistingCustomer] = useState(false);
-  const [selectedCustomerId, setSelectedCustomerId] = useState(null);
-  const searchTimeoutRef = useRef(null);
-  const suggestionDropdownRef = useRef(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const suggestionDropdownRef = useRef<HTMLDivElement | null>(null);
 
   // Customer search functions
-  const searchCustomers = useCallback(async (query) => {
+  const searchCustomers = useCallback(async (query: string) => {
     if (!query.trim() || query.length < 2) {
       setCustomerSuggestions([]);
       setShowSuggestions(false);
@@ -251,7 +251,7 @@ export default function POSPage() {
     }
   }, [token]);
 
-  const handleCustomerSearchChange = (value) => {
+  const handleCustomerSearchChange = (value: string) => {
     setCustomerSearch(value);
     setCustomerInfo(prev => ({ ...prev, name: value }));
     
@@ -274,10 +274,10 @@ export default function POSPage() {
 
     searchTimeoutRef.current = setTimeout(() => {
       searchCustomers(value);
-    }, 300);
+    }, 300) as NodeJS.Timeout;
   };
 
-  const selectCustomer = (customer) => {
+  const selectCustomer = (customer: any) => {
     setCustomerSearch(customer.name);
     setCustomerInfo({
       ...customerInfo,
@@ -292,7 +292,7 @@ export default function POSPage() {
     setCustomerSuggestions([]);
   };
 
-  const handlePhoneChange = async (phone) => {
+  const handlePhoneChange = async (phone: string) => {
     setCustomerInfo(prev => ({ ...prev, phone }));
     
     // If user is typing a phone number, search for existing customer
@@ -345,8 +345,8 @@ export default function POSPage() {
 
   // Close suggestions when clicking outside
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (suggestionDropdownRef.current && !suggestionDropdownRef.current.contains(event.target)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (suggestionDropdownRef.current && !suggestionDropdownRef.current.contains(event.target as Node)) {
         setShowSuggestions(false);
       }
     };
@@ -563,9 +563,26 @@ export default function POSPage() {
 
   const getCartTotal = () => {
     return cart.reduce((total, cartItem) => {
-      const price = typeof cartItem.price === 'string' 
-        ? parseFloat(cartItem.price.replace(/[^\d.]/g, ''))
-        : cartItem.price;
+      console.log('Processing cart item for total:', cartItem);
+      
+      let price = 0;
+      if (typeof cartItem.price === 'string') {
+        // Handle various string formats like "From Ksh 5,000", "Ksh 1,000", "1000", etc.
+        const cleanPrice = cartItem.price.replace(/[^\d.]/g, '');
+        price = parseFloat(cleanPrice) || 0;
+      } else if (typeof cartItem.price === 'number') {
+        price = isNaN(cartItem.price) ? 0 : cartItem.price;
+      }
+      
+      // Ensure we never have NaN
+      if (isNaN(price)) {
+        price = 0;
+      }
+      
+      console.log('Extracted price:', price);
+      console.log('Quantity:', cartItem.quantity);
+      console.log('Item total:', price * cartItem.quantity);
+      
       return total + (price * cartItem.quantity);
     }, 0);
   };
@@ -604,7 +621,7 @@ export default function POSPage() {
       pickDropAmount: '',
       discount: '',
       paymentStatus: 'unpaid',
-      laundryStatus: 'to-be-picked',
+      partialAmount: '',
     });
     // Clear promotion data
     setPromoCode("");
@@ -634,12 +651,12 @@ export default function POSPage() {
       if (sendSimplifiedSMS) {
         // Simplified message with just services and amount
         const servicesList = cart.map(item => 
-          `${item.service.name} (${item.quantity}x)`
+          `${item.item.name} (${item.quantity}x)`
         ).join(', ');
 
         message = `*** Order Update - Econuru Services ***
 
-Dear ${customerInfo.name},
+Dear ${customerInfo.name || 'Valued Customer'},
 
 ${isNewOrder ? 'New Order Created!' : 'Order Updated!'}
 
@@ -649,7 +666,6 @@ Services: ${servicesList}
 Total Amount: Ksh ${calculateFinalTotal().toLocaleString()}
 
 Payment Status: ${customerInfo.paymentStatus.toUpperCase()}
-Laundry Status: ${customerInfo.laundryStatus.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
 
 Thank you for choosing Econuru Services!
 
@@ -657,12 +673,12 @@ Need help? Call us at +254 757 883 799`;
       } else {
         // Detailed message with full breakdown (only for new orders)
         const servicesList = cart.map(item => 
-          `${item.service.name} (${item.quantity}x @ Ksh${item.price})`
+          `${item.item.name} (${item.quantity}x @ Ksh${item.price})`
         ).join('\n');
 
         message = `*** Order Update - Econuru Services ***
 
-Dear ${customerInfo.name},
+Dear ${customerInfo.name || 'Valued Customer'},
 
 New Order Created!
 
@@ -672,12 +688,9 @@ Services:
 ${servicesList}
 
 Subtotal: Ksh ${getCartTotal().toLocaleString()}
-${customerInfo.pickDropAmount && parseFloat(customerInfo.pickDropAmount) > 0 ? `Pick & Drop: +Ksh ${parseFloat(customerInfo.pickDropAmount).toLocaleString()}\n` : ''}${customerInfo.discount && parseFloat(customerInfo.discount) > 0 ? `Discount: -Ksh ${parseFloat(customerInfo.discount).toLocaleString()}\n` : ''}${promoDiscount > 0 ? `Promo Discount: -Ksh ${promoDiscount.toLocaleString()}\n` : ''}Total: Ksh ${calculateFinalTotal().toLocaleString()}
+${promoDiscount > 0 ? `Promo Discount: -Ksh ${promoDiscount.toLocaleString()}\n` : ''}Total: Ksh ${calculateFinalTotal().toLocaleString()}
 
 Payment Status: ${customerInfo.paymentStatus.toUpperCase()}
-Laundry Status: ${customerInfo.laundryStatus.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-
-Pickup: ${customerInfo.pickupDate} at ${customerInfo.pickupTime}
 
 Thank you for choosing Econuru Services!
 
@@ -721,15 +734,15 @@ Need help? Call us at +254 757 883 799`;
       
       if (statusType === 'payment') {
         console.log('Creating payment status SMS...');
-        // Check if order has been delivered
-        const isDelivered = customerInfo.laundryStatus === 'delivered';
+        // Check if order has been delivered (laundry status removed, so always false for now)
+        const isDelivered = false;
         console.log('Is delivered:', isDelivered);
         
         if (newStatus === 'paid') {
           if (isDelivered) {
             message = `*** Payment Confirmation - Econuru Services ***
 
-Dear ${customerInfo.name},
+Dear ${customerInfo.name || 'Valued Customer'},
 
 Thank you for your payment!
 
@@ -746,7 +759,7 @@ Need help? Call us at +254 757 883 799`;
           } else {
             message = `*** Payment Confirmation - Econuru Services ***
 
-Dear ${customerInfo.name},
+Dear ${customerInfo.name || 'Valued Customer'},
 
 Thank you for your payment!
 
@@ -764,7 +777,7 @@ Need help? Call us at +254 757 883 799`;
         } else if (newStatus === 'unpaid') {
           message = `*** Payment Status Update - Econuru Services ***
 
-Dear ${customerInfo.name},
+Dear ${customerInfo.name || 'Valued Customer'},
 
 Order #${editingOrderId || 'N/A'}
 
@@ -780,7 +793,7 @@ Need help? Call us at +254 757 883 799`;
         } else if (newStatus === 'partial') {
           message = `*** Payment Status Update - Econuru Services ***
 
-Dear ${customerInfo.name},
+Dear ${customerInfo.name || 'Valued Customer'},
 
 Order #${editingOrderId || 'N/A'}
 
@@ -796,10 +809,10 @@ Need help? Call us at +254 757 883 799`;
         }
       } else if (statusType === 'laundry') {
         const statusMessages = {
-          'picked': `Dear ${customerInfo.name}, your laundry has been picked up and is now in our care!`,
-          'in-progress': `Dear ${customerInfo.name}, your laundry is now being processed with our premium care!`,
-          'ready': `Dear ${customerInfo.name}, great news! Your laundry is ready for delivery!`,
-          'delivered': `Dear ${customerInfo.name}, your order has been successfully delivered!`
+          'picked': `Dear ${customerInfo.name || 'Valued Customer'}, your laundry has been picked up and is now in our care!`,
+          'in-progress': `Dear ${customerInfo.name || 'Valued Customer'}, your laundry is now being processed with our premium care!`,
+          'ready': `Dear ${customerInfo.name || 'Valued Customer'}, great news! Your laundry is ready for delivery!`,
+          'delivered': `Dear ${customerInfo.name || 'Valued Customer'}, your order has been successfully delivered!`
         };
 
         message = `*** Status Update - Econuru Services ***
@@ -844,42 +857,73 @@ Need help? Call us at +254 757 883 799`;
 
   // Order Processing
   const handleCreateOrder = async () => {
-    if (cart.length === 0) return;
-    if (!customerInfo.name || !customerInfo.phone) {
-      alert("Please fill in customer name and phone number");
+    // Prevent multiple simultaneous order creation
+    if (isProcessingOrder) {
+      console.log('Order already being processed, ignoring click');
       return;
     }
+    
+    console.log('=== HANDLE CREATE ORDER CALLED ===');
+    console.log('Cart length:', cart.length);
+    console.log('Cart items:', cart);
+    console.log('Customer phone:', customerInfo.phone);
+    
+    if (cart.length === 0) {
+      console.log('Cart is empty, returning');
+      return;
+    }
+    if (!customerInfo.phone) {
+      alert("Please fill in customer phone number");
+      return;
+    }
+    
+    // Set processing state immediately to prevent multiple clicks
     setIsProcessingOrder(true);
     setPromoError("");
     try {
+      console.log('Creating order with data:', {
+        customer: customerInfo,
+        services: cart,
+        location: selectedLocation,
+        totalAmount: calculateFinalTotal(),
+        paymentStatus: customerInfo.paymentStatus,
+        partialAmount: customerInfo.paymentStatus === 'partial' ? (parseInt(customerInfo.partialAmount) || 0) : 0,
+        remainingAmount: customerInfo.paymentStatus === 'partial' ? Math.max(0, calculateFinalTotal() - (parseInt(customerInfo.partialAmount) || 0)) : 0,
+        status: isEditing ? "confirmed" : "pending",
+        promoCode: promoCode.trim() || undefined,
+        promotionDetails: lockedPromotion || undefined,
+      });
+      
       const orderData = {
         customer: {
           name: customerInfo.name,
           phone: customerInfo.phone,
-          email: customerInfo.email,
-          address: customerInfo.address,
         },
-        services: cart.map(item => ({
-          serviceId: item.service._id,
-          serviceName: item.service.name,
-          quantity: item.quantity,
-          price: item.price,
-        })),
-        pickupDate: customerInfo.pickupDate,
-        pickupTime: customerInfo.pickupTime,
-        notes: customerInfo.notes,
+        services: cart.map(item => {
+          console.log('Mapping cart item:', item);
+          return {
+            serviceId: item.item._id,
+            serviceName: item.item.name,
+            quantity: item.quantity,
+            price: item.price,
+          };
+        }),
         location: selectedLocation,
         totalAmount: calculateFinalTotal(),
-        pickDropAmount: customerInfo.pickDropAmount ? parseFloat(customerInfo.pickDropAmount) : 0,
-        discount: customerInfo.discount ? parseFloat(customerInfo.discount) : 0,
         paymentStatus: customerInfo.paymentStatus,
-        laundryStatus: customerInfo.laundryStatus,
+        partialAmount: customerInfo.paymentStatus === 'partial' ? (parseInt(customerInfo.partialAmount) || 0) : 0,
+        remainingAmount: customerInfo.paymentStatus === 'partial' ? Math.max(0, calculateFinalTotal() - (parseInt(customerInfo.partialAmount) || 0)) : 0,
         status: isEditing ? "confirmed" : "pending",
         promoCode: promoCode.trim() || undefined,
         promotionDetails: lockedPromotion || undefined,
       };
       const url = isEditing ? `/api/orders/${editingOrderId}` : '/api/orders';
       const method = isEditing ? 'PATCH' : 'POST';
+      
+      console.log('Token:', token ? 'Present' : 'Missing');
+      console.log('URL:', url);
+      console.log('Method:', method);
+      
       const response = await fetch(url, {
         method,
         headers: {
@@ -888,36 +932,44 @@ Need help? Call us at +254 757 883 799`;
         },
         body: JSON.stringify(orderData),
       });
+      
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+      
       const data = await response.json();
+      console.log('Response data:', data);
+      
       if (data.success) {
         setPromoDiscount(data.order.promoDiscount || 0);
         setPromoCode(data.order.promoCode || "");
         setPromoError("");
         // Send SMS notifications
         if (sendSMS) {
-          console.log('SMS is enabled, checking for status updates...');
-          console.log('Current payment status:', customerInfo.paymentStatus);
-          console.log('Previous payment status:', previousPaymentStatus);
-          console.log('Is editing:', isEditing);
-          
-          // Send order update SMS only for new orders or when simplified is checked
-          if (!isEditing || sendSimplifiedSMS) {
-            console.log('Sending order update SMS...');
-            await sendOrderUpdateSMS(data.order, !isEditing);
-          }
-          
-          // Send status update SMS if status changed
-          if (isEditing) {
-            console.log('Checking payment status change...');
-            if (customerInfo.paymentStatus !== previousPaymentStatus) {
-              console.log('Payment status changed, sending SMS...');
-              await sendStatusUpdateSMS('payment', customerInfo.paymentStatus);
+          try {
+            console.log('SMS is enabled, checking for status updates...');
+            console.log('Current payment status:', customerInfo.paymentStatus);
+            console.log('Previous payment status:', previousPaymentStatus);
+            console.log('Is editing:', isEditing);
+            
+            // Send order update SMS only for new orders or when simplified is checked
+            if (!isEditing || sendSimplifiedSMS) {
+              console.log('Sending order update SMS...');
+              await sendOrderUpdateSMS(data.order, !isEditing);
             }
             
-            if (customerInfo.laundryStatus !== previousLaundryStatus) {
-              console.log('Laundry status changed, sending SMS...');
-              await sendStatusUpdateSMS('laundry', customerInfo.laundryStatus);
+            // Send status update SMS if status changed
+            if (isEditing) {
+              console.log('Checking payment status change...');
+              if (customerInfo.paymentStatus !== previousPaymentStatus) {
+                console.log('Payment status changed, sending SMS...');
+                await sendStatusUpdateSMS('payment', customerInfo.paymentStatus);
+              }
+              
+              // Laundry status removed from POS form, so no laundry status SMS needed
             }
+          } catch (smsError) {
+            console.error('SMS sending failed:', smsError);
+            // Don't fail the order creation if SMS fails
           }
         }
 
@@ -927,13 +979,15 @@ Need help? Call us at +254 757 883 799`;
         }
         setSuccessDialogOpen(true);
       } else {
+        console.log('Order creation failed:', data);
         if (data.error && data.error.toLowerCase().includes("promo")) {
           setPromoError(data.error);
         }
         throw new Error(data.error || `Failed to ${isEditing ? 'update' : 'create'} order`);
       }
     } catch (error) {
-      setPromoError(error.message || "Promo code error");
+      console.error('Order creation error:', error);
+      setPromoError((error as Error).message || "Promo code error");
       alert(`Failed to ${isEditing ? 'update' : 'create'} order. Please try again.`);
     } finally {
       setIsProcessingOrder(false);
@@ -959,20 +1013,19 @@ Need help? Call us at +254 757 883 799`;
             
             // Store previous statuses for SMS comparison
             setPreviousPaymentStatus(order.paymentStatus || 'unpaid');
-            setPreviousLaundryStatus(order.laundryStatus || 'to-be-picked');
             
             setCustomerInfo({
               name: order.customer.name,
               phone: order.customer.phone,
-              email: order.customer.email || '',
-              address: order.customer.address || '',
-              pickupDate: order.pickupDate || '',
-              pickupTime: order.pickupTime || '',
-              notes: order.notes || '',
-              pickDropAmount: order.pickDropAmount?.toString() || '',
-              discount: order.discount?.toString() || '',
+              email: '',
+              address: '',
+              pickupDate: '',
+              pickupTime: '',
+              notes: '',
+              pickDropAmount: '',
+              discount: '',
               paymentStatus: order.paymentStatus || 'unpaid',
-              laundryStatus: order.laundryStatus || 'to-be-picked',
+              partialAmount: order.partialAmount?.toString() || '',
             });
             const cartItems = order.services.map((service: any) => {
               const serviceObj = services.find(s => s._id === service.serviceId);
@@ -1019,7 +1072,7 @@ Need help? Call us at +254 757 883 799`;
   }, []);
 
   // Lock in promotion function (called when promo is successfully validated)
-  const lockInPromotion = async (code, orderAmount) => {
+  const lockInPromotion = async (code: string, orderAmount: number) => {
     try {
       const response = await fetch('/api/promotions/lock-in', {
         method: 'POST',
@@ -1059,7 +1112,7 @@ Need help? Call us at +254 757 883 799`;
   };
 
   // Promo code validation function
-  const validatePromoCode = async (code) => {
+  const validatePromoCode = async (code: string) => {
     if (!code.trim()) {
       setPromoValid(null);
       setPromoMessage("");
@@ -1548,57 +1601,72 @@ Need help? Call us at +254 757 883 799`;
 
           {/* Customer Information */}
           {cart.length > 0 && (
-            <Card className="p-4">
-              <CardTitle className="text-lg mb-4 flex items-center gap-2">
-                <User className="w-5 h-5" />
-                Customer Information
-                {isExistingCustomer && (
-                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs">
-                    <UserCheck className="w-3 h-3 mr-1" />
-                    Existing Customer
-                  </Badge>
-                )}
-                {!isExistingCustomer && customerInfo.name && (
-                  <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs">
-                    <UserPlus className="w-3 h-3 mr-1" />
-                    New Customer
-                  </Badge>
-                )}
-              </CardTitle>
-              <div className="space-y-3">
-                {/* Customer Name Search */}
-                <div className="relative" ref={suggestionDropdownRef}>
-                  <Label htmlFor="name">Customer Name *</Label>
-                  <div className="relative">
-                    <Input
-                      id="name"
-                      value={customerSearch}
-                      onChange={(e) => handleCustomerSearchChange(e.target.value)}
-                      placeholder="Start typing customer name..."
-                      className={`${isExistingCustomer ? 'border-emerald-500 bg-emerald-50' : ''}`}
-                    />
-                    {searchLoading && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                      </div>
-                    )}
-                    {isExistingCustomer && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                        <UserCheck className="h-4 w-4 text-emerald-600" />
-                      </div>
-                    )}
-                    {customerInfo.name && !isExistingCustomer && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={clearCustomerSearch}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-gray-100"
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    )}
+            <Card className="overflow-hidden border-2 border-gray-100 shadow-lg">
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-4 border-b border-gray-200">
+                <CardTitle className="text-xl flex items-center gap-3 text-gray-800">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <User className="w-5 h-5 text-blue-600" />
                   </div>
+                  Customer Information
+                  {isExistingCustomer && (
+                    <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-sm px-3 py-1 rounded-full">
+                      <UserCheck className="w-3 h-3 mr-1" />
+                      Existing Customer
+                    </Badge>
+                  )}
+                  {!isExistingCustomer && customerInfo.name && (
+                    <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-sm px-3 py-1 rounded-full">
+                      <UserPlus className="w-3 h-3 mr-1" />
+                      New Customer
+                    </Badge>
+                  )}
+                </CardTitle>
+              </div>
+              <div className="p-6">
+                <div className="space-y-6">
+                  {/* Customer Details */}
+                  <div className="space-y-4">
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                      <User className="w-4 h-4" />
+                      Customer Details
+                    </h3>
+                    
+                    {/* Customer Name Search */}
+                    <div className="relative mb-4" ref={suggestionDropdownRef}>
+                      <Label htmlFor="name" className="text-sm font-medium text-gray-600 mb-2 block">
+                        Customer Name <span className="text-gray-400">(Optional)</span>
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="name"
+                          value={customerSearch}
+                          onChange={(e) => handleCustomerSearchChange(e.target.value)}
+                          placeholder="Start typing customer name..."
+                          className={`h-11 ${isExistingCustomer ? 'border-emerald-500 bg-emerald-50 focus:border-emerald-500 focus:ring-emerald-200' : 'focus:border-blue-500 focus:ring-blue-200'}`}
+                        />
+                      {searchLoading && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                        </div>
+                      )}
+                      {isExistingCustomer && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <UserCheck className="h-4 w-4 text-emerald-600" />
+                        </div>
+                      )}
+                      {customerInfo.name && !isExistingCustomer && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={clearCustomerSearch}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-gray-100"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
                   
                   {/* Customer Suggestions Dropdown */}
                   {showSuggestions && customerSuggestions.length > 0 && (
@@ -1650,377 +1718,359 @@ Need help? Call us at +254 757 883 799`;
                   )}
                 </div>
 
-                {/* Phone Number */}
-                <div>
-                  <Label htmlFor="phone">Phone Number *</Label>
-                  <div className="relative">
-                    <Input
-                      id="phone"
-                      value={customerInfo.phone}
-                      onChange={(e) => handlePhoneChange(e.target.value)}
-                      placeholder="Phone number"
-                      className={`${isExistingCustomer ? 'border-emerald-500 bg-emerald-50' : ''}`}
-                    />
-                    {isExistingCustomer && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                        <UserCheck className="h-4 w-4 text-emerald-600" />
+                    {/* Phone Number */}
+                    <div>
+                      <Label htmlFor="phone" className="text-sm font-medium text-gray-600 mb-2 block">
+                        Phone Number <span className="text-red-500">*</span>
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="phone"
+                          value={customerInfo.phone}
+                          onChange={(e) => handlePhoneChange(e.target.value)}
+                          placeholder="Enter phone number"
+                          className={`h-11 ${isExistingCustomer ? 'border-emerald-500 bg-emerald-50 focus:border-emerald-500 focus:ring-emerald-200' : 'focus:border-blue-500 focus:ring-blue-200'}`}
+                        />
+                        {isExistingCustomer && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                            <UserCheck className="h-4 w-4 text-emerald-600" />
+                          </div>
+                        )}
                       </div>
-                    )}
+                      <div className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                        <Phone className="w-3 h-3" />
+                        Phone numbers are used to identify existing customers
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    Phone numbers are used to identify existing customers
                   </div>
-                </div>
-                <div>
-                  <Label htmlFor="email">Email (Optional)</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={customerInfo.email}
-                    onChange={(e) => setCustomerInfo(prev => ({ ...prev, email: e.target.value }))}
-                    placeholder="Email address (optional)"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="address">Address</Label>
-                  <Textarea
-                    id="address"
-                    value={customerInfo.address}
-                    onChange={(e) => setCustomerInfo(prev => ({ ...prev, address: e.target.value }))}
-                    placeholder="Delivery address"
-                    rows={2}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label htmlFor="pickupDate">Pickup Date</Label>
-                    <Input
-                      id="pickupDate"
-                      type="date"
-                      value={customerInfo.pickupDate}
-                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, pickupDate: e.target.value }))}
-                      min={new Date().toISOString().split('T')[0]}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="pickupTime">Pickup Time</Label>
-                    <Select value={customerInfo.pickupTime} onValueChange={(value) => setCustomerInfo(prev => ({ ...prev, pickupTime: value }))}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select time" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {timeSlots.map((time) => (
-                          <SelectItem key={time} value={time}>{time}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="notes">Notes</Label>
-                  <Textarea
-                    id="notes"
-                    value={customerInfo.notes}
-                    onChange={(e) => setCustomerInfo(prev => ({ ...prev, notes: e.target.value }))}
-                    placeholder="Special instructions..."
-                    rows={2}
-                  />
-                </div>
 
-                {/* Pick & Drop Amount */}
-                <div>
-                  <Label htmlFor="pickDropAmount">Pick & Drop Amount (Optional)</Label>
-                  <Input
-                    id="pickDropAmount"
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={customerInfo.pickDropAmount}
-                    onChange={e => {
-                      const value = Math.max(0, parseInt(e.target.value) || 0);
-                      setCustomerInfo(prev => ({ ...prev, pickDropAmount: value.toString() }));
-                    }}
-                    placeholder="e.g. 200"
-                  />
-                </div>
-
-                {/* Discount */}
-                <div>
-                  <Label htmlFor="discount">Discount (Optional)</Label>
-                  <Input
-                    id="discount"
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={customerInfo.discount}
-                    onChange={e => {
-                      const value = Math.max(0, parseInt(e.target.value) || 0);
-                      setCustomerInfo(prev => ({ ...prev, discount: value.toString() }));
-                    }}
-                    placeholder="e.g. 100"
-                  />
-                </div>
-
-                {/* Promo Code */}
-                <div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="promoCode">Promo Code</Label>
-                    {lockedPromotion && (
-                      <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs">
-                        🔒 Locked In
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <Input
-                      id="promoCode"
-                      value={promoCode}
-                      onChange={e => setPromoCode(e.target.value)}
-                      placeholder="e.g. SAVE20"
-                      className={`luxury-input ${lockedPromotion ? 'border-emerald-500 bg-emerald-50' : promoValid === true ? 'border-emerald-500 bg-emerald-50' : promoValid === false ? 'border-red-500 bg-red-50' : ''}`}
-                      autoComplete="off"
-                      disabled={promoLoading}
-                    />
-                    {promoLoading && (
-                                              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  {/* Promo Code Section */}
+                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg p-4 border border-purple-200">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                      <Gift className="w-4 h-4" />
+                      Promo Code
+                      {lockedPromotion && (
+                        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs ml-auto">
+                          🔒 Locked In
+                        </Badge>
+                      )}
+                    </h3>
+                    <div className="relative">
+                      <Input
+                        id="promoCode"
+                        value={promoCode}
+                        onChange={e => setPromoCode(e.target.value)}
+                        placeholder="Enter promo code (e.g. SAVE20)"
+                        className={`h-11 ${lockedPromotion ? 'border-emerald-500 bg-emerald-50 focus:border-emerald-500 focus:ring-emerald-200' : promoValid === true ? 'border-emerald-500 bg-emerald-50 focus:border-emerald-500 focus:ring-emerald-200' : promoValid === false ? 'border-red-500 bg-red-50 focus:border-red-500 focus:ring-red-200' : 'focus:border-purple-500 focus:ring-purple-200'}`}
+                        autoComplete="off"
+                        disabled={promoLoading}
+                      />
+                      {promoLoading && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
                           <Loader2 className="h-4 w-4 animate-spin text-[#2E7D32]" />
                         </div>
-                    )}
-                    {lockedPromotion && !promoLoading && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                        <span className="text-emerald-600 text-lg">🔒</span>
-                      </div>
-                    )}
-                  </div>
-                  {promoMessage && (
-                    <div className={`text-xs mt-1 p-2 rounded-md ${lockedPromotion ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : promoValid === true ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {promoMessage}
-                      {lockedPromotion && (
-                        <div className="mt-1 text-xs text-emerald-600">
-                          This promotion is locked in and will be honored even if it expires before order completion.
+                      )}
+                      {lockedPromotion && !promoLoading && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <span className="text-emerald-600 text-lg">🔒</span>
                         </div>
                       )}
                     </div>
-                  )}
-                  {lockedPromotion && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setPromoCode("");
-                        setPromoDiscount(0);
-                        setLockedPromotion(null);
-                        setPromoValid(null);
-                        setPromoMessage("");
+                    {promoMessage && (
+                      <div className={`text-xs mt-1 p-2 rounded-md ${lockedPromotion ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : promoValid === true ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {promoMessage}
+                        {lockedPromotion && (
+                          <div className="mt-1 text-xs text-emerald-600">
+                            This promotion is locked in and will be honored even if it expires before order completion.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {lockedPromotion && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPromoCode("");
+                          setPromoDiscount(0);
+                          setLockedPromotion(null);
+                          setPromoValid(null);
+                          setPromoMessage("");
+                        }}
+                        className="mt-2 text-xs h-7"
+                      >
+                        Clear Promo
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Payment Status Section */}
+                  <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-4 border border-green-200">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                      <CreditCard className="w-4 h-4" />
+                      Payment Status
+                    </h3>
+                    <Select value={customerInfo.paymentStatus} onValueChange={(value) => setCustomerInfo(prev => ({ ...prev, paymentStatus: value as 'unpaid' | 'paid' | 'partial' }))}>
+                      <SelectTrigger className="h-11 focus:border-green-500 focus:ring-green-200">
+                        <SelectValue placeholder="Select payment status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unpaid">💳 Unpaid</SelectItem>
+                        <SelectItem value="paid">✅ Paid</SelectItem>
+                        <SelectItem value="partial">💰 Partial Payment</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* SMS Notifications Section */}
+                  <div className="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg p-4 border border-blue-200">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                      <MessageSquare className="w-4 h-4" />
+                      SMS Notifications
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="flex items-center space-x-3">
+                        <Checkbox
+                          id="sendSMS"
+                          checked={sendSMS}
+                          onCheckedChange={(checked) => setSendSMS(checked as boolean)}
+                          className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                        />
+                        <Label htmlFor="sendSMS" className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                          <MessageSquare className="h-4 w-4" />
+                          Send SMS notification to customer
+                        </Label>
+                      </div>
+
+                      {sendSMS && (
+                        <div className="flex items-center space-x-3 ml-6">
+                          <Checkbox
+                            id="sendSimplifiedSMS"
+                            checked={sendSimplifiedSMS}
+                            onCheckedChange={(checked) => setSendSimplifiedSMS(checked as boolean)}
+                            className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                          />
+                          <Label htmlFor="sendSimplifiedSMS" className="flex items-center gap-2 text-sm font-medium text-gray-600 cursor-pointer">
+                            Send simplified message (services + amount only)
+                          </Label>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Full-width sections */}
+              <div className="mt-6 space-y-4">
+                {/* Partial Payment Amount */}
+                {customerInfo.paymentStatus === 'partial' && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <Label htmlFor="partialAmount" className="text-sm font-medium text-yellow-800">Amount Paid</Label>
+                    <Input
+                      id="partialAmount"
+                      type="number"
+                      min={0}
+                      max={calculateFinalTotal()}
+                      step={1}
+                      value={customerInfo.partialAmount}
+                      onChange={(e) => {
+                        const value = Math.max(0, Math.min(calculateFinalTotal(), parseInt(e.target.value) || 0));
+                        setCustomerInfo(prev => ({ ...prev, partialAmount: value.toString() }));
                       }}
-                      className="mt-2 text-xs h-7"
-                    >
-                      Clear Promo
-                    </Button>
-                  )}
-                </div>
-
-                {/* Payment Status */}
-                <div>
-                  <Label htmlFor="paymentStatus">Payment Status</Label>
-                  <Select value={customerInfo.paymentStatus} onValueChange={(value) => setCustomerInfo(prev => ({ ...prev, paymentStatus: value as 'unpaid' | 'paid' | 'partial' }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select payment status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="unpaid">Unpaid</SelectItem>
-                      <SelectItem value="paid">Paid</SelectItem>
-                      <SelectItem value="partial">Partial Payment</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Laundry Status */}
-                <div>
-                  <Label htmlFor="laundryStatus">Laundry Status</Label>
-                  <Select value={customerInfo.laundryStatus} onValueChange={(value) => setCustomerInfo(prev => ({ ...prev, laundryStatus: value as 'to-be-picked' | 'picked' | 'in-progress' | 'ready' | 'delivered' }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select laundry status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="to-be-picked">To Be Picked</SelectItem>
-                      <SelectItem value="picked">Picked</SelectItem>
-                      <SelectItem value="in-progress">In Progress</SelectItem>
-                      <SelectItem value="ready">Ready</SelectItem>
-                      <SelectItem value="delivered">Delivered</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* SMS Notification Checkbox */}
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="sendSMS"
-                    checked={sendSMS}
-                    onCheckedChange={(checked) => setSendSMS(checked as boolean)}
-                  />
-                  <Label htmlFor="sendSMS" className="flex items-center gap-2 text-sm font-medium">
-                    <MessageSquare className="h-4 w-4" />
-                    Send SMS notification to customer
-                  </Label>
-                </div>
-
-                {/* Simplified SMS Checkbox */}
-                {sendSMS && (
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="sendSimplifiedSMS"
-                      checked={sendSimplifiedSMS}
-                      onCheckedChange={(checked) => setSendSimplifiedSMS(checked as boolean)}
+                      placeholder={`Max: Ksh ${calculateFinalTotal().toLocaleString()}`}
+                      className="mt-1"
                     />
-                    <Label htmlFor="sendSimplifiedSMS" className="flex items-center gap-2 text-sm font-medium text-gray-600">
-                      Send simplified message (services + amount only)
-                    </Label>
+                    <div className="text-xs text-yellow-700 mt-1">
+                      Remaining: Ksh {Math.max(0, calculateFinalTotal() - (parseInt(customerInfo.partialAmount) || 0)).toLocaleString()}
+                    </div>
                   </div>
                 )}
+
               </div>
             </Card>
           )}
-        </div>
 
-        {/* Order Summary and Actions */}
-        {cart.length > 0 && (
-          <div className="p-6 border-t bg-gray-50">
-            <div className="space-y-4">
-              {/* Subtotal */}
-              <div className="flex justify-between items-center">
-                <span className="font-medium text-gray-700">Subtotal:</span>
-                <span className="text-lg font-semibold text-gray-900">
-                  Ksh {getCartTotal().toLocaleString()}
-                </span>
-              </div>
-
-              {/* Pick & Drop Amount */}
-              {customerInfo.pickDropAmount && parseFloat(customerInfo.pickDropAmount) > 0 && (
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Pick & Drop:</span>
-                  <span className="text-lg font-semibold text-blue-600">
-                    +Ksh {parseFloat(customerInfo.pickDropAmount).toLocaleString()}
+          {/* Order Summary and Actions - Moved here to reduce scrolling */}
+          {cart.length > 0 && (
+            <div className="mt-6 bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <Package className="w-5 h-5" />
+                Order Summary
+              </h3>
+              <div className="space-y-3">
+                {/* Subtotal */}
+                <div className="flex justify-between items-center py-2">
+                  <span className="font-medium text-gray-700">Subtotal:</span>
+                  <span className="text-lg font-semibold text-gray-900">
+                    Ksh {getCartTotal().toLocaleString()}
                   </span>
                 </div>
-              )}
 
-              {/* Discount */}
-              {customerInfo.discount && parseFloat(customerInfo.discount) > 0 && (
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Discount:</span>
-                  <span className="text-lg font-semibold text-red-600">
-                    -Ksh {parseFloat(customerInfo.discount).toLocaleString()}
-                  </span>
-                </div>
-              )}
-
-              {/* Promo Discount */}
-              {promoDiscount > 0 && (
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-700">Promo Discount:</span>
-                    {lockedPromotion && (
-                      <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs">
-                        🔒 Locked
-                      </Badge>
-                    )}
+                {/* Promo Discount */}
+                {promoDiscount > 0 && (
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-700">Promo Discount:</span>
+                      {lockedPromotion && (
+                        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs">
+                          🔒 Locked
+                        </Badge>
+                      )}
+                    </div>
+                    <span className="text-lg font-semibold text-emerald-600">
+                      -Ksh {promoDiscount.toLocaleString()}
+                    </span>
                   </div>
-                  <span className="text-lg font-semibold text-emerald-600">
-                    -Ksh {promoDiscount.toLocaleString()}
+                )}
+
+                {/* Services */}
+                <div className="space-y-2">
+                  <span className="font-medium text-gray-700">Services:</span>
+                  <div className="space-y-1">
+                    {cart.map((cartItem, index) => {
+                      let unitPrice = 0;
+                      if (typeof cartItem.price === 'string') {
+                        const cleanPrice = cartItem.price.replace(/[^\d.]/g, '');
+                        unitPrice = parseFloat(cleanPrice) || 0;
+                      } else if (typeof cartItem.price === 'number') {
+                        unitPrice = isNaN(cartItem.price) ? 0 : cartItem.price;
+                      }
+                      
+                      // Ensure we never have NaN
+                      if (isNaN(unitPrice)) {
+                        unitPrice = 0;
+                      }
+                      
+                      const totalPrice = unitPrice * cartItem.quantity;
+                      
+                      return (
+                        <div key={index} className="flex justify-between items-center text-sm">
+                          <div className="flex flex-col">
+                            <span className="text-gray-600">
+                              {cartItem.quantity} × {cartItem.item.name}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              @ Ksh {unitPrice.toLocaleString()} each
+                            </span>
+                          </div>
+                          <span className="font-medium text-gray-900">
+                            Ksh {totalPrice.toLocaleString()}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Payment Status */}
+                <div className="flex justify-between items-center">
+                  <span className="font-medium text-gray-700">Payment Status:</span>
+                  <Badge 
+                    variant="outline" 
+                    className={`${
+                      customerInfo.paymentStatus === 'paid' 
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200' 
+                        : customerInfo.paymentStatus === 'partial'
+                        ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                        : 'bg-red-100 text-red-800 border-red-200'
+                    }`}
+                  >
+                    {customerInfo.paymentStatus.charAt(0).toUpperCase() + customerInfo.paymentStatus.slice(1)}
+                  </Badge>
+                </div>
+
+                {/* Partial Payment Breakdown */}
+                {customerInfo.paymentStatus === 'partial' && customerInfo.partialAmount && (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium text-gray-700">Amount Paid:</span>
+                      <span className="text-lg font-semibold text-green-600">
+                        Ksh {parseInt(customerInfo.partialAmount).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium text-gray-700">Remaining Balance:</span>
+                      <span className="text-lg font-semibold text-red-600">
+                        Ksh {Math.max(0, calculateFinalTotal() - parseInt(customerInfo.partialAmount)).toLocaleString()}
+                      </span>
+                    </div>
+                  </>
+                )}
+
+                {/* Final Total */}
+                <div className="flex justify-between items-center pt-3 border-t border-gray-200">
+                  <span className="font-bold text-lg text-gray-900">Total:</span>
+                  <span className="text-2xl font-bold text-primary">
+                    Ksh {calculateFinalTotal().toLocaleString()}
                   </span>
                 </div>
-              )}
 
-              {/* Payment Status */}
-              <div className="flex justify-between items-center">
-                <span className="font-medium text-gray-700">Payment Status:</span>
-                <Badge 
-                  variant="outline" 
-                  className={`${
-                    customerInfo.paymentStatus === 'paid' 
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-200' 
-                      : customerInfo.paymentStatus === 'partial'
-                      ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
-                      : 'bg-red-100 text-red-800 border-red-200'
-                  }`}
-                >
-                  {customerInfo.paymentStatus.charAt(0).toUpperCase() + customerInfo.paymentStatus.slice(1)}
-                </Badge>
-              </div>
+                {/* SMS Notification Status */}
+                {sendSMS && customerInfo.phone && (
+                  <div className="flex items-center justify-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <MessageSquare className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm text-blue-700 font-medium">
+                      {sendSimplifiedSMS ? 'Simplified SMS' : 'Detailed SMS'} will be sent to {customerInfo.phone}
+                    </span>
+                  </div>
+                )}
 
-              {/* Laundry Status */}
-              <div className="flex justify-between items-center">
-                <span className="font-medium text-gray-700">Laundry Status:</span>
-                <Badge 
-                  variant="outline" 
-                  className={`${
-                    customerInfo.laundryStatus === 'delivered' 
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                      : customerInfo.laundryStatus === 'ready'
-                      ? 'bg-blue-100 text-blue-800 border-blue-200'
-                      : customerInfo.laundryStatus === 'in-progress'
-                      ? 'bg-orange-100 text-orange-800 border-orange-200'
-                      : customerInfo.laundryStatus === 'picked'
-                      ? 'bg-purple-100 text-purple-800 border-purple-200'
-                      : 'bg-gray-100 text-gray-800 border-gray-200'
-                  }`}
-                >
-                  {customerInfo.laundryStatus.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                </Badge>
-              </div>
-
-              {/* Final Total */}
-              <div className="flex justify-between items-center pt-3 border-t border-gray-200">
-                <span className="font-bold text-lg text-gray-900">Total:</span>
-                <span className="text-2xl font-bold text-primary">
-                  Ksh {calculateFinalTotal().toLocaleString()}
-                </span>
-              </div>
-
-              {/* SMS Notification Status */}
-              {sendSMS && customerInfo.phone && (
-                <div className="flex items-center justify-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <MessageSquare className="h-4 w-4 text-blue-600" />
-                  <span className="text-sm text-blue-700 font-medium">
-                    {sendSimplifiedSMS ? 'Simplified SMS' : 'Detailed SMS'} will be sent to {customerInfo.phone}
-                  </span>
+                {!sendSMS && (
+                  <div className="flex items-center justify-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <X className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm text-gray-600 font-medium">
+                      SMS notifications disabled
+                    </span>
+                  </div>
+                )}
+                
+                {/* Action Buttons */}
+                <div className="mt-6 pt-4 border-t border-gray-300">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={clearCart}
+                      className="flex items-center justify-center gap-2 h-12"
+                    >
+                      <X className="w-4 h-4" />
+                      Clear Cart
+                    </Button>
+                    <Button
+                      onClick={handleCreateOrder}
+                      disabled={isProcessingOrder || !customerInfo.phone}
+                      className={`flex items-center justify-center gap-2 h-12 text-white ${
+                        isProcessingOrder 
+                          ? 'bg-gray-400 cursor-not-allowed' 
+                          : 'bg-primary hover:bg-primary/90'
+                      }`}
+                    >
+                      {isProcessingOrder ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Package className="w-4 h-4" />
+                      )}
+                      {isProcessingOrder ? 'Processing...' : (isEditing ? 'Update Order' : 'Create Order')}
+                    </Button>
+                  </div>
+                  
+                  {/* Initiate Payment Button - Will work after M-Pesa integration */}
+                  <Button
+                    onClick={() => {
+                      // TODO: Implement M-Pesa payment initiation
+                      alert('M-Pesa payment initiation will be implemented after M-Pesa integration');
+                    }}
+                    disabled={isProcessingOrder || !customerInfo.phone || customerInfo.paymentStatus === 'paid'}
+                    className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white h-12 flex items-center justify-center gap-2"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    Initiate Payment (M-Pesa)
+                  </Button>
                 </div>
-              )}
-
-              {!sendSMS && (
-                <div className="flex items-center justify-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <X className="h-4 w-4 text-gray-500" />
-                  <span className="text-sm text-gray-600 font-medium">
-                    SMS notifications disabled
-                  </span>
-                </div>
-              )}
-              
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={clearCart}
-                  className="flex-1"
-                >
-                  Clear Cart
-                </Button>
-                <Button
-                  onClick={handleCreateOrder}
-                  disabled={isProcessingOrder || !customerInfo.name || !customerInfo.phone}
-                  className="flex-1 bg-primary hover:bg-primary/90 text-white"
-                >
-                  {isProcessingOrder ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <CreditCard className="w-4 h-4 mr-2" />
-                  )}
-                  {isProcessingOrder ? 'Processing...' : (isEditing ? 'Update Order' : 'Create Order')}
-                </Button>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Success Dialog */}
@@ -2067,7 +2117,7 @@ Need help? Call us at +254 757 883 799`;
                     pickDropAmount: '',
                     discount: '',
                     paymentStatus: 'unpaid',
-                    laundryStatus: 'to-be-picked',
+                    partialAmount: '',
                   });
                 }}
                 className="w-full"

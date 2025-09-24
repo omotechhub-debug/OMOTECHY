@@ -111,6 +111,8 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -156,6 +158,26 @@ export default function InventoryPage() {
     }
   }, [token, currentPage, searchTerm, categoryFilter, statusFilter, stockFilter]);
 
+  // Auto-remove success messages after 3 seconds
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => {
+        setSuccess(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [success]);
+
+  // Auto-remove error messages after 3 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   const fetchInventory = async () => {
     try {
       setLoading(true);
@@ -194,7 +216,10 @@ export default function InventoryPage() {
   };
 
   const handleCreateItem = async () => {
+    if (isCreating) return; // Prevent multiple submissions
+    
     try {
+      setIsCreating(true);
       const response = await fetch('/api/inventory', {
         method: 'POST',
         headers: {
@@ -216,13 +241,16 @@ export default function InventoryPage() {
     } catch (error) {
       console.error('Error creating inventory item:', error);
       setError('Network error. Please check your connection.');
+    } finally {
+      setIsCreating(false);
     }
   };
 
   const handleUpdateItem = async () => {
-    if (!selectedItem) return;
+    if (!selectedItem || isUpdating) return; // Prevent multiple submissions
 
     try {
+      setIsUpdating(true);
       const response = await fetch(`/api/inventory/${selectedItem._id}`, {
         method: 'PUT',
         headers: {
@@ -245,6 +273,8 @@ export default function InventoryPage() {
     } catch (error) {
       console.error('Error updating inventory item:', error);
       setError('Network error. Please check your connection.');
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -394,6 +424,7 @@ export default function InventoryPage() {
                 setFormData={setFormData}
                 onSubmit={handleCreateItem}
                 onCancel={() => setIsCreateDialogOpen(false)}
+                isLoading={isCreating}
               />
             </DialogContent>
           </Dialog>
@@ -670,6 +701,7 @@ export default function InventoryPage() {
                 setSelectedItem(null);
                 resetForm();
               }}
+              isLoading={isUpdating}
             />
           </DialogContent>
         </Dialog>
@@ -683,12 +715,14 @@ function InventoryForm({
   formData, 
   setFormData, 
   onSubmit, 
-  onCancel 
+  onCancel,
+  isLoading = false
 }: {
   formData: any;
   setFormData: (data: any) => void;
   onSubmit: () => void;
   onCancel: () => void;
+  isLoading?: boolean;
 }) {
   const [tagInput, setTagInput] = useState('');
 
@@ -966,8 +1000,19 @@ function InventoryForm({
         <Button variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button onClick={onSubmit} className="bg-primary hover:bg-primary/90 text-white">
-          {formData._id ? 'Update Item' : 'Create Item'}
+        <Button 
+          onClick={onSubmit} 
+          disabled={isLoading}
+          className="bg-primary hover:bg-primary/90 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              {formData._id ? 'Updating...' : 'Saving...'}
+            </>
+          ) : (
+            formData._id ? 'Update Item' : 'Create Item'
+          )}
         </Button>
       </div>
     </div>

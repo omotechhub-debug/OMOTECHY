@@ -90,6 +90,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Generate SKU if not provided (same logic as pre-save middleware)
+    if (!body.sku) {
+      const prefix = body.category.toUpperCase().substring(0, 3);
+      const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+      body.sku = `${prefix}-${random}`;
+    }
+
     // Check if SKU already exists
     if (body.sku) {
       const existingItem = await Inventory.findOne({ sku: body.sku });

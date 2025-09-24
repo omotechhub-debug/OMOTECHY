@@ -65,8 +65,14 @@ export function ImageUpload({
         const formData = new FormData();
         formData.append('file', file);
 
+        // Get the admin auth token from localStorage
+        const authToken = localStorage.getItem('authToken');
+        
         const response = await fetch('/api/upload', {
           method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+          },
           body: formData,
         });
 

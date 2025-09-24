@@ -9,6 +9,7 @@ async function getUsers(request: NextRequest) {
     
     const { searchParams } = new URL(request.url);
     const role = searchParams.get('role');
+    const status = searchParams.get('status');
     const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
@@ -19,6 +20,16 @@ async function getUsers(request: NextRequest) {
     
     if (role && role !== 'all') {
       query.role = role;
+    }
+    
+    if (status && status !== 'all') {
+      if (status === 'active') {
+        query.isActive = true;
+      } else if (status === 'inactive') {
+        query.isActive = false;
+      } else if (status === 'pending') {
+        query.approved = false;
+      }
     }
     
     if (search) {
@@ -46,6 +57,7 @@ async function getUsers(request: NextRequest) {
       role: user.role,
       isActive: user.isActive,
       approved: user.approved,
+      reasonForAdminAccess: user.reasonForAdminAccess,
       pagePermissions: user.pagePermissions,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt

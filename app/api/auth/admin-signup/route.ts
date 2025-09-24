@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import bcrypt from 'bcryptjs'
-import jwt from 'jsonwebtoken'
 import connectDB from '@/lib/mongodb'
 import User from '@/lib/models/User'
 
@@ -9,13 +7,13 @@ export async function POST(request: NextRequest) {
     await connectDB()
 
     const body = await request.json()
-    console.log('Client signup request for email:', body.email) // Only log email, never password
+    console.log('Admin signup request for email:', body.email)
     
-    const { name, email, password } = body
+    const { name, email, password, reason } = body
 
     // Validate input
-    if (!name || !email || !password) {
-      console.log('Validation failed:', { name: !!name, email: !!email, password: !!password })
+    if (!name || !email || !password || !reason) {
+      console.log('Validation failed:', { name: !!name, email: !!email, password: !!password, reason: !!reason })
       return NextResponse.json(
         { success: false, message: 'All fields are required' },
         { status: 400 }
@@ -49,65 +47,47 @@ export async function POST(request: NextRequest) {
     // Check if user already exists
     const existingUser = await User.findOne({ email })
     if (existingUser) {
-      return NextResponse.json(
-        { success: false, message: 'An account with this email already exists' },
-        { status: 400 }
-      )
+      if (existingUser.role === 'user') {
+        return NextResponse.json(
+          { success: false, message: 'An account with this email already exists as a regular user. Please use a different email or contact support.' },
+          { status: 400 }
+        )
+      } else {
+        return NextResponse.json(
+          { success: false, message: 'An admin account with this email already exists' },
+          { status: 400 }
+        )
+      }
     }
 
-    // Create user with default page permissions for regular users
-    // Note: Password will be hashed by the User model's pre-save hook
+    // Create admin user with pending approval
     const user = new User({
       name,
       email,
       password, // Let the model handle password hashing
-      role: 'user',
+      role: 'admin', // Set as admin but pending approval
       isActive: true,
-      approved: true, // Auto-approve for now
-      pagePermissions: [
-        { page: 'dashboard', canView: true, canEdit: false, canDelete: false },
-        { page: 'orders', canView: true, canEdit: false, canDelete: false },
-        { page: 'pos', canView: true, canEdit: false, canDelete: false },
-        { page: 'customers', canView: true, canEdit: false, canDelete: false }
-      ]
+      approved: false, // Pending approval
+      reasonForAdminAccess: reason, // Store the reason
+      pagePermissions: [] // Will be set when approved
     })
 
     await user.save()
 
-    // Generate JWT token
-    if (!process.env.JWT_SECRET) {
-      console.error('JWT_SECRET is not defined')
-      return NextResponse.json(
-        { success: false, message: 'Server configuration error' },
-        { status: 500 }
-      )
-    }
+    console.log(`✅ Admin signup request created for: ${email}`)
 
-    const token = jwt.sign(
-      { 
-        userId: user._id, 
-        email: user.email, 
-        role: user.role 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    )
-
-    // Return user data (without password)
-    const userData = {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      isActive: user.isActive,
-      approved: user.approved
-    }
-
+    // Return success response (no token since not approved yet)
     const response = NextResponse.json({
       success: true,
-      message: 'User created successfully',
-      user: userData,
-      token
+      message: 'Admin access request submitted successfully. You will be notified when your request is approved.',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        approved: user.approved
+      }
     })
 
     // Add security headers
@@ -118,11 +98,11 @@ export async function POST(request: NextRequest) {
     return response
 
   } catch (error: any) {
-    console.error('Signup error:', error.name, error.message)
+    console.error('Admin signup error:', error.name, error.message)
     console.error('Full error details:', error)
     
     // Provide more specific error messages based on error type
-    let errorMessage = 'Unable to create account. Please try again later.'
+    let errorMessage = 'Unable to submit admin request. Please try again later.'
     
     if (error.name === 'ValidationError') {
       errorMessage = 'Invalid data provided. Please check your information and try again.'

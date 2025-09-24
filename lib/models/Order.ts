@@ -21,6 +21,8 @@ export interface IOrder extends mongoose.Document {
   totalAmount: number;
   pickDropAmount: number;
   discount: number;
+  partialAmount: number;
+  remainingAmount: number;
   // Add remaining balance tracking
   remainingBalance: number;
   partialPayments: Array<{
@@ -105,8 +107,8 @@ const orderSchema = new mongoose.Schema<IOrder>({
   customer: {
     name: {
       type: String,
-      required: [true, 'Customer name is required'],
       trim: true,
+      default: '',
     },
     phone: {
       type: String,
@@ -163,18 +165,27 @@ const orderSchema = new mongoose.Schema<IOrder>({
   },
   pickDropAmount: {
     type: Number,
-    required: true,
     min: 0,
+    default: 0,
   },
   discount: {
     type: Number,
-    required: true,
     min: 0,
+    default: 0,
+  },
+  partialAmount: {
+    type: Number,
+    min: 0,
+    default: 0,
+  },
+  remainingAmount: {
+    type: Number,
+    min: 0,
+    default: 0,
   },
   // Add remaining balance tracking
   remainingBalance: {
     type: Number,
-    required: true,
     min: 0,
     default: function() {
       return this.totalAmount || 0;
@@ -213,7 +224,7 @@ const orderSchema = new mongoose.Schema<IOrder>({
   laundryStatus: {
     type: String,
     enum: ['to-be-picked', 'picked', 'in-progress', 'ready', 'delivered'],
-    required: true,
+    default: 'to-be-picked',
   },
   status: {
     type: String,

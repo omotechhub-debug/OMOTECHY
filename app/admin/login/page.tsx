@@ -8,14 +8,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useAuth } from "@/contexts/AuthContext"
+import { useAuth } from "@/hooks/useAuth"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import Link from "next/link"
 
 function AdminLoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { login, isAuthenticated, isAdmin } = useAuth()
+  const { isAuthenticated, isAdmin, isLoading: authLoading, login } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
@@ -31,16 +31,12 @@ function AdminLoginForm() {
     }
   }, [searchParams])
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated and is admin
   React.useEffect(() => {
-    if (isAuthenticated) {
-      if (isAdmin) {
-        router.push("/admin")
-      } else {
-        router.push("/dashboard") // Regular user dashboard
-      }
+    if (!authLoading && isAuthenticated && isAdmin) {
+      router.push("/admin")
     }
-  }, [isAuthenticated, isAdmin, router])
+  }, [isAuthenticated, isAdmin, authLoading, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -49,36 +45,25 @@ function AdminLoginForm() {
     setSuccess("") // Clear success message when attempting login
 
     try {
-      // Use dedicated admin login API
-      const response = await fetch('/api/auth/admin-login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        // Store auth data
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('authUser', JSON.stringify(data.user));
+      // Use the admin login API
+      const result = await login(email, password)
+      
+      if (result.success) {
+        setSuccess(result.message || "Login successful! Redirecting to admin panel...")
         
-        setSuccess(data.message || "Login successful! Redirecting to admin panel...")
-        
-        // Use setTimeout to ensure the success message is shown briefly
+        // Redirect to admin dashboard
         setTimeout(() => {
-          router.push("/admin")
-        }, 1000)
+          window.location.href = "/admin"
+        }, 1500)
       } else {
-        // Handle different types of errors
-        if (response.status === 403) {
-          setError(data.error || "Access denied. This area is restricted to administrators only.")
-        } else if (response.status === 401) {
-          setError("Invalid email or password.")
+        if (result.pendingApproval) {
+          setError(result.error || "Your admin account is pending approval.")
+          // Redirect to pending approval page after 2 seconds
+          setTimeout(() => {
+            router.push(`/admin/pending-approval?email=${encodeURIComponent(email)}`)
+          }, 2000)
         } else {
-          setError(data.error || "Login failed. Please try again.")
+          setError(result.error || "Invalid email or password. Please try again.")
         }
       }
     } catch (error) {
@@ -86,6 +71,23 @@ function AdminLoginForm() {
     }
     
     setIsLoading(false)
+  }
+
+  // Show loading while auth state is being determined
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#F0F2FE] to-white flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden p-8 border border-[#8B99B9]/20">
+          <div className="flex flex-col items-center justify-center mb-8">
+            <div className="w-16 h-16 rounded-full bg-[#263C7C] flex items-center justify-center mb-4 shadow-lg">
+              <ShirtIcon className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-center text-[#263C7C]">OMOTECH HUB Admin</h1>
+            <p className="text-gray-600 text-center mt-2">Checking authentication...</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -190,11 +192,20 @@ function AdminLoginForm() {
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 mb-3">
               Don't have an account?{" "}
               <Link href="/admin/signup" className="font-medium text-[#263C7C] hover:text-[#8B99B9] hover:underline">
                 Sign up here
               </Link>
+            </p>
+            <p className="text-sm text-gray-600">
+              Need admin access?{" "}
+              <Link href="/admin/signup" className="font-medium text-[#263C7C] hover:text-[#8B99B9] hover:underline">
+                Request admin access
+              </Link>
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              Sign up URL: <span className="font-mono bg-gray-100 px-2 py-1 rounded">/admin/signup</span>
             </p>
           </div>
         </div>

@@ -80,7 +80,6 @@ interface Order {
   discount?: number;
   paymentStatus?: 'unpaid' | 'paid' | 'partial' | 'pending' | 'failed';
   amountPaid?: number;
-  laundryStatus?: 'to-be-picked' | 'picked' | 'in-progress' | 'ready' | 'delivered';
   status: 'pending' | 'confirmed' | 'in-progress' | 'ready' | 'delivered' | 'cancelled';
   createdAt: string;
   updatedAt: string;
@@ -125,7 +124,6 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [laundryStatusFilter, setLaundryStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -237,10 +235,6 @@ export default function OrdersPage() {
       filtered = filtered.filter(order => order.status === statusFilter);
     }
 
-    // Apply laundry status filter
-    if (laundryStatusFilter !== 'all') {
-      filtered = filtered.filter(order => (order.laundryStatus || 'to-be-picked') === laundryStatusFilter);
-    }
 
     // Apply sorting
     filtered.sort((a, b) => {
@@ -278,7 +272,7 @@ export default function OrdersPage() {
     setFilteredOrders(filtered);
     // Reset to first page when filters change
     setCurrentPage(1);
-  }, [orders, searchTerm, statusFilter, laundryStatusFilter, sortBy, sortOrder]);
+  }, [orders, searchTerm, statusFilter, sortBy, sortOrder]);
 
   // Pagination logic
   const indexOfLastOrder = currentPage * ordersPerPage;
@@ -332,8 +326,7 @@ export default function OrdersPage() {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          status: 'confirmed',
-          laundryStatus: 'to-be-picked'
+          status: 'confirmed'
         }),
       });
 
@@ -852,7 +845,6 @@ export default function OrdersPage() {
       'Pick & Drop Amount',
       'Discount',
       'Payment Status',
-      'Laundry Status',
       'Order Status',
       'Pickup Date',
       'Pickup Time',
@@ -883,7 +875,6 @@ export default function OrdersPage() {
         order.pickDropAmount || 0,
         order.discount || 0,
         order.paymentStatus || 'unpaid',
-        order.laundryStatus || 'to-be-picked',
         order.status,
         order.pickupDate || '',
         order.pickupTime || '',
@@ -1738,19 +1729,6 @@ export default function OrdersPage() {
               </SelectContent>
             </Select>
 
-            <Select value={laundryStatusFilter} onValueChange={setLaundryStatusFilter}>
-              <SelectTrigger className="border-gray-300 focus:border-primary focus:ring-primary">
-                <SelectValue placeholder="Laundry Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Laundry Status</SelectItem>
-                <SelectItem value="to-be-picked">To Be Picked</SelectItem>
-                <SelectItem value="picked">Picked</SelectItem>
-                <SelectItem value="in-progress">In Progress</SelectItem>
-                <SelectItem value="ready">Ready</SelectItem>
-                <SelectItem value="delivered">Delivered</SelectItem>
-              </SelectContent>
-            </Select>
 
             <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger className="border-gray-300 focus:border-primary focus:ring-primary">
@@ -1854,19 +1832,6 @@ export default function OrdersPage() {
                           <User className="w-4 h-4 text-blue-600" />
                           <span className="font-semibold text-blue-900 text-sm">Customer</span>
                         </div>
-                        <Badge className={`text-xs px-2 py-1 ${
-                          (order.laundryStatus || 'to-be-picked') === 'delivered' 
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                            : (order.laundryStatus || 'to-be-picked') === 'ready'
-                            ? 'bg-blue-100 text-blue-800 border-blue-200'
-                            : (order.laundryStatus || 'to-be-picked') === 'in-progress'
-                            ? 'bg-orange-100 text-orange-800 border-orange-200'
-                            : (order.laundryStatus || 'to-be-picked') === 'picked'
-                            ? 'bg-purple-100 text-purple-800 border-purple-200'
-                            : 'bg-gray-100 text-gray-800 border-gray-200'
-                        }`}>
-                          {(order.laundryStatus || 'to-be-picked').split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                        </Badge>
                       </div>
                       <div className="space-y-1">
                         <p className="font-medium text-gray-900 text-sm">{order.customer.name}</p>
@@ -1889,13 +1854,34 @@ export default function OrdersPage() {
                         <Package className="w-4 h-4 text-emerald-600" />
                         <span className="font-semibold text-emerald-900 text-sm">Services</span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-700">
-                          {order.services.length} service{order.services.length !== 1 ? 's' : ''}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {order.services.reduce((total, service) => total + service.quantity, 0)} items
-                        </span>
+                      <div className="space-y-1">
+                        {order.services.map((service, index) => {
+                          let unitPrice = 0;
+                          if (typeof service.price === 'string') {
+                            const cleanPrice = service.price.replace(/[^\d.]/g, '');
+                            unitPrice = parseFloat(cleanPrice) || 0;
+                          } else if (typeof service.price === 'number') {
+                            unitPrice = isNaN(service.price) ? 0 : service.price;
+                          }
+                          
+                          // Ensure we never have NaN
+                          if (isNaN(unitPrice)) {
+                            unitPrice = 0;
+                          }
+                          
+                          const totalPrice = unitPrice * service.quantity;
+                          
+                          return (
+                            <div key={index} className="flex justify-between items-center text-sm">
+                              <span className="text-gray-700">
+                                {service.quantity} × {service.serviceName}
+                              </span>
+                              <span className="text-gray-500">
+                                Ksh {totalPrice.toLocaleString()}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -2013,22 +1999,6 @@ export default function OrdersPage() {
                             </div>
                           )}
                         </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs text-gray-600">Laundry:</span>
-                          <Badge className={`text-xs px-2 py-1 ${
-                            (order.laundryStatus || 'to-be-picked') === 'delivered' 
-                              ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                              : (order.laundryStatus || 'to-be-picked') === 'ready'
-                              ? 'bg-blue-100 text-blue-800 border-blue-200'
-                              : (order.laundryStatus || 'to-be-picked') === 'in-progress'
-                              ? 'bg-orange-100 text-orange-800 border-orange-200'
-                              : (order.laundryStatus || 'to-be-picked') === 'picked'
-                              ? 'bg-purple-100 text-purple-800 border-purple-200'
-                              : 'bg-gray-100 text-gray-800 border-gray-200'
-                          }`}>
-                            {(order.laundryStatus || 'to-be-picked').split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                          </Badge>
-                        </div>
                       </div>
                     </div>
 
@@ -2135,10 +2105,10 @@ export default function OrdersPage() {
                           e.stopPropagation();
                           handleEditOrder(order);
                         }}
-                        className="flex-1 border-primary text-primary hover:bg-primary hover:text-white"
+                        className="flex-1 border-primary text-primary hover:bg-primary hover:text-white min-w-0"
                       >
                         <Edit className="w-4 h-4" />
-                        Edit
+                        <span className="truncate">Edit</span>
                       </Button>
                       <Button
                         size="sm"
@@ -2147,10 +2117,10 @@ export default function OrdersPage() {
                           e.stopPropagation();
                           handleDeleteOrder(order);
                         }}
-                        className="flex-1 border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                        className="flex-1 border-red-600 text-red-600 hover:bg-red-600 hover:text-white min-w-0 whitespace-nowrap"
                       >
                         <Trash2 className="w-4 h-4" />
-                        Delete
+                        <span className="truncate">Delete</span>
                       </Button>
                     </div>
 
@@ -2164,10 +2134,12 @@ export default function OrdersPage() {
                             handleInitiatePayment(order);
                           }}
                           disabled={initiatingPayment}
-                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white min-w-0"
                         >
                           {initiatingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
-                          {order.paymentStatus === 'partial' ? 'Ksh Request Balance' : 'Ksh Request Payment'}
+                          <span className="truncate">
+                            {order.paymentStatus === 'partial' ? 'Ksh Request Balance' : 'Ksh Request Payment'}
+                          </span>
                         </Button>
                       )}
                       {order.paymentStatus === 'pending' && order.mpesaPayment?.checkoutRequestId && (
@@ -2243,11 +2215,34 @@ export default function OrdersPage() {
                         </div>
 
                         {/* Services Summary */}
-                        <div className="text-center">
-                          <p className="font-medium text-gray-900">{order.services.length} services</p>
-                          <p className="text-sm text-gray-600">
-                            {order.services.reduce((total, service) => total + service.quantity, 0)} items
-                          </p>
+                        <div className="space-y-1">
+                          {order.services.map((service, index) => {
+                            let unitPrice = 0;
+                            if (typeof service.price === 'string') {
+                              const cleanPrice = service.price.replace(/[^\d.]/g, '');
+                              unitPrice = parseFloat(cleanPrice) || 0;
+                            } else if (typeof service.price === 'number') {
+                              unitPrice = isNaN(service.price) ? 0 : service.price;
+                            }
+                            
+                            // Ensure we never have NaN
+                            if (isNaN(unitPrice)) {
+                              unitPrice = 0;
+                            }
+                            
+                            const totalPrice = unitPrice * service.quantity;
+                            
+                            return (
+                              <div key={index} className="flex justify-between items-center text-sm">
+                                <span className="text-gray-700">
+                                  {service.quantity} × {service.serviceName}
+                                </span>
+                                <span className="text-gray-500">
+                                  Ksh {totalPrice.toLocaleString()}
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
 
                         {/* Status Badges */}
@@ -2728,22 +2723,6 @@ export default function OrdersPage() {
                           </div>
                         </div>
                       )}
-                    </div>
-                    <div>
-                      <h5 className="text-sm text-gray-500">Laundry Status</h5>
-                      <Badge className={`${
-                        (selectedOrder.laundryStatus || 'to-be-picked') === 'delivered' 
-                          ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                          : (selectedOrder.laundryStatus || 'to-be-picked') === 'ready'
-                          ? 'bg-blue-100 text-blue-800 border-blue-200'
-                          : (selectedOrder.laundryStatus || 'to-be-picked') === 'in-progress'
-                          ? 'bg-orange-100 text-orange-800 border-orange-200'
-                          : (selectedOrder.laundryStatus || 'to-be-picked') === 'picked'
-                          ? 'bg-purple-100 text-purple-800 border-purple-200'
-                          : 'bg-gray-100 text-gray-800 border-gray-200'
-                      }`}>
-                        {(selectedOrder.laundryStatus || 'to-be-picked').split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                      </Badge>
                     </div>
                   </div>
                 </CardContent>

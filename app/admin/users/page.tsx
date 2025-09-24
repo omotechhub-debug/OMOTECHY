@@ -25,7 +25,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useAuth } from "@/hooks/useAuth"
 import UserPermissionsModal from '@/components/UserPermissionsModal'
-import ProtectedRoute from '@/components/ProtectedRoute'
+import AdminProtectedRoute from '@/components/AdminProtectedRoute'
 
 interface User {
   id: string;
@@ -34,6 +34,7 @@ interface User {
   role: 'superadmin' | 'admin' | 'user';
   isActive: boolean;
   approved: boolean;
+  reasonForAdminAccess?: string;
   createdAt: string;
   updatedAt: string;
   pagePermissions: any[];
@@ -325,7 +326,7 @@ export default function UserManagement() {
   const pendingUsers = users.filter(u => !u.approved).length;
 
   return (
-    <ProtectedRoute requireSuperAdmin={true}>
+    <AdminProtectedRoute requireSuperAdmin={true}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -414,6 +415,13 @@ export default function UserManagement() {
             >
               Inactive
             </Button>
+            <Button
+              variant={filterStatus === "pending" ? "default" : "outline"}
+              onClick={() => setFilterStatus("pending")}
+              size="sm"
+            >
+              Pending Approval
+            </Button>
           </div>
         </div>
 
@@ -463,6 +471,13 @@ export default function UserManagement() {
                             </Badge>
                           )}
                         </div>
+                        {user.reasonForAdminAccess && (
+                          <div className="mt-2">
+                            <p className="text-xs text-gray-500">
+                              <strong>Reason:</strong> {user.reasonForAdminAccess}
+                            </p>
+                          </div>
+                        )}
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -555,6 +570,6 @@ export default function UserManagement() {
           onSave={handleSavePermissions}
         />
       </div>
-    </ProtectedRoute>
+    </AdminProtectedRoute>
   )
 } 

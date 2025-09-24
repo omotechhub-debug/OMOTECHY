@@ -80,7 +80,7 @@ class SMSService {
   }
 
   async sendBookingConfirmation(orderData: any): Promise<SMSResponse> {
-    const { customer, orderNumber, pickupDate, pickupTime, services } = orderData;
+    const { customer, orderNumber, services, totalAmount, paymentStatus } = orderData;
     const phone = this.formatPhone(customer.phone);
     const serviceNames = services.map((s: any) => s.serviceName).join(', ');
     
@@ -89,11 +89,10 @@ class SMSService {
 Your order #${orderNumber} has been confirmed! 
 
 Services: ${serviceNames}
-Pickup: ${pickupDate} at ${pickupTime}
+Total Amount: Ksh ${totalAmount?.toLocaleString() || '0'}
+Payment Status: ${paymentStatus?.toUpperCase() || 'UNPAID'}
 
 We're excited to serve you with our premium laundry care!
-
-You'll get a text as soon as your booking is approved.
 
 Thank you for choosing Econuru Services!
 
@@ -219,8 +218,8 @@ Customer care: +254757883799`;
 
   async sendAdminNewOrderNotification(orderData: any): Promise<SMSResponse> {
     const adminPhone = "+254757883799";
-    const { customer, orderNumber, pickupDate, pickupTime } = orderData;
-    const message = `New order received!\nName: ${customer.name}\nPhone: ${customer.phone}\nOrder #: ${orderNumber}\nPickup: ${pickupDate} at ${pickupTime}`;
+    const { customer, orderNumber, totalAmount, paymentStatus } = orderData;
+    const message = `New order received!\nName: ${customer.name || 'N/A'}\nPhone: ${customer.phone}\nOrder #: ${orderNumber}\nAmount: Ksh ${totalAmount?.toLocaleString() || '0'}\nStatus: ${paymentStatus?.toUpperCase() || 'UNPAID'}`;
     return this.sendSMS(adminPhone, message);
   }
 }

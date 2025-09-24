@@ -35,6 +35,30 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // For admin users, ensure they have proper admin permissions
+    if (user.role === 'admin' || user.role === 'superadmin') {
+      // Ensure admin has valid page permissions
+      if (!user.pagePermissions || !Array.isArray(user.pagePermissions) || user.pagePermissions.length === 0) {
+        console.log(`⚠️ Admin user ${email} has no page permissions, creating default permissions`);
+        
+        // Create default admin permissions
+        const defaultPages = [
+          'dashboard', 'orders', 'pos', 'customers', 'services', 'categories',
+          'reports', 'users', 'expenses', 'gallery', 'testimonials', 'promotions', 'settings'
+        ];
+        
+        const defaultPermissions = defaultPages.map(page => ({
+          page,
+          canView: true,
+          canEdit: user.role === 'superadmin' ? true : ['dashboard', 'orders', 'pos', 'customers', 'services', 'categories'].includes(page),
+          canDelete: user.role === 'superadmin' ? true : ['orders', 'customers'].includes(page)
+        }));
+        
+        user.pagePermissions = defaultPermissions;
+        await user.save();
+      }
+    }
+
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password)
     if (!isPasswordValid) {
@@ -62,7 +86,9 @@ export async function POST(request: NextRequest) {
       email: user.email,
       role: user.role,
       isActive: user.isActive,
-      approved: user.approved
+      approved: user.approved,
+      // Include pagePermissions for admin users
+      ...(user.pagePermissions && { pagePermissions: user.pagePermissions })
     }
 
     const response = NextResponse.json({

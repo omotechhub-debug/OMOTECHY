@@ -54,7 +54,11 @@ export async function POST(request: NextRequest) {
     // Check if admin is approved
     if (!user.approved) {
       return NextResponse.json(
-        { error: 'Admin account is pending approval' },
+        { 
+          error: 'Admin account is pending approval',
+          code: 'PENDING_APPROVAL',
+          email: user.email 
+        },
         { status: 403 }
       );
     }
@@ -90,17 +94,15 @@ export async function POST(request: NextRequest) {
       await user.save();
     }
 
-    // Create JWT token with permissions
+    // Create JWT token compatible with client authentication
     const token = jwt.sign(
       { 
         userId: user._id, 
         email: user.email, 
-        role: user.role,
-        name: user.name,
-        pagePermissions: user.pagePermissions
+        role: user.role
       },
       JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '7d' }
     );
 
     // Return admin user data and token

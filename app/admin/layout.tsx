@@ -32,7 +32,7 @@ import {
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { useAuth, AuthProvider } from "@/hooks/useAuth"
-import ProtectedRoute from "@/components/ProtectedRoute"
+import AdminProtectedRoute from "@/components/AdminProtectedRoute"
 import { getAccessibleNavigation } from "@/lib/permissions"
 
 function AdminLayoutContent({
@@ -83,8 +83,8 @@ function AdminLayoutContent({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [logout])
 
-  // Skip rendering the admin layout on the login page only
-  if (pathname === "/admin/login") {
+  // Skip rendering the admin layout on the login, signup, and pending approval pages
+  if (pathname === "/admin/login" || pathname === "/admin/signup" || pathname === "/admin/pending-approval") {
     return <>{children}</>
   }
 
@@ -146,7 +146,7 @@ function AdminLayoutContent({
   }
 
   return (
-    <ProtectedRoute requireAdmin={true}>
+    <AdminProtectedRoute requireAdmin={true}>
       <div className="min-h-screen bg-secondary flex">
         {/* Mobile Overlay */}
         <AnimatePresence>
@@ -373,7 +373,7 @@ function AdminLayoutContent({
           </main>
         </div>
       </div>
-    </ProtectedRoute>
+    </AdminProtectedRoute>
   )
 }
 

@@ -45,7 +45,9 @@ export async function GET(request: NextRequest) {
       email: user.email,
       role: user.role,
       isActive: user.isActive,
-      approved: user.approved
+      approved: user.approved,
+      // Include pagePermissions for admin users
+      ...(user.pagePermissions && { pagePermissions: user.pagePermissions })
     }
 
     return NextResponse.json({

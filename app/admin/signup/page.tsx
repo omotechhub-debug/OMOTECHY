@@ -3,23 +3,22 @@
 import React, { useState } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { ShirtIcon, Eye, EyeOff, AlertCircle, UserPlus } from "lucide-react"
+import { ShirtIcon, Eye, EyeOff, AlertCircle, UserPlus, Shield, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useAuth } from "@/contexts/AuthContext"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import Link from "next/link"
 
 export default function AdminSignup() {
   const router = useRouter()
-  const { signup, isAuthenticated } = useAuth()
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     password: "",
     confirmPassword: "",
+    reason: "",
   })
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
@@ -28,14 +27,7 @@ export default function AdminSignup() {
   const [success, setSuccess] = useState("")
   const [agreeToTerms, setAgreeToTerms] = useState(false)
 
-  // Redirect if already authenticated
-  React.useEffect(() => {
-    if (isAuthenticated) {
-      router.push("/admin/dashboard")
-    }
-  }, [isAuthenticated, router])
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setFormData(prev => ({
       ...prev,
@@ -68,19 +60,49 @@ export default function AdminSignup() {
       return
     }
 
-    const result = await signup(formData.name, formData.email, formData.password)
-    
-    if (result.success) {
-      setSuccess("Account created successfully! You can now login.")
-      setFormData({
-        name: "",
-        email: "",
-        password: "",
-        confirmPassword: "",
+    if (!formData.reason.trim()) {
+      setError("Please provide a reason for requesting admin access")
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      const response = await fetch('/api/auth/admin-signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          password: formData.password,
+          reason: formData.reason
+        })
       })
-      setAgreeToTerms(false)
-    } else {
-      setError(result.error || "Signup failed")
+
+      const data = await response.json()
+
+      if (data.success) {
+        setSuccess(data.message || "Admin account request submitted successfully! You will be notified when approved.")
+        // Clear form
+        setFormData({
+          name: "",
+          email: "",
+          password: "",
+          confirmPassword: "",
+          reason: "",
+        })
+        setAgreeToTerms(false)
+        
+        // Redirect to pending approval page after 2 seconds
+        setTimeout(() => {
+          router.push(`/admin/pending-approval?email=${encodeURIComponent(formData.email)}`)
+        }, 2000)
+      } else {
+        setError(data.message || "Failed to submit admin request")
+      }
+    } catch (error) {
+      setError("Network error. Please check your connection and try again.")
     }
     
     setIsLoading(false)
@@ -97,10 +119,10 @@ export default function AdminSignup() {
         <div className="p-8">
           <div className="flex flex-col items-center justify-center mb-8">
             <div className="w-16 h-16 rounded-full bg-[#263C7C] flex items-center justify-center mb-4 shadow-lg">
-              <UserPlus className="w-8 h-8 text-white" />
+              <Shield className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-center text-[#263C7C]">Create Admin Account</h1>
-            <p className="text-gray-600 text-center mt-2">Join OMOTECH HUB admin team</p>
+            <h1 className="text-2xl font-bold text-center text-[#263C7C]">Request Admin Access</h1>
+            <p className="text-gray-600 text-center mt-2">Submit your request to become an administrator</p>
           </div>
 
           {error && (
@@ -114,7 +136,7 @@ export default function AdminSignup() {
 
           {success && (
             <Alert className="mb-6 border-emerald-200 bg-emerald-50">
-              <AlertCircle className="h-4 w-4 text-emerald-600" />
+              <Clock className="h-4 w-4 text-emerald-600" />
               <AlertDescription className="text-emerald-600">
                 {success}
               </AlertDescription>
@@ -210,6 +232,23 @@ export default function AdminSignup() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="reason" className="text-sm font-medium">
+                Reason for Admin Access
+              </Label>
+              <textarea
+                id="reason"
+                name="reason"
+                value={formData.reason}
+                onChange={handleInputChange}
+                placeholder="Please explain why you need admin access..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#263C7C] focus:border-transparent resize-none"
+                rows={3}
+                required
+                disabled={isLoading}
+              />
+            </div>
+
             <div className="flex items-center space-x-2">
               <Checkbox 
                 id="terms" 
@@ -219,7 +258,7 @@ export default function AdminSignup() {
               />
               <Label htmlFor="terms" className="text-sm font-medium">
                 I agree to the{" "}
-                <a href="/terms" className="text-[#263C7C] hover:text-[#8B99B9] hover:underline">
+                <a href="#" className="text-[#263C7C] hover:underline">
                   Terms and Conditions
                 </a>
               </Label>
@@ -227,17 +266,17 @@ export default function AdminSignup() {
 
             <Button
               type="submit"
-              className="w-full btn-primary rounded-xl h-12"
+              className="w-full bg-[#263C7C] hover:bg-[#1e2f5f] text-white rounded-xl h-12"
               disabled={isLoading}
             >
-              {isLoading ? "Creating Account..." : "Create Account"}
+              {isLoading ? "Submitting Request..." : "Submit Admin Request"}
             </Button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
-              Already have an account?{" "}
-              <Link href="/admin/login" className="font-medium text-[#263C7C] hover:text-[#8B99B9] hover:underline">
+              Already have an admin account?{" "}
+              <Link href="/admin/login" className="font-medium text-[#263C7C] hover:underline">
                 Sign in here
               </Link>
             </p>
@@ -247,7 +286,7 @@ export default function AdminSignup() {
         <div className="p-6 bg-gradient-to-r from-[#F0F2FE] to-white border-t border-[#8B99B9]/20 text-center">
           <p className="text-sm text-gray-600">
             Need help?{" "}
-            <a href="tel:+254740802704" className="font-medium text-[#263C7C] hover:text-[#8B99B9] hover:underline">
+            <a href="tel:+254740802704" className="font-medium text-[#263C7C] hover:underline">
               Contact Support
             </a>
           </p>
@@ -255,4 +294,4 @@ export default function AdminSignup() {
       </motion.div>
     </div>
   )
-} 
+}

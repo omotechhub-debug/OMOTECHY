@@ -25,10 +25,10 @@ export async function POST(request: NextRequest) {
     const orderData = await request.json();
     
     // Validate required fields
-    if (!orderData.customer?.name || !orderData.customer?.phone || !orderData.services || orderData.services.length === 0) {
+    if (!orderData.customer?.phone || !orderData.services || orderData.services.length === 0) {
       return NextResponse.json({ 
         success: false, 
-        error: 'Customer name, phone, and at least one service are required' 
+        error: 'Customer phone and at least one service are required' 
       }, { status: 400 });
     }
 
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
     // Create new order
     const order = new Order({
       customer: {
-        name: orderData.customer.name,
+        name: orderData.customer.name || '',
         phone: orderData.customer.phone,
         email: orderData.customer.email || '',
         address: orderData.customer.address || '',
@@ -117,15 +117,11 @@ export async function POST(request: NextRequest) {
         quantity: service.quantity,
         price: service.price,
       })),
-      pickupDate: orderData.pickupDate || '',
-      pickupTime: orderData.pickupTime || '',
-      notes: orderData.notes || '',
       location: orderData.location || 'main-branch',
       totalAmount: orderData.totalAmount || 0,
-      pickDropAmount: orderData.pickDropAmount || 0,
-      discount: orderData.discount || 0,
       paymentStatus: orderData.paymentStatus || 'unpaid',
-      laundryStatus: orderData.laundryStatus || 'to-be-picked',
+      partialAmount: orderData.partialAmount || 0,
+      remainingAmount: orderData.remainingAmount || 0,
       status: orderData.status || 'pending',
       orderNumber: generateOrderNumber(),
       promoCode: promoCode || '',
