@@ -9,7 +9,7 @@ interface IUser {
   id: string;
   name: string;
   email: string;
-  role: 'superadmin' | 'admin' | 'user';
+  role: 'superadmin' | 'admin' | 'manager' | 'user';
   isActive: boolean;
   approved: boolean;
   pagePermissions: IPagePermission[];
@@ -108,7 +108,7 @@ export function getAccessiblePages(user: IUser | null): string[] {
   if (user.role === 'superadmin') {
     return [
       'dashboard', 'orders', 'pos', 'customers', 'services', 'categories',
-      'reports', 'mpesa-transactions', 'users', 'expenses', 'gallery', 'testimonials', 'promotions', 'inventory', 'inventory-management'
+      'reports', 'mpesa-transactions', 'users', 'expenses', 'gallery', 'testimonials', 'promotions', 'inventory', 'inventory-management', 'stations'
     ];
   }
 
@@ -167,6 +167,7 @@ export const ADMIN_PAGES = {
   promotions: { label: 'Promotions', icon: 'Tag', path: '/admin/promotions' },
   inventory: { label: 'Inventory', icon: 'Package', path: '/admin/inventory' },
   'inventory-management': { label: 'Inventory Management', icon: 'BarChart3', path: '/admin/inventory-management' },
+  stations: { label: 'Stations', icon: 'Building', path: '/admin/stations' },
 } as const;
 
 /**

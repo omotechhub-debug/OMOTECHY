@@ -50,6 +50,7 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/useAuth";
+import UserStationInfo from "@/components/UserStationInfo";
 
 interface Service {
   _id: string;
@@ -153,7 +154,7 @@ const iconMap: { [key: string]: React.ComponentType<any> } = {
 };
 
 export default function POSPage() {
-  const { token } = useAuth();
+  const { token, user, refreshUserData } = useAuth();
   const router = useRouter();
   const [services, setServices] = useState<Service[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -877,22 +878,27 @@ Need help? Call us at +254 757 883 799`;
       return;
     }
     
+    // Ensure user data is available and refreshed
+    // Validating user data...
+    
+    if (!user) {
+      alert('User data not available. Please refresh the page and try again.');
+      return;
+    }
+    
+    // Check if user has station assignment
+    if (!user.stationId && (!user.managedStations || user.managedStations.length === 0)) {
+      alert('You must be assigned to a station to create orders. Please contact your administrator.');
+      return;
+    }
+    
+    // User data validation passed
+    
     // Set processing state immediately to prevent multiple clicks
     setIsProcessingOrder(true);
     setPromoError("");
     try {
-      console.log('Creating order with data:', {
-        customer: customerInfo,
-        services: cart,
-        location: selectedLocation,
-        totalAmount: calculateFinalTotal(),
-        paymentStatus: customerInfo.paymentStatus,
-        partialAmount: customerInfo.paymentStatus === 'partial' ? (parseInt(customerInfo.partialAmount) || 0) : 0,
-        remainingAmount: customerInfo.paymentStatus === 'partial' ? Math.max(0, calculateFinalTotal() - (parseInt(customerInfo.partialAmount) || 0)) : 0,
-        status: isEditing ? "confirmed" : "pending",
-        promoCode: promoCode.trim() || undefined,
-        promotionDetails: lockedPromotion || undefined,
-      });
+      // Creating order...
       
       const orderData = {
         customer: {
@@ -916,13 +922,13 @@ Need help? Call us at +254 757 883 799`;
         status: isEditing ? "confirmed" : "pending",
         promoCode: promoCode.trim() || undefined,
         promotionDetails: lockedPromotion || undefined,
+        // Add current user's station information if available
+        stationId: user?.stationId || user?.managedStations?.[0] || null,
       };
       const url = isEditing ? `/api/orders/${editingOrderId}` : '/api/orders';
       const method = isEditing ? 'PATCH' : 'POST';
       
-      console.log('Token:', token ? 'Present' : 'Missing');
-      console.log('URL:', url);
-      console.log('Method:', method);
+      // Sending order request...
       
       const response = await fetch(url, {
         method,
@@ -938,8 +944,11 @@ Need help? Call us at +254 757 883 799`;
       
       const data = await response.json();
       console.log('Response data:', data);
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
       
       if (data.success) {
+        console.log('✅ Order created successfully:', data.order?.orderNumber);
         setPromoDiscount(data.order.promoDiscount || 0);
         setPromoCode(data.order.promoCode || "");
         setPromoError("");
@@ -979,10 +988,12 @@ Need help? Call us at +254 757 883 799`;
         }
         setSuccessDialogOpen(true);
       } else {
-        console.log('Order creation failed:', data);
+        console.error('❌ Order creation failed:', data);
+        console.error('Response status:', response.status);
         if (data.error && data.error.toLowerCase().includes("promo")) {
           setPromoError(data.error);
         }
+        alert(`Failed to ${isEditing ? 'update' : 'create'} order: ${data.error || 'Unknown error'}`);
         throw new Error(data.error || `Failed to ${isEditing ? 'update' : 'create'} order`);
       }
     } catch (error) {
@@ -1262,6 +1273,13 @@ Need help? Call us at +254 757 883 799`;
                 </Button>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* User and Station Info */}
+        <div className="bg-white border-b">
+          <div className="container mx-auto px-4 py-4">
+            <UserStationInfo />
           </div>
         </div>
 

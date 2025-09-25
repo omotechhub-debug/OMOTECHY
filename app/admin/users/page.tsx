@@ -31,10 +31,16 @@ interface User {
   id: string;
   name: string;
   email: string;
-  role: 'superadmin' | 'admin' | 'user';
+  role: 'superadmin' | 'admin' | 'manager' | 'user';
   isActive: boolean;
   approved: boolean;
   reasonForAdminAccess?: string;
+  stationId?: string;
+  station?: {
+    _id: string;
+    name: string;
+    location: string;
+  };
   createdAt: string;
   updatedAt: string;
   pagePermissions: any[];
@@ -103,6 +109,7 @@ export default function UserManagement() {
       setLoading(false);
     }
   };
+
 
   // Initial fetch
   useEffect(() => {
@@ -311,6 +318,7 @@ export default function UserManagement() {
     }
   };
 
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -323,6 +331,7 @@ export default function UserManagement() {
   const activeUsers = users.filter(u => u.isActive).length;
   const inactiveUsers = users.filter(u => !u.isActive).length;
   const adminUsers = users.filter(u => u.role === 'admin' || u.role === 'superadmin').length;
+  const managerUsers = users.filter(u => u.role === 'manager').length;
   const pendingUsers = users.filter(u => !u.approved).length;
 
   return (
@@ -392,6 +401,13 @@ export default function UserManagement() {
             >
               Users
             </Button>
+            <Button
+              variant={filterRole === "manager" ? "default" : "outline"}
+              onClick={() => setFilterRole("manager")}
+              size="sm"
+            >
+              Managers
+            </Button>
           </div>
           <div className="flex gap-2">
             <Button
@@ -458,10 +474,15 @@ export default function UserManagement() {
                     <div>
                       <h3 className="font-medium">{user.name}</h3>
                       <p className="text-sm text-gray-500">{user.email}</p>
-                      <div className="flex items-center space-x-2 mt-1">
-                          <Badge variant={user.role === 'admin' || user.role === 'superadmin' ? 'default' : 'secondary'}>
+                        <div className="flex items-center space-x-2 mt-1">
+                          <Badge variant={user.role === 'admin' || user.role === 'superadmin' ? 'default' : user.role === 'manager' ? 'secondary' : 'outline'}>
                           {user.role}
                         </Badge>
+                        {user.station && (
+                          <Badge variant="outline" className="text-blue-600 border-blue-600">
+                            {user.station.name}
+                          </Badge>
+                        )}
                         <Badge variant={user.isActive ? 'default' : 'destructive'}>
                           {user.isActive ? 'Active' : 'Inactive'}
                         </Badge>
@@ -501,6 +522,16 @@ export default function UserManagement() {
                         Promote to Admin
                       </Button>
                       ) : (user.role === 'admin' && user.approved) ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => demoteToUser(user.id)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <UserX className="h-4 w-4 mr-1" />
+                        Demote to User
+                      </Button>
+                      ) : (user.role === 'manager' && user.approved) ? (
                       <Button
                         size="sm"
                         variant="outline"
@@ -569,6 +600,7 @@ export default function UserManagement() {
           onClose={handleClosePermissions}
           onSave={handleSavePermissions}
         />
+
       </div>
     </AdminProtectedRoute>
   )

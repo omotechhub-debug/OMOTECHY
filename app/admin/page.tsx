@@ -37,11 +37,20 @@ import AdminProtectedRoute from '@/components/AdminProtectedRoute'
 import { useAuth } from '@/hooks/useAuth'
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Building } from 'lucide-react'
+
+interface StationInfo {
+  _id: string;
+  name: string;
+  location: string;
+  isActive: boolean;
+}
 
 export default function AdminPage() {
-  const { user, logout } = useAuth()
+  const { user, logout, refreshUserData } = useAuth()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const [stationInfo, setStationInfo] = useState<StationInfo | null>(null)
 
   // Handle responsive behavior
   useEffect(() => {
@@ -58,6 +67,38 @@ export default function AdminPage() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  // Fetch station information when user data is available
+  useEffect(() => {
+    async function fetchStationInfo() {
+      if (user?.stationId || (user?.managedStations && user.managedStations.length > 0)) {
+        try {
+          const stationId = user.stationId || user.managedStations?.[0];
+          
+          if (stationId) {
+            const token = localStorage.getItem('authToken');
+            const stationRes = await fetch(`/api/stations/${stationId}`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (stationRes.ok) {
+              const stationData = await stationRes.json();
+              setStationInfo(stationData.station);
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching station info:', error);
+        }
+      }
+    }
+    
+    if (user) {
+      fetchStationInfo();
+    }
+  }, [user])
 
   const adminSections = [
     {
@@ -232,6 +273,11 @@ export default function AdminPage() {
                 <span className="font-medium text-gray-900">
                   {user?.name || user?.email || "Admin"}
                 </span>
+                {stationInfo && (
+                  <span className="text-xs text-gray-500">
+                    • {stationInfo.name}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1 sm:gap-2 bg-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg shadow-sm border border-gray-200">
                 {user?.role === 'superadmin' ? (
@@ -246,6 +292,12 @@ export default function AdminPage() {
                   <span className="text-xs text-gray-500 capitalize ml-1">
                     ({user?.role})
                   </span>
+                  {stationInfo && (
+                    <div className="flex items-center gap-1 mt-1">
+                      <Building className="h-3 w-3 text-gray-400" />
+                      <span className="text-xs text-gray-500">{stationInfo.name}</span>
+                    </div>
+                  )}
                 </div>
                 <div className="sm:hidden">
                   <span className="text-xs font-medium text-gray-700">
@@ -284,9 +336,31 @@ export default function AdminPage() {
                     <h2 className="text-lg sm:text-xl lg:text-2xl font-bold text-[#263C7C] mb-1 sm:mb-2">
                       Welcome back, {user?.name || 'Admin'}!
                     </h2>
-                    <p className="text-gray-600 text-xs sm:text-sm lg:text-base">
-                      Manage your electronics, gas supply, and printing business with ease
+                    <p className="text-gray-600 text-xs sm:text-sm lg:text-base mb-2">
+                      {stationInfo ? (
+                        <>Managing <span className="font-semibold text-[#263C7C]">{stationInfo.name}</span> - {stationInfo.location}</>
+                      ) : user?.role === 'superadmin' ? (
+                        "Full system access - Manage all stations and business operations"
+                      ) : (
+                        "Manage your electronics, gas supply, and printing business with ease"
+                      )}
                     </p>
+                    {stationInfo && (
+                      <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500">
+                        <Building className="h-3 w-3 sm:h-4 sm:w-4" />
+                        <span>Station ID: {stationInfo._id?.slice(-8) || 'N/A'}</span>
+                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">
+                          {stationInfo.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {!stationInfo && (user?.role === 'manager' || user?.role === 'admin') && (
+                      <div className="flex items-center gap-2 text-xs sm:text-sm text-amber-600">
+                        <AlertCircle className="h-3 w-3 sm:h-4 sm:w-4" />
+                        <span>No station assigned - Contact administrator for station access</span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 

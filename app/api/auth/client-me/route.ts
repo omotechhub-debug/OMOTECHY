@@ -46,6 +46,8 @@ export async function GET(request: NextRequest) {
       role: user.role,
       isActive: user.isActive,
       approved: user.approved,
+      stationId: user.stationId,
+      managedStations: user.managedStations,
       // Include pagePermissions for admin users
       ...(user.pagePermissions && { pagePermissions: user.pagePermissions })
     }

@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button"
 import { useAuth, AuthProvider } from "@/hooks/useAuth"
 import AdminProtectedRoute from "@/components/AdminProtectedRoute"
 import { getAccessibleNavigation } from "@/lib/permissions"
+import UserStationInfo from "@/components/UserStationInfo"
 
 function AdminLayoutContent({
   children,
@@ -350,19 +351,9 @@ function AdminLayoutContent({
               </div>
 
               {/* User Info */}
-              <div className="flex items-center gap-3">
-                <div className="hidden sm:flex items-center gap-2 text-sm text-gray-600">
-                  <span>Welcome,</span>
-                  <span className="font-medium text-gray-900">
-                    {user?.name || user?.email || "Admin"}
-                  </span>
-                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                    {user?.role}
-                  </span>
-                </div>
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Users className="w-4 h-4 text-primary" />
-                </div>
+              <UserStationInfo showInHeader={true} className="hidden sm:flex" />
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center sm:hidden">
+                <Users className="w-4 h-4 text-primary" />
               </div>
             </div>
           </div>

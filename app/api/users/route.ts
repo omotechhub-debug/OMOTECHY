@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
 import User from '@/lib/models/User';
+import Station from '@/lib/models/Station';
 
 async function getUsers(request: NextRequest) {
   try {
@@ -45,6 +46,7 @@ async function getUsers(request: NextRequest) {
     // Get users with pagination
     const users = await User.find(query)
       .select('-password') // Exclude password
+      .populate('stationId', 'name location')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -58,6 +60,12 @@ async function getUsers(request: NextRequest) {
       isActive: user.isActive,
       approved: user.approved,
       reasonForAdminAccess: user.reasonForAdminAccess,
+      stationId: user.stationId,
+      station: user.stationId ? {
+        _id: user.stationId._id,
+        name: user.stationId.name,
+        location: user.stationId.location
+      } : undefined,
       pagePermissions: user.pagePermissions,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt

@@ -12,8 +12,10 @@ import {
   ArrowUp,
   ArrowDown,
   MoreHorizontal,
+  Building,
 } from "lucide-react"
 import { useRouter } from 'next/navigation'
+import { useAuth } from '@/hooks/useAuth'
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,6 +25,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ChartContainer } from '@/components/ui/chart';
 
 export default function AdminDashboard() {
+  const { user, refreshUserData } = useAuth();
   const [allTime, setAllTime] = useState({
     revenue: 0,
     orders: 0,
@@ -55,11 +58,33 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [recentOrders, setRecentOrders] = useState([]);
   const [serviceStats, setServiceStats] = useState([]);
+  const [stationInfo, setStationInfo] = useState(null);
   const router = useRouter();
 
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
+      
+      // Fetch station information if user has one
+      if (user?.stationId || (user?.managedStations && user.managedStations.length > 0)) {
+        try {
+          const stationId = user.stationId || user.managedStations[0];
+          const token = localStorage.getItem('authToken');
+          const stationRes = await fetch(`/api/stations/${stationId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          if (stationRes.ok) {
+            const stationData = await stationRes.json();
+            setStationInfo(stationData.station);
+          }
+        } catch (error) {
+          console.error('Error fetching station info:', error);
+        }
+      }
+      
       // Fetch orders
       const ordersRes = await fetch('/api/orders');
       const ordersData = await ordersRes.json();
@@ -197,7 +222,7 @@ export default function AdminDashboard() {
       setLoading(false);
     }
     fetchData();
-  }, []);
+  }, [user]);
 
   const statCards = [
     {
@@ -325,8 +350,18 @@ export default function AdminDashboard() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-text-light">Welcome back! Here's what's happening with your business.</p>
+          <h1 className="text-3xl font-bold">
+            Welcome back, {user?.name || 'Manager'}!
+          </h1>
+          <p className="text-text-light">
+            {stationInfo ? (
+              <>Managing <span className="font-semibold text-primary">{stationInfo.name}</span> - {stationInfo.location}</>
+            ) : user?.role === 'superadmin' ? (
+              "Full system access - Manage all stations and business operations"
+            ) : (
+              "You are not currently assigned to any station. Contact your administrator for station access."
+            )}
+          </p>
         </div>
         <div className="flex gap-3 mt-4 md:mt-0">
           <Button variant="outline" className="rounded-xl">
@@ -336,6 +371,63 @@ export default function AdminDashboard() {
           <Button className="bg-accent hover:bg-accent/90 text-white rounded-xl">Export Report</Button>
         </div>
       </div>
+
+      {/* Station Information Card */}
+      {stationInfo ? (
+        <Card className="luxury-card bg-gradient-to-r from-primary/5 to-accent/5 border-primary/20">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-full bg-primary/10">
+                  <Building className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-primary">{stationInfo.name}</h3>
+                  <p className="text-text-light">{stationInfo.location}</p>
+                  <p className="text-sm text-text-light">
+                    Station ID: {stationInfo._id?.slice(-8) || 'N/A'}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <Badge variant="outline" className="text-primary border-primary">
+                  {user?.role === 'manager' ? 'Station Manager' : 'Station Admin'}
+                </Badge>
+                <p className="text-sm text-text-light mt-1">
+                  {stationInfo.isActive ? 'Active' : 'Inactive'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="luxury-card bg-gradient-to-r from-gray-50 to-gray-100 border-gray-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-full bg-gray-100">
+                  <Building className="w-6 h-6 text-gray-500" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-600">No Station Assigned</h3>
+                  <p className="text-text-light">You are not currently assigned to any station</p>
+                  <p className="text-sm text-text-light">
+                    Contact your administrator to get station access
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <Badge variant="outline" className="text-gray-500 border-gray-300 bg-gray-100">
+                  No Station
+                </Badge>
+                <p className="text-sm text-text-light mt-1">
+                  Unassigned
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* All Time Data */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

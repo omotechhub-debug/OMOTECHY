@@ -94,6 +94,17 @@ export interface IOrder extends mongoose.Document {
     paymentCompletedAt?: Date;
   };
   paymentMethod?: 'mpesa_stk' | 'mpesa_c2b' | 'cash' | 'bank_transfer';
+  // Required fields for order tracking
+  createdBy: {
+    userId: mongoose.Types.ObjectId;
+    name: string;
+    role: 'superadmin' | 'admin' | 'manager' | 'user';
+  };
+  station: {
+    stationId: mongoose.Types.ObjectId;
+    name: string;
+    location: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -318,6 +329,38 @@ const orderSchema = new mongoose.Schema<IOrder>({
     type: String,
     enum: ['mpesa_stk', 'mpesa_c2b', 'cash', 'bank_transfer'],
     default: 'cash',
+  },
+  // Required fields for order tracking
+  createdBy: {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: [true, 'Creator user ID is required'],
+    },
+    name: {
+      type: String,
+      required: [true, 'Creator name is required'],
+    },
+    role: {
+      type: String,
+      enum: ['superadmin', 'admin', 'manager', 'user'],
+      required: [true, 'Creator role is required'],
+    },
+  },
+  station: {
+    stationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Station',
+      required: [true, 'Station ID is required'],
+    },
+    name: {
+      type: String,
+      required: [true, 'Station name is required'],
+    },
+    location: {
+      type: String,
+      required: [true, 'Station location is required'],
+    },
   },
 }, {
   timestamps: true,

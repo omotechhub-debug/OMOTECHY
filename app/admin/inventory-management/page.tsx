@@ -61,7 +61,7 @@ interface InventoryMovement {
     _id: string;
     name: string;
     sku: string;
-  };
+  } | null;
   movementType: string;
   quantity: number;
   previousStock: number;
@@ -145,7 +145,7 @@ export default function InventoryManagementPage() {
 
       if (response.ok) {
         const data = await response.json();
-        setInventory(data.data);
+        setInventory(data.data || []);
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to fetch inventory');
@@ -269,7 +269,10 @@ export default function InventoryManagementPage() {
   // Filter movements
   const filteredMovements = movements.filter(movement => {
     const matchesType = movementTypeFilter === 'all' || movement.movementType === movementTypeFilter;
-    return matchesType;
+    const hasValidItem = movement.inventoryItem !== null && movement.inventoryItem !== undefined;
+    
+    
+    return matchesType && hasValidItem;
   });
 
   if (loading) {
@@ -587,41 +590,67 @@ export default function InventoryManagementPage() {
             </CardHeader>
             <CardContent className="p-0">
               <div className="max-h-96 overflow-y-auto">
-                {filteredMovements.slice(0, 20).map((movement) => {
-                  const typeInfo = getMovementTypeInfo(movement.movementType);
-                  return (
-                    <div key={movement._id} className="p-4 border-b border-gray-100">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <Badge className={`text-xs ${typeInfo.color}`}>
-                            {typeInfo.label}
-                          </Badge>
-                          <span className="text-sm font-medium">
-                            {movement.inventoryItem.name}
-                          </span>
+                {(() => {
+                  try {
+                    if (filteredMovements.length === 0) {
+                      return (
+                        <div className="p-8 text-center text-gray-500">
+                          <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                          <p>No recent movements found</p>
                         </div>
-                        <div className="flex items-center gap-1">
-                          {movement.quantity > 0 ? (
-                            <TrendingUp className="w-4 h-4 text-green-600" />
-                          ) : (
-                            <TrendingDown className="w-4 h-4 text-red-600" />
-                          )}
-                          <span className={`text-sm font-medium ${
-                            movement.quantity > 0 ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {movement.quantity > 0 ? '+' : ''}{movement.quantity}
-                          </span>
+                      );
+                    }
+
+                    return filteredMovements.slice(0, 20).map((movement) => {
+                    // Additional safety check
+                    if (!movement || !movement.inventoryItem) {
+                      return null;
+                    }
+                      
+                      const typeInfo = getMovementTypeInfo(movement.movementType);
+                      return (
+                        <div key={movement._id} className="p-4 border-b border-gray-100">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Badge className={`text-xs ${typeInfo.color}`}>
+                                {typeInfo.label}
+                              </Badge>
+                              <span className="text-sm font-medium">
+                                {movement.inventoryItem.name}
+                              </span>
+                            </div>
+                          <div className="flex items-center gap-1">
+                            {movement.quantity > 0 ? (
+                              <TrendingUp className="w-4 h-4 text-green-600" />
+                            ) : (
+                              <TrendingDown className="w-4 h-4 text-red-600" />
+                            )}
+                            <span className={`text-sm font-medium ${
+                              movement.quantity > 0 ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                              {movement.quantity > 0 ? '+' : ''}{movement.quantity}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {movement.previousStock} → {movement.newStock} • {movement.reason}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">
+                          {new Date(movement.createdAt).toLocaleString()}
                         </div>
                       </div>
-                      <div className="text-xs text-gray-500">
-                        {movement.previousStock} → {movement.newStock} • {movement.reason}
+                    );
+                    });
+                  } catch (error) {
+                    console.error('Error rendering movements:', error);
+                    return (
+                      <div className="p-8 text-center text-red-500">
+                        <AlertTriangle className="w-12 h-12 mx-auto mb-4 text-red-300" />
+                        <p>Error loading movements. Please refresh the page.</p>
                       </div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        {new Date(movement.createdAt).toLocaleString()}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  }
+                })()}
               </div>
             </CardContent>
           </Card>

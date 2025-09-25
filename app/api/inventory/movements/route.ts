@@ -1,13 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import InventoryMovement from '@/lib/models/InventoryMovement';
-import { requireAuth } from '@/lib/auth';
+import { verifyToken } from '@/lib/auth';
+import User from '@/lib/models/User';
 
 // GET all inventory movements
 export async function GET(request: NextRequest) {
   try {
-    await requireAuth(request);
     await connectDB();
+    
+    // Verify authentication
+    const token = request.headers.get('authorization')?.replace('Bearer ', '');
+    if (!token) {
+      return NextResponse.json({ error: 'No token provided' }, { status: 401 });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+
+    // Check if user is admin or superadmin
+    const user = await User.findById(decoded.userId);
+    if (!user || !['admin', 'superadmin'].includes(user.role)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
 
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50');
@@ -29,17 +46,20 @@ export async function GET(request: NextRequest) {
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip((page - 1) * limit);
+    
+    // Filter out movements with null inventoryItem (orphaned movements)
+    const validMovements = movements.filter(movement => movement.inventoryItem !== null);
 
     const total = await InventoryMovement.countDocuments(query);
 
     return NextResponse.json({
       success: true,
-      movements,
+      movements: validMovements,
       pagination: {
         page,
         limit,
-        total,
-        pages: Math.ceil(total / limit)
+        total: validMovements.length,
+        pages: Math.ceil(validMovements.length / limit)
       }
     });
 

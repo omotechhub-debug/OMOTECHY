@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
@@ -47,6 +47,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import UserStationInfo from '@/components/UserStationInfo';
 
 interface Order {
   _id: string;
@@ -85,6 +86,21 @@ interface Order {
   updatedAt: string;
   promoCode?: string;
   promoDiscount?: number;
+  // Order creator and station tracking
+  createdBy?: {
+    userId: string;
+    name: string;
+    role: 'superadmin' | 'admin' | 'manager' | 'user';
+  };
+  station?: {
+    stationId: string;
+    name: string;
+    location: string;
+  };
+  // M-Pesa payment fields
+  mpesaReceiptNumber?: string;
+  phoneNumber?: string;
+  paymentMethod?: 'mpesa_stk' | 'mpesa_c2b' | 'cash' | 'bank_transfer';
   mpesaPayment?: {
     checkoutRequestId?: string;
     mpesaReceiptNumber?: string;
@@ -117,7 +133,7 @@ const statusIcons = {
 };
 
 export default function OrdersPage() {
-  const { isAdmin, logout, isLoading, token } = useAuth();
+  const { isAdmin, logout, isLoading, token, user } = useAuth();
   const { toast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
@@ -168,9 +184,11 @@ export default function OrdersPage() {
   if (!isAdmin) return null;
 
   // Fetch orders
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
+      // Fetching orders...
+      
       const response = await fetch('/api/orders', {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -179,19 +197,47 @@ export default function OrdersPage() {
       
       if (response.ok) {
         const data = await response.json();
-        setOrders(data.orders || []);
-        setFilteredOrders(data.orders || []);
+        
+        let ordersToShow = data.orders || [];
+        
+        // Filter orders...
+        
+        // Filter out orders without station or creator information
+        ordersToShow = ordersToShow.filter((order: Order) => {
+          const hasStation = order.station?.stationId && order.station?.name;
+          const hasCreator = order.createdBy?.userId && order.createdBy?.name;
+          return hasStation && hasCreator;
+        });
+
+        // If user is a manager or admin with a specific station, filter orders by their station
+        if ((user?.role === 'manager' || user?.role === 'admin') && (user?.stationId || (user?.managedStations && user.managedStations.length > 0))) {
+          const userStationId = user.stationId || user.managedStations?.[0];
+          
+          ordersToShow = ordersToShow.filter((order: Order) => {
+            const matches = order.station?.stationId === userStationId || 
+                          order.station?.stationId === userStationId?.toString();
+            return matches;
+          });
+        }
+        
+        setOrders(ordersToShow);
+        setFilteredOrders(ordersToShow);
       } else {
-        console.error('Failed to fetch orders');
+        const errorData = await response.json();
+        console.error('Failed to fetch orders:', response.status, errorData);
+        setOrders([]);
+        setFilteredOrders([]);
       }
     } catch (error) {
       console.error('Error fetching orders:', error);
+      setOrders([]);
+      setFilteredOrders([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [token, user]);
 
-  const fetchPendingConfirmationsCount = async () => {
+  const fetchPendingConfirmationsCount = useCallback(async () => {
     try {
       const response = await fetch('/api/admin/payments/pending', {
         headers: {
@@ -207,14 +253,14 @@ export default function OrdersPage() {
     } catch (error) {
       console.error('Error fetching pending confirmations count:', error);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     if (token) {
       fetchOrders();
       fetchPendingConfirmationsCount();
     }
-  }, [token]);
+  }, [token, fetchOrders, fetchPendingConfirmationsCount]);
 
   // Filter and sort orders
   useEffect(() => {
@@ -1671,6 +1717,9 @@ export default function OrdersPage() {
         </div>
       </div>
 
+      {/* User and Station Info */}
+      <UserStationInfo />
+
       {/* Pending Confirmations Banner */}
       {pendingConfirmationsCount > 0 && (
         <Card className="border-l-4 border-l-orange-500 bg-orange-50 border-orange-200">
@@ -1772,14 +1821,22 @@ export default function OrdersPage() {
                   <CardHeader className="pb-3 relative overflow-hidden">
                     {/* Status Badges */}
                     <div className="absolute top-4 right-4 z-10 flex flex-col gap-1">
-                      <Badge className={`${statusColors[order.status]} flex items-center gap-1 px-2 py-1 font-semibold shadow-sm text-xs`}>
-                        {getStatusIcon(order.status)}
-                        {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                      </Badge>
+                      {/* Station Name - Replaces Confirmed status */}
+                      {order.station && (
+                        <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-xs px-2 py-1 font-semibold shadow-sm flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          <span>{order.station.name}</span>
+                        </Badge>
+                      )}
+                      {!order.station && (
+                        <Badge className="bg-red-100 text-red-800 border-red-200 text-xs px-2 py-1 font-semibold shadow-sm flex items-center gap-1">
+                          <span>NO STATION</span>
+                        </Badge>
+                      )}
                       <Badge className={`text-xs px-2 py-1 ${
                         (order.paymentStatus || 'unpaid') === 'paid' 
                           ? 'bg-emerald-100 text-emerald-800 border-emerald-200' 
-                          : (order.paymentStatus || 'unpaid') === 'partially_paid'
+                          : (order.paymentStatus || 'unpaid') === 'partial'
                           ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
                           : (order.paymentStatus || 'unpaid') === 'pending'
                           ? 'bg-blue-100 text-blue-800 border-blue-200'
@@ -1801,6 +1858,14 @@ export default function OrdersPage() {
                           {order.promoDiscount ? (
                             <span className="ml-1">-Ksh {order.promoDiscount.toLocaleString()}</span>
                           ) : null}
+                        </Badge>
+                      )}
+                      {/* Creator Tag */}
+                      {order.createdBy && (
+                        <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs px-2 py-1 font-semibold shadow-sm flex items-center gap-1">
+                          <User className="w-3 h-3" />
+                          <span>{order.createdBy.name}</span>
+                          <span className="text-blue-600">({order.createdBy.role})</span>
                         </Badge>
                       )}
                     </div>
@@ -2247,10 +2312,18 @@ export default function OrdersPage() {
 
                         {/* Status Badges */}
                         <div className="flex flex-col gap-2">
-                          <Badge className={`${statusColors[order.status]} flex items-center gap-1 px-3 py-1 font-semibold shadow-sm`}>
-                            {getStatusIcon(order.status)}
-                            {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                          </Badge>
+                          {/* Station Name - Replaces Confirmed status */}
+                          {order.station && (
+                            <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-xs px-2 py-1 font-semibold shadow-sm flex items-center gap-1">
+                              <MapPin className="w-3 h-3" />
+                              <span>{order.station.name}</span>
+                            </Badge>
+                          )}
+                          {!order.station && (
+                            <Badge className="bg-red-100 text-red-800 border-red-200 text-xs px-2 py-1 font-semibold shadow-sm flex items-center gap-1">
+                              <span>NO STATION</span>
+                            </Badge>
+                          )}
                           <Badge className={`text-xs px-2 py-1 ${
                             (order.paymentStatus || 'unpaid') === 'paid' 
                               ? 'bg-emerald-100 text-emerald-800 border-emerald-200' 
@@ -2269,6 +2342,14 @@ export default function OrdersPage() {
                               </span>
                             )}
                           </Badge>
+                          {/* Creator Tag */}
+                          {order.createdBy && (
+                            <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs px-2 py-1 font-semibold shadow-sm flex items-center gap-1">
+                              <User className="w-3 h-3" />
+                              <span>{order.createdBy.name}</span>
+                              <span className="text-blue-600">({order.createdBy.role})</span>
+                            </Badge>
+                          )}
                         </div>
 
                         {/* Total Amount */}
@@ -2456,15 +2537,30 @@ export default function OrdersPage() {
         </div>
       )}
 
+      {/* Loading State */}
+      {loading && (
+        <div className="text-center py-12">
+          <Loader2 className="w-16 h-16 text-primary mx-auto mb-4 animate-spin" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Loading orders...</h3>
+          <p className="text-gray-500">Please wait while we fetch your orders</p>
+        </div>
+      )}
+
       {/* Empty State */}
       {currentOrders.length === 0 && !loading && (
         <div className="text-center py-12">
           <Package className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No orders found</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            {((user?.role === 'manager' || user?.role === 'admin') && (user?.stationId || (user?.managedStations && user.managedStations.length > 0))) 
+              ? 'No orders found for your station' 
+              : 'No valid orders found'}
+          </h3>
           <p className="text-gray-500 mb-6">
             {searchTerm || statusFilter !== 'all' 
               ? 'Try adjusting your search or filter criteria'
-              : 'Get started by creating your first order'
+              : ((user?.role === 'manager' || user?.role === 'admin') && (user?.stationId || (user?.managedStations && user.managedStations.length > 0)))
+                ? `No orders found for your station. Get started by creating your first order.`
+                : 'Only orders with complete station and creator information are displayed. Get started by creating your first order.'
             }
           </p>
           {!searchTerm && statusFilter === 'all' && (

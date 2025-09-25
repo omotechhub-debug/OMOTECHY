@@ -114,6 +114,8 @@ export async function POST(request: NextRequest) {
       isActive: user.isActive,
       approved: user.approved,
       pagePermissions: user.pagePermissions,
+      stationId: user.stationId,
+      managedStations: user.managedStations,
     };
 
     console.log(`✅ Admin login successful: ${email} (${user.role})`);

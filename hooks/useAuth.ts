@@ -14,10 +14,12 @@ interface User {
   id: string;
   name: string;
   email: string;
-  role: 'superadmin' | 'admin' | 'user';
+  role: 'superadmin' | 'admin' | 'manager' | 'user';
   isActive: boolean;
   approved: boolean;
   pagePermissions: IPagePermission[];
+  stationId?: string;
+  managedStations?: string[];
 }
 
 interface AuthContextType {
@@ -26,6 +28,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; pendingApproval?: boolean; message?: string }>;
   signup: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
+  refreshUserData: () => Promise<boolean>;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -119,6 +122,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refreshUserData = async () => {
+    try {
+      const response = await fetch('/api/auth/client-me', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.user) {
+          setUser(data.user);
+          localStorage.setItem('authUser', JSON.stringify(data.user));
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('Error refreshing user data:', error);
+      return false;
+    }
+  };
+
   const logout = () => {
     // Clear state immediately
     setUser(null);
@@ -158,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login,
     signup,
     logout,
+    refreshUserData,
     isLoading,
     isAuthenticated: !!user && !!token,
     isAdmin: user?.role === 'admin' || user?.role === 'superadmin',

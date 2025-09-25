@@ -12,11 +12,13 @@ export interface IUser extends mongoose.Document {
   name: string;
   email: string;
   password: string;
-  role: 'superadmin' | 'admin' | 'user';
+  role: 'superadmin' | 'admin' | 'manager' | 'user';
   isActive: boolean;
   approved: boolean;
   reasonForAdminAccess?: string; // Reason provided when requesting admin access
   pagePermissions: IPagePermission[];
+  managedStations?: mongoose.Types.ObjectId[]; // Stations this user manages (keeps original role)
+  stationId?: mongoose.Types.ObjectId; // Legacy field for backward compatibility
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -39,6 +41,7 @@ const pagePermissionSchema = new mongoose.Schema<IPagePermission>({
       'gallery',
       'testimonials',
       'promotions',
+      'stations',
       'settings'
     ]
   },
@@ -76,7 +79,7 @@ const userSchema = new mongoose.Schema<IUser>({
   },
   role: {
     type: String,
-    enum: ['superadmin', 'admin', 'user'],
+    enum: ['superadmin', 'admin', 'manager', 'user'],
     default: 'user',
   },
   isActive: {
@@ -93,9 +96,20 @@ const userSchema = new mongoose.Schema<IUser>({
   reasonForAdminAccess: {
     type: String,
     required: function() {
-      return this.role === 'admin' || this.role === 'superadmin';
+      return this.role === 'admin' || this.role === 'superadmin' || this.role === 'manager';
     },
   },
+  stationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Station',
+    required: function() {
+      return this.role === 'manager';
+    },
+  },
+  managedStations: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Station',
+  }],
   pagePermissions: {
     type: [pagePermissionSchema],
     default: function() {
@@ -129,7 +143,15 @@ const userSchema = new mongoose.Schema<IUser>({
         return defaultPages.map(page => ({
           page,
           canView: true,
-          canEdit: ['dashboard', 'orders', 'pos', 'customers', 'services', 'categories'].includes(page),
+          canEdit: ['dashboard', 'orders', 'pos', 'customers', 'services', 'categories', 'stations'].includes(page),
+          canDelete: ['orders', 'customers', 'stations'].includes(page)
+        }));
+      } else if (this.role === 'manager') {
+        // Manager gets limited access to their station and related data
+        return defaultPages.map(page => ({
+          page,
+          canView: ['dashboard', 'orders', 'pos', 'customers', 'services', 'categories', 'reports'].includes(page),
+          canEdit: ['orders', 'pos', 'customers', 'services'].includes(page),
           canDelete: ['orders', 'customers'].includes(page)
         }));
       } else {
