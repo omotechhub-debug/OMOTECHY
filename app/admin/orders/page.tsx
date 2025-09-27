@@ -170,9 +170,6 @@ export default function OrdersPage() {
   
   // Pending confirmations
   const [pendingConfirmationsCount, setPendingConfirmationsCount] = useState(0);
-  // Recalculate payment status
-  const [recalculateDialogOpen, setRecalculateDialogOpen] = useState(false);
-  const [recalculating, setRecalculating] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -1159,48 +1156,6 @@ export default function OrdersPage() {
     }
   };
 
-  const handleRecalculatePaymentStatus = async () => {
-    try {
-      setRecalculating(true);
-      
-      const response = await fetch('/api/admin/orders/recalculate-payments', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      
-      const data = await response.json();
-
-      if (data.success) {
-        toast({
-          title: 'Payment Status Updated',
-          description: `Updated ${data.updatedCount} orders based on M-Pesa transactions`,
-          variant: 'default',
-        });
-        
-        // Reload orders to show updated statuses
-        fetchOrders();
-      } else {
-        toast({
-          title: 'Update Failed',
-          description: data.error || 'Failed to update payment statuses',
-          variant: 'destructive',
-        });
-      }
-    } catch (error) {
-      console.error('Error recalculating payment status:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to recalculate payment status',
-        variant: 'destructive',
-      });
-    } finally {
-      setRecalculating(false);
-      setRecalculateDialogOpen(false);
-    }
-  };
 
   const isValidPhone = (phone: string | undefined) => {
     if (!phone) return false;
@@ -1599,14 +1554,6 @@ export default function OrdersPage() {
             Refresh
           </Button>
           
-          <Button
-            variant="outline"
-            onClick={() => setRecalculateDialogOpen(true)}
-            className="flex items-center gap-2 border-orange-300 text-orange-600 hover:bg-orange-50"
-          >
-            <Calculator className="w-4 h-4" />
-            Recalculate Payments
-          </Button>
           
           {/* Export Buttons */}
           <div className="flex gap-2">
@@ -3350,64 +3297,6 @@ export default function OrdersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Recalculate Payment Status Dialog */}
-      <Dialog open={recalculateDialogOpen} onOpenChange={setRecalculateDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <Calculator className="w-5 h-5 text-orange-600" />
-              Recalculate Payment Status
-            </DialogTitle>
-            <DialogDescription className="text-gray-600">
-              This will check all M-Pesa transactions and update order payment statuses based on the total amount paid.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-orange-600 mt-0.5" />
-                <div className="text-sm text-orange-800">
-                  <p className="font-medium">What this does:</p>
-                  <ul className="mt-2 space-y-1 list-disc list-inside">
-                    <li>Checks all M-Pesa transactions connected to each order</li>
-                    <li>Calculates total amount paid vs. order total</li>
-                    <li>Updates payment status to 'paid', 'partial', or 'unpaid'</li>
-                    <li>Updates remaining balance for each order</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline" 
-              onClick={() => setRecalculateDialogOpen(false)}
-              disabled={recalculating}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleRecalculatePaymentStatus}
-              disabled={recalculating}
-              className="bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-2"
-            >
-              {recalculating ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Recalculating...
-                </>
-              ) : (
-                <>
-                  <Calculator className="w-4 h-4" />
-                  Recalculate Payments
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 } 
