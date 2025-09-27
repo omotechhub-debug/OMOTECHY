@@ -89,7 +89,7 @@ const MOVEMENT_TYPES = [
 ];
 
 export default function InventoryManagementPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [loading, setLoading] = useState(true);

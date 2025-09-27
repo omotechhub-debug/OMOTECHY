@@ -120,7 +120,7 @@ const UNITS = [
 
 
 export default function InventoryPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [allInventory, setAllInventory] = useState<InventoryItem[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
