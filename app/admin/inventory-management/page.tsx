@@ -105,6 +105,7 @@ export default function InventoryManagementPage() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
+  const [stationsLoading, setStationsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -194,6 +195,8 @@ export default function InventoryManagementPage() {
 
   const fetchStations = async () => {
     try {
+      setStationsLoading(true);
+      console.log('Fetching stations...');
       const response = await fetch('/api/stations', {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -201,12 +204,24 @@ export default function InventoryManagementPage() {
         }
       });
 
+      console.log('Stations response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('Stations data:', data);
         setStations(data.stations || []);
+      } else {
+        const errorData = await response.json();
+        console.error('Error fetching stations:', errorData);
+        setError(`Failed to fetch stations: ${errorData.error || 'Unknown error'}`);
+        setStations([]);
       }
     } catch (error) {
       console.error('Error fetching stations:', error);
+      setError('Network error while fetching stations. Please check your connection.');
+      setStations([]);
+    } finally {
+      setStationsLoading(false);
     }
   };
 
@@ -506,11 +521,21 @@ export default function InventoryManagementPage() {
                 <SelectContent>
                   <SelectItem value="all">All Stations</SelectItem>
                   <SelectItem value="no_station">No Station</SelectItem>
-                  {stations.map((station) => (
-                    <SelectItem key={station._id} value={station._id}>
-                      {station.name}
+                  {stationsLoading ? (
+                    <SelectItem value="loading" disabled>
+                      Loading stations...
                     </SelectItem>
-                  ))}
+                  ) : stations.length > 0 ? (
+                    stations.map((station) => (
+                      <SelectItem key={station._id} value={station._id}>
+                        {station.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no_stations" disabled>
+                      No stations available
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
