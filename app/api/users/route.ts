@@ -8,7 +8,19 @@ async function getUsers(request: NextRequest) {
   try {
     await connectDB();
     
-    const { searchParams } = new URL(request.url);
+    // Safely parse URL parameters
+    let searchParams;
+    try {
+      const url = new URL(request.url);
+      searchParams = url.searchParams;
+    } catch (error) {
+      console.error('Error parsing URL in users route:', error);
+      return NextResponse.json(
+        { success: false, error: 'Invalid URL' },
+        { status: 400 }
+      );
+    }
+    
     const role = searchParams.get('role');
     const status = searchParams.get('status');
     const search = searchParams.get('search');
