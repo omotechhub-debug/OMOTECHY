@@ -159,6 +159,16 @@ export default function InventoryManagementPage() {
     console.log('stationsLoading changed to:', stationsLoading);
   }, [stationsLoading]);
 
+  // Force loading to false after stations are loaded (debugging)
+  useEffect(() => {
+    if (stations.length > 0 && stationsLoading) {
+      console.log('Stations loaded but still loading - forcing loading to false');
+      setTimeout(() => {
+        setStationsLoading(false);
+      }, 100);
+    }
+  }, [stations.length, stationsLoading]);
+
   const fetchInventory = async () => {
     try {
       setLoading(true);
@@ -204,6 +214,7 @@ export default function InventoryManagementPage() {
 
   const fetchStations = async () => {
     try {
+      console.log('Starting fetchStations - setting loading to true');
       setStationsLoading(true);
       console.log('Fetching stations...');
       console.log('Token:', token ? 'Present' : 'Missing');
@@ -221,6 +232,7 @@ export default function InventoryManagementPage() {
       if (response.ok) {
         const data = await response.json();
         console.log('Stations data:', data);
+        console.log('Setting stations to:', data.stations?.length || 0, 'stations');
         setStations(data.stations || []);
         console.log('Stations set successfully, count:', data.stations?.length || 0);
       } else {
