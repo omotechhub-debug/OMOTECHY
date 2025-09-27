@@ -52,8 +52,20 @@ interface InventoryItem {
   tags: string[];
   profitMargin?: number;
   stockStatus?: string;
+  stationIds?: {
+    _id: string;
+    name: string;
+    location: string;
+  }[];
   createdAt: string;
   updatedAt: string;
+}
+
+interface Station {
+  _id: string;
+  name: string;
+  location: string;
+  isActive: boolean;
 }
 
 interface InventoryMovement {
@@ -92,6 +104,7 @@ export default function InventoryManagementPage() {
   const { token, user } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
+  const [stations, setStations] = useState<Station[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -102,6 +115,7 @@ export default function InventoryManagementPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [movementTypeFilter, setMovementTypeFilter] = useState('all');
   const [stockAlertFilter, setStockAlertFilter] = useState('all');
+  const [stationFilter, setStationFilter] = useState('all');
   
   // Dialog states
   const [isAdjustmentDialogOpen, setIsAdjustmentDialogOpen] = useState(false);
@@ -116,6 +130,7 @@ export default function InventoryManagementPage() {
     if (token) {
       fetchInventory();
       fetchMovements();
+      fetchStations();
     }
   }, [token]);
 
@@ -174,6 +189,24 @@ export default function InventoryManagementPage() {
       }
     } catch (error) {
       console.error('Error fetching movements:', error);
+    }
+  };
+
+  const fetchStations = async () => {
+    try {
+      const response = await fetch('/api/stations', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setStations(data.stations || []);
+      }
+    } catch (error) {
+      console.error('Error fetching stations:', error);
     }
   };
 
@@ -264,7 +297,17 @@ export default function InventoryManagementPage() {
       matchesStockAlert = item.stock <= item.minStock || item.stock >= item.maxStock;
     }
     
-    return matchesSearch && matchesCategory && matchesStatus && matchesStockAlert;
+    // Station filter
+    let matchesStation = true;
+    if (stationFilter !== 'all') {
+      if (stationFilter === 'no_station') {
+        matchesStation = !item.stationIds || item.stationIds.length === 0;
+      } else {
+        matchesStation = item.stationIds && item.stationIds.some(station => station._id === stationFilter);
+      }
+    }
+    
+    return matchesSearch && matchesCategory && matchesStatus && matchesStockAlert && matchesStation;
   });
 
   // Filter movements
@@ -393,7 +436,7 @@ export default function InventoryManagementPage() {
         {/* Filters */}
         <Card className="mb-6">
           <CardContent className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
@@ -451,6 +494,21 @@ export default function InventoryManagementPage() {
                   {MOVEMENT_TYPES.map((type) => (
                     <SelectItem key={type.value} value={type.value}>
                       {type.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={stationFilter} onValueChange={setStationFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Station" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Stations</SelectItem>
+                  <SelectItem value="no_station">No Station</SelectItem>
+                  {stations.map((station) => (
+                    <SelectItem key={station._id} value={station._id}>
+                      {station.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -520,6 +578,31 @@ export default function InventoryManagementPage() {
                             </Badge>
                           </div>
                           <p className="text-sm text-gray-600">{item.category} • {item.subcategory}</p>
+                          
+                          {/* Station Tags */}
+                          <div className="mt-1">
+                            <div className="flex flex-wrap gap-1">
+                              {item.stationIds && item.stationIds.length > 0 ? (
+                                item.stationIds.map((station, index) => (
+                                  <Badge 
+                                    key={station._id || index}
+                                    variant="outline"
+                                    className="text-xs px-2 py-1 bg-blue-50 text-blue-700 border-blue-200"
+                                  >
+                                    {station.name}
+                                  </Badge>
+                                ))
+                              ) : (
+                                <Badge 
+                                  variant="outline"
+                                  className="text-xs px-2 py-1 bg-gray-50 text-gray-500 border-gray-200"
+                                >
+                                  No Station
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          
                           <div className="flex items-center gap-4 mt-2">
                             <span className={`text-sm font-medium ${
                               isOutOfStock ? 'text-red-700' : 
