@@ -609,14 +609,14 @@ export default function POSPage() {
   };
 
   const updateQuantity = (itemId: string, type: 'service' | 'product', quantity: number) => {
-    if (quantity < 0.1) {
+    if (quantity < 1) {
       removeFromCart(itemId, type);
       return;
     }
     setCart(prevCart =>
       prevCart.map(cartItem =>
         cartItem.item._id === itemId && cartItem.type === type
-          ? { ...cartItem, quantity: Math.round(quantity * 10) / 10 } // Round to 1 decimal place
+          ? { ...cartItem, quantity: Math.round(quantity) } // Round to whole number
           : cartItem
       )
     );
@@ -1524,15 +1524,15 @@ Need help? Call us at +254 757 883 799`;
                               <Input
                                 id={`quantity-${service._id}`}
                                 type="number"
-                                min="0.1"
-                                step="0.1"
-                                placeholder="1.0"
+                                min="1"
+                                step="1"
+                                placeholder="1"
                                 defaultValue="1"
                                 className="w-20 h-8 text-sm"
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     const input = e.target as HTMLInputElement;
-                                    const quantity = parseFloat(input.value) || 1;
+                                    const quantity = parseInt(input.value) || 1;
                                     addToCart(service, 'service', quantity);
                                     input.value = "1";
                                   }
@@ -1542,7 +1542,7 @@ Need help? Call us at +254 757 883 799`;
                             <Button
                               onClick={() => {
                                 const input = document.getElementById(`quantity-${service._id}`) as HTMLInputElement;
-                                const quantity = parseFloat(input.value) || 1;
+                                const quantity = parseInt(input.value) || 1;
                                 addToCart(service, 'service', quantity);
                                 input.value = "1";
                               }}
@@ -1740,15 +1740,12 @@ Need help? Call us at +254 757 883 799`;
                     <Input
                       id={`cart-qty-${cartItem.type}-${cartItem.item._id}`}
                       type="number"
-                      min={cartItem.type === 'service' ? 0.1 : 1}
-                      step={cartItem.type === 'service' ? 0.1 : 1}
+                      min={1}
+                      step={1}
                       value={cartItem.quantity}
                       onChange={e => {
-                        let qty = cartItem.type === 'service' 
-                          ? parseFloat(e.target.value) || 0.1
-                          : parseInt(e.target.value) || 1;
-                        if (cartItem.type === 'service' && qty < 0.1) qty = 0.1;
-                        if (cartItem.type === 'product' && qty < 1) qty = 1;
+                        let qty = parseInt(e.target.value) || 1;
+                        if (qty < 1) qty = 1;
                         if (cartItem.type === 'product' && qty > (cartItem.item as Product).stock) {
                           qty = (cartItem.item as Product).stock;
                         }
