@@ -9,7 +9,19 @@ export async function GET(request: NextRequest) {
   try {
     await connectDB();
     
-    const { searchParams } = new URL(request.url);
+    // Safely parse URL parameters
+    let searchParams;
+    try {
+      const url = new URL(request.url);
+      searchParams = url.searchParams;
+    } catch (error) {
+      console.error('Error parsing URL:', error);
+      return NextResponse.json(
+        { success: false, error: 'Invalid URL' },
+        { status: 400 }
+      );
+    }
+    
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     const category = searchParams.get('category');

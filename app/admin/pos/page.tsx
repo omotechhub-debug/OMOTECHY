@@ -479,6 +479,8 @@ export default function POSPage() {
       if (data.success) {
         console.log('📋 Services fetched for POS:', data.services?.map((s: any) => ({ name: s.name, unit: s.unit, turnaroundUnit: s.turnaroundUnit })) || 'No services');
         setServices(data.services || data.data || []);
+      } else {
+        console.error('Failed to fetch services:', data.error);
       }
     } catch (error) {
       console.error('Error fetching services:', error);
@@ -1213,13 +1215,17 @@ Need help? Call us at +254 757 883 799`;
   // Add this useEffect at the top of the component
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search);
-      const editOrderId = urlParams.get('editOrder');
-      console.log('URL params check - editOrderId:', editOrderId);
-      if (editOrderId) {
-        console.log('Setting editing order ID:', editOrderId);
-        setEditingOrderId(editOrderId);
-        setIsEditing(true);
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const editOrderId = urlParams.get('editOrder');
+        console.log('URL params check - editOrderId:', editOrderId);
+        if (editOrderId) {
+          console.log('Setting editing order ID:', editOrderId);
+          setEditingOrderId(editOrderId);
+          setIsEditing(true);
+        }
+      } catch (error) {
+        console.error('Error parsing URL parameters:', error);
       }
     }
   }, []);
