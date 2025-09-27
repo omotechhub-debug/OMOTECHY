@@ -6,7 +6,27 @@ import User from '@/lib/models/User';
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
+    // Safely parse URL parameters
+    let searchParams;
+    try {
+      if (!request.url) {
+        console.error('Request URL is undefined in expenses download route');
+        return NextResponse.json(
+          { success: false, error: 'Request URL is undefined' },
+          { status: 400 }
+        );
+      }
+      const url = new URL(request.url);
+      searchParams = url.searchParams;
+    } catch (error) {
+      console.error('Error parsing URL in expenses download route:', error);
+      console.error('Request URL:', request.url);
+      return NextResponse.json(
+        { success: false, error: 'Invalid URL' },
+        { status: 400 }
+      );
+    }
+    
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 

@@ -11,7 +11,27 @@ export async function GET(request: NextRequest) {
     console.log('🔄 Auto-updating promotion statuses before validation...');
     await updatePromotionStatuses();
     
-    const { searchParams } = new URL(request.url);
+    // Safely parse URL parameters
+    let searchParams;
+    try {
+      if (!request.url) {
+        console.error('Request URL is undefined in promotions validate route');
+        return NextResponse.json(
+          { success: false, error: 'Request URL is undefined' },
+          { status: 400 }
+        );
+      }
+      const url = new URL(request.url);
+      searchParams = url.searchParams;
+    } catch (error) {
+      console.error('Error parsing URL in promotions validate route:', error);
+      console.error('Request URL:', request.url);
+      return NextResponse.json(
+        { success: false, error: 'Invalid URL' },
+        { status: 400 }
+      );
+    }
+    
     const code = searchParams.get('code');
     
     if (!code) {
