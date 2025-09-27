@@ -17,7 +17,27 @@ export const GET = async (request: NextRequest) => {
     console.log('🚀 FAST Banner API: Starting...');
     const startTime = Date.now();
     
-    const { searchParams } = new URL(request.url);
+    // Safely parse URL parameters
+    let searchParams;
+    try {
+      if (!request.url) {
+        console.error('Request URL is undefined in banners route');
+        return NextResponse.json(
+          { success: false, error: 'Request URL is undefined' },
+          { status: 400 }
+        );
+      }
+      const url = new URL(request.url);
+      searchParams = url.searchParams;
+    } catch (error) {
+      console.error('Error parsing URL in banners route:', error);
+      console.error('Request URL:', request.url);
+      return NextResponse.json(
+        { success: false, error: 'Invalid URL' },
+        { status: 400 }
+      );
+    }
+    
     const activeOnly = searchParams.get('active') === 'true';
     
     // Ultra-fast DB connection and query for homepage banners

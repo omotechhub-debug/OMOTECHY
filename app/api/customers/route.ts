@@ -7,7 +7,27 @@ export async function GET(request: NextRequest) {
   try {
     await dbConnect();
     
-    const { searchParams } = new URL(request.url);
+    // Safely parse URL parameters
+    let searchParams;
+    try {
+      if (!request.url) {
+        console.error('Request URL is undefined in customers route');
+        return NextResponse.json(
+          { success: false, error: 'Request URL is undefined' },
+          { status: 400 }
+        );
+      }
+      const url = new URL(request.url);
+      searchParams = url.searchParams;
+    } catch (error) {
+      console.error('Error parsing URL in customers route:', error);
+      console.error('Request URL:', request.url);
+      return NextResponse.json(
+        { success: false, error: 'Invalid URL' },
+        { status: 400 }
+      );
+    }
+    
     const search = searchParams.get('search');
     const phone = searchParams.get('phone');
     

@@ -8,7 +8,27 @@ export async function GET(request: NextRequest) {
   try {
     await connectDB();
     
-    const { searchParams } = new URL(request.url);
+    // Safely parse URL parameters
+    let searchParams;
+    try {
+      if (!request.url) {
+        console.error('Request URL is undefined in gallery route');
+        return NextResponse.json(
+          { success: false, error: 'Request URL is undefined' },
+          { status: 400 }
+        );
+      }
+      const url = new URL(request.url);
+      searchParams = url.searchParams;
+    } catch (error) {
+      console.error('Error parsing URL in gallery route:', error);
+      console.error('Request URL:', request.url);
+      return NextResponse.json(
+        { success: false, error: 'Invalid URL' },
+        { status: 400 }
+      );
+    }
+    
     const category = searchParams.get('category');
     const status = searchParams.get('status') || 'active';
     const featured = searchParams.get('featured');
