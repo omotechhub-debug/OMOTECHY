@@ -39,18 +39,11 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Building } from 'lucide-react'
 
-interface StationInfo {
-  _id: string;
-  name: string;
-  location: string;
-  isActive: boolean;
-}
 
 export default function AdminPage() {
   const { user, logout, refreshUserData } = useAuth()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
-  const [stationInfo, setStationInfo] = useState<StationInfo | null>(null)
 
   // Handle responsive behavior
   useEffect(() => {
@@ -68,39 +61,9 @@ export default function AdminPage() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // Fetch station information when user data is available
-  useEffect(() => {
-    async function fetchStationInfo() {
-      if (user?.stationId || (user?.managedStations && user.managedStations.length > 0)) {
-        try {
-          const stationId = user.stationId || user.managedStations?.[0];
-          
-          if (stationId) {
-            const token = localStorage.getItem('authToken');
-            const stationRes = await fetch(`/api/stations/${stationId}`, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              }
-            });
-            
-            if (stationRes.ok) {
-              const stationData = await stationRes.json();
-              setStationInfo(stationData.station);
-            }
-          }
-        } catch (error) {
-          console.error('Error fetching station info:', error);
-        }
-      }
-    }
-    
-    if (user) {
-      fetchStationInfo();
-    }
-  }, [user])
 
-  const adminSections = [
+  // Define all possible admin sections
+  const allAdminSections = [
     {
       title: "Dashboard",
       description: "Overview of your business metrics and performance",
@@ -108,7 +71,8 @@ export default function AdminPage() {
       icon: BarChart3,
       color: "bg-gradient-to-br from-blue-500 to-blue-600",
       bgColor: "bg-blue-50",
-      textColor: "text-blue-700"
+      textColor: "text-blue-700",
+      roles: ['manager', 'admin', 'superadmin']
     },
     {
       title: "Orders",
@@ -117,88 +81,8 @@ export default function AdminPage() {
       icon: Package,
       color: "bg-gradient-to-br from-emerald-500 to-emerald-600",
       bgColor: "bg-emerald-50",
-      textColor: "text-emerald-700"
-    },
-    {
-      title: "Clients",
-      description: "View and manage customer information and preferences",
-      href: "/admin/clients",
-      icon: Users,
-      color: "bg-gradient-to-br from-purple-500 to-purple-600",
-      bgColor: "bg-purple-50",
-      textColor: "text-purple-700"
-    },
-    {
-      title: "Employees",
-      description: "Manage your staff, schedules, and performance",
-      href: "/admin/employees",
-      icon: UserCheck,
-      color: "bg-gradient-to-br from-orange-500 to-orange-600",
-      bgColor: "bg-orange-50",
-      textColor: "text-orange-700"
-    },
-    {
-      title: "Services",
-      description: "Configure electronics, gas, and printing services",
-      href: "/admin/services",
-      icon: Settings,
-      color: "bg-gradient-to-br from-indigo-500 to-indigo-600",
-      bgColor: "bg-indigo-50",
-      textColor: "text-indigo-700"
-    },
-    {
-      title: "Promotions",
-      description: "Create and manage special offers and discounts",
-      href: "/admin/promotions",
-      icon: Megaphone,
-      color: "bg-gradient-to-br from-pink-500 to-pink-600",
-      bgColor: "bg-pink-50",
-      textColor: "text-pink-700"
-    },
-    {
-      title: "Contact",
-      description: "Manage customer inquiries and support tickets",
-      href: "/admin/contact",
-      icon: MessageSquare,
-      color: "bg-gradient-to-br from-cyan-500 to-cyan-600",
-      bgColor: "bg-cyan-50",
-      textColor: "text-cyan-700"
-    },
-    {
-      title: "Expenses",
-      description: "Track business expenses and financial reports",
-      href: "/admin/expenses",
-      icon: DollarSign,
-      color: "bg-gradient-to-br from-emerald-500 to-emerald-600",
-      bgColor: "bg-emerald-50",
-      textColor: "text-emerald-700"
-    },
-    {
-      title: "Gallery",
-      description: "Manage your service photos and portfolio",
-      href: "/admin/gallery",
-      icon: ImageIcon,
-      color: "bg-gradient-to-br from-violet-500 to-violet-600",
-      bgColor: "bg-violet-50",
-      textColor: "text-violet-700"
-    },
-    {
-      title: "Reports",
-      description: "Generate detailed business analytics and reports",
-      href: "/admin/reports",
-      icon: FileText,
-      color: "bg-gradient-to-br from-slate-500 to-slate-600",
-      bgColor: "bg-slate-50",
-      textColor: "text-slate-700"
-    },
-    {
-      title: "User Management",
-      description: "Manage user accounts, roles, and permissions",
-      href: "/admin/users",
-      icon: Shield,
-      color: "bg-gradient-to-br from-rose-500 to-rose-600",
-      bgColor: "bg-rose-50",
-      textColor: "text-rose-700"
+      textColor: "text-emerald-700",
+      roles: ['manager', 'admin', 'superadmin']
     },
     {
       title: "POS System",
@@ -207,7 +91,108 @@ export default function AdminPage() {
       icon: Calculator,
       color: "bg-gradient-to-br from-amber-500 to-amber-600",
       bgColor: "bg-amber-50",
-      textColor: "text-amber-700"
+      textColor: "text-amber-700",
+      roles: ['manager', 'admin', 'superadmin']
+    },
+    {
+      title: "Expenses",
+      description: "Track business expenses and financial reports",
+      href: "/admin/expenses",
+      icon: DollarSign,
+      color: "bg-gradient-to-br from-emerald-500 to-emerald-600",
+      bgColor: "bg-emerald-50",
+      textColor: "text-emerald-700",
+      roles: ['manager', 'admin', 'superadmin']
+    },
+    {
+      title: "Clients",
+      description: "View and manage customer information and preferences",
+      href: "/admin/clients",
+      icon: Users,
+      color: "bg-gradient-to-br from-purple-500 to-purple-600",
+      bgColor: "bg-purple-50",
+      textColor: "text-purple-700",
+      roles: ['admin', 'superadmin']
+    },
+    {
+      title: "Employees",
+      description: "Manage your staff, schedules, and performance",
+      href: "/admin/employees",
+      icon: UserCheck,
+      color: "bg-gradient-to-br from-orange-500 to-orange-600",
+      bgColor: "bg-orange-50",
+      textColor: "text-orange-700",
+      roles: ['admin', 'superadmin']
+    },
+    {
+      title: "Services",
+      description: "Configure electronics, gas, and printing services",
+      href: "/admin/services",
+      icon: Settings,
+      color: "bg-gradient-to-br from-indigo-500 to-indigo-600",
+      bgColor: "bg-indigo-50",
+      textColor: "text-indigo-700",
+      roles: ['admin', 'superadmin']
+    },
+    {
+      title: "Promotions",
+      description: "Create and manage special offers and discounts",
+      href: "/admin/promotions",
+      icon: Megaphone,
+      color: "bg-gradient-to-br from-pink-500 to-pink-600",
+      bgColor: "bg-pink-50",
+      textColor: "text-pink-700",
+      roles: ['admin', 'superadmin']
+    },
+    {
+      title: "Contact",
+      description: "Manage customer inquiries and support tickets",
+      href: "/admin/contact",
+      icon: MessageSquare,
+      color: "bg-gradient-to-br from-cyan-500 to-cyan-600",
+      bgColor: "bg-cyan-50",
+      textColor: "text-cyan-700",
+      roles: ['admin', 'superadmin']
+    },
+    {
+      title: "Gallery",
+      description: "Manage your service photos and portfolio",
+      href: "/admin/gallery",
+      icon: ImageIcon,
+      color: "bg-gradient-to-br from-violet-500 to-violet-600",
+      bgColor: "bg-violet-50",
+      textColor: "text-violet-700",
+      roles: ['admin', 'superadmin']
+    },
+    {
+      title: "Reports",
+      description: "Generate detailed business analytics and reports",
+      href: "/admin/reports",
+      icon: FileText,
+      color: "bg-gradient-to-br from-slate-500 to-slate-600",
+      bgColor: "bg-slate-50",
+      textColor: "text-slate-700",
+      roles: ['admin', 'superadmin']
+    },
+    {
+      title: "User Management",
+      description: "Manage user accounts, roles, and permissions",
+      href: "/admin/users",
+      icon: Shield,
+      color: "bg-gradient-to-br from-rose-500 to-rose-600",
+      bgColor: "bg-rose-50",
+      textColor: "text-rose-700",
+      roles: ['admin', 'superadmin']
+    },
+    {
+      title: "Stations",
+      description: "Manage stations and assign managers",
+      href: "/admin/stations",
+      icon: Building,
+      color: "bg-gradient-to-br from-teal-500 to-teal-600",
+      bgColor: "bg-teal-50",
+      textColor: "text-teal-700",
+      roles: ['admin', 'superadmin']
     },
     {
       title: "Testimonials",
@@ -216,7 +201,8 @@ export default function AdminPage() {
       icon: Star,
       color: "bg-gradient-to-br from-yellow-500 to-yellow-600",
       bgColor: "bg-yellow-50",
-      textColor: "text-yellow-700"
+      textColor: "text-yellow-700",
+      roles: ['admin', 'superadmin']
     },
     {
       title: "M-Pesa Transactions",
@@ -225,7 +211,8 @@ export default function AdminPage() {
       icon: CreditCard,
       color: "bg-gradient-to-br from-green-500 to-green-600",
       bgColor: "bg-green-50",
-      textColor: "text-green-700"
+      textColor: "text-green-700",
+      roles: ['admin', 'superadmin']
     },
     {
       title: "Inventory",
@@ -234,7 +221,8 @@ export default function AdminPage() {
       icon: Database,
       color: "bg-gradient-to-br from-sky-500 to-sky-600",
       bgColor: "bg-sky-50",
-      textColor: "text-sky-700"
+      textColor: "text-sky-700",
+      roles: ['admin', 'superadmin']
     },
     {
       title: "Payments",
@@ -243,7 +231,8 @@ export default function AdminPage() {
       icon: ShoppingCart,
       color: "bg-gradient-to-br from-fuchsia-500 to-fuchsia-600",
       bgColor: "bg-fuchsia-50",
-      textColor: "text-fuchsia-700"
+      textColor: "text-fuchsia-700",
+      roles: ['admin', 'superadmin']
     },
     {
       title: "Banners",
@@ -252,9 +241,15 @@ export default function AdminPage() {
       icon: ImageIcon,
       color: "bg-gradient-to-br from-rose-500 to-rose-600",
       bgColor: "bg-rose-50",
-      textColor: "text-rose-700"
+      textColor: "text-rose-700",
+      roles: ['admin', 'superadmin']
     }
   ]
+
+  // Filter sections based on user role
+  const adminSections = allAdminSections.filter(section => 
+    user?.role && section.roles.includes(user.role)
+  )
 
   return (
     <AdminProtectedRoute>
@@ -273,11 +268,6 @@ export default function AdminPage() {
                 <span className="font-medium text-gray-900">
                   {user?.name || user?.email || "Admin"}
                 </span>
-                {stationInfo && (
-                  <span className="text-xs text-gray-500">
-                    • {stationInfo.name}
-                  </span>
-                )}
               </div>
               <div className="flex items-center gap-1 sm:gap-2 bg-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg shadow-sm border border-gray-200">
                 {user?.role === 'superadmin' ? (
@@ -292,12 +282,6 @@ export default function AdminPage() {
                   <span className="text-xs text-gray-500 capitalize ml-1">
                     ({user?.role})
                   </span>
-                  {stationInfo && (
-                    <div className="flex items-center gap-1 mt-1">
-                      <Building className="h-3 w-3 text-gray-400" />
-                      <span className="text-xs text-gray-500">{stationInfo.name}</span>
-                    </div>
-                  )}
                 </div>
                 <div className="sm:hidden">
                   <span className="text-xs font-medium text-gray-700">
@@ -333,46 +317,47 @@ export default function AdminPage() {
                     <Shield className="h-6 w-6 sm:h-8 sm:w-8 text-[#263C7C] flex-shrink-0" />
                   )}
                   <div className="flex-1">
-                    <h2 className="text-lg sm:text-xl lg:text-2xl font-bold text-[#263C7C] mb-1 sm:mb-2">
-                      Welcome back, {user?.name || 'Admin'}!
-                    </h2>
+                    <div className="flex items-center gap-2 mb-1 sm:mb-2">
+                      <h2 className="text-lg sm:text-xl lg:text-2xl font-bold text-[#263C7C]">
+                        Welcome back, {user?.name || 'Admin'}!
+                      </h2>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        user?.role === 'superadmin' 
+                          ? 'bg-purple-100 text-purple-800' 
+                          : user?.role === 'admin'
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-green-100 text-green-800'
+                      }`}>
+                        {user?.role === 'superadmin' ? '🔮 Super Admin' : user?.role === 'admin' ? '👑 Admin' : '🛡️ Manager'}
+                      </span>
+                    </div>
                     <p className="text-gray-600 text-xs sm:text-sm lg:text-base mb-2">
-                      {stationInfo ? (
-                        <>Managing <span className="font-semibold text-[#263C7C]">{stationInfo.name}</span> - {stationInfo.location}</>
-                      ) : user?.role === 'superadmin' ? (
+                      {user?.role === 'superadmin' ? (
                         "Full system access - Manage all stations and business operations"
-                      ) : (
+                      ) : user?.role === 'admin' ? (
                         "Manage your electronics, gas supply, and printing business with ease"
+                      ) : (
+                        "Station management - Process orders, track expenses, and manage POS operations"
                       )}
                     </p>
-                    {stationInfo && (
-                      <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500">
-                        <Building className="h-3 w-3 sm:h-4 sm:w-4" />
-                        <span>Station ID: {stationInfo._id?.slice(-8) || 'N/A'}</span>
-                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">
-                          {stationInfo.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                      </div>
-                    )}
-                    
-                    {!stationInfo && (user?.role === 'manager' || user?.role === 'admin') && (
-                      <div className="flex items-center gap-2 text-xs sm:text-sm text-amber-600">
-                        <AlertCircle className="h-3 w-3 sm:h-4 sm:w-4" />
-                        <span>No station assigned - Contact administrator for station access</span>
-                      </div>
-                    )}
                   </div>
                 </div>
                 
                 {/* Quick Stats */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
                   <div className="bg-white/80 backdrop-blur-sm rounded-lg p-2 sm:p-3 lg:p-4 text-center">
-                    <div className="text-base sm:text-lg lg:text-xl font-bold text-[#263C7C]">17</div>
-                    <div className="text-xs sm:text-sm text-gray-600">Admin Sections</div>
+                    <div className="text-base sm:text-lg lg:text-xl font-bold text-[#263C7C]">{adminSections.length}</div>
+                    <div className="text-xs sm:text-sm text-gray-600">
+                      {user?.role === 'manager' ? 'Available Tools' : 'Admin Sections'}
+                    </div>
                   </div>
                   <div className="bg-white/80 backdrop-blur-sm rounded-lg p-2 sm:p-3 lg:p-4 text-center">
-                    <div className="text-base sm:text-lg lg:text-xl font-bold text-[#1FC77A]">3</div>
-                    <div className="text-xs sm:text-sm text-gray-600">Service Categories</div>
+                    <div className="text-base sm:text-lg lg:text-xl font-bold text-[#1FC77A]">
+                      {user?.role === 'manager' ? 'POS' : user?.role === 'admin' ? '3' : 'All'}
+                    </div>
+                    <div className="text-xs sm:text-sm text-gray-600">
+                      {user?.role === 'manager' ? 'POS System' : user?.role === 'admin' ? 'Service Categories' : 'Stations'}
+                    </div>
                   </div>
                   <div className="bg-white/80 backdrop-blur-sm rounded-lg p-2 sm:p-3 lg:p-4 text-center">
                     <div className="text-base sm:text-lg lg:text-xl font-bold text-[#8B99B9]">24/7</div>
@@ -396,8 +381,17 @@ export default function AdminPage() {
               transition={{ duration: 0.5, delay: 0.2 }}
             >
               <div className="mb-4 sm:mb-6">
-                <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-1 sm:mb-2">Quick Access</h3>
-                <p className="text-sm sm:text-base text-gray-600">Navigate to different sections of your admin panel</p>
+                <h3 className="text-lg sm:text-xl font-semibold text-gray-900 mb-1 sm:mb-2">
+                  {user?.role === 'manager' ? 'Station Tools' : user?.role === 'admin' ? 'Quick Access' : 'System Control'}
+                </h3>
+                <p className="text-sm sm:text-base text-gray-600">
+                  {user?.role === 'manager' 
+                    ? 'Access your station management tools and operations'
+                    : user?.role === 'admin'
+                    ? 'Navigate to different sections of your admin panel'
+                    : 'Full system control and management capabilities'
+                  }
+                </p>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2 sm:gap-3 md:gap-4 lg:gap-6">
@@ -442,18 +436,20 @@ export default function AdminPage() {
               transition={{ duration: 0.5, delay: 0.3 }}
               className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center pt-4 sm:pt-6 lg:pt-8"
             >
-              <Link href="/admin/dashboard">
-                <Button className="bg-[#263C7C] hover:bg-[#1e2f5f] text-white px-4 sm:px-6 lg:px-8 py-2 sm:py-3 rounded-lg sm:rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 w-full sm:w-auto">
-                  <BarChart3 className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                  <span className="text-sm sm:text-base">Go to Dashboard</span>
-            </Button>
-          </Link>
-          <Link href="/">
+              {user?.role === 'superadmin' && (
+                <Link href="/admin/dashboard">
+                  <Button className="bg-[#263C7C] hover:bg-[#1e2f5f] text-white px-4 sm:px-6 lg:px-8 py-2 sm:py-3 rounded-lg sm:rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 w-full sm:w-auto">
+                    <BarChart3 className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+                    <span className="text-sm sm:text-base">Go to Dashboard</span>
+                  </Button>
+                </Link>
+              )}
+              <Link href="/">
                 <Button variant="outline" className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3 rounded-lg sm:rounded-xl border-2 border-[#263C7C] text-[#263C7C] hover:bg-[#263C7C] hover:text-white transition-all duration-300 w-full sm:w-auto">
                   <Home className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5" />
                   <span className="text-sm sm:text-base">Back to Website</span>
-            </Button>
-          </Link>
+                </Button>
+              </Link>
             </motion.div>
           </div>
         </div>

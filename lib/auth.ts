@@ -31,28 +31,32 @@ export function getTokenFromRequest(request: NextRequest): string | null {
   return null;
 }
 
-export function requireAuth(handler: Function) {
-  return async (request: NextRequest, context?: { params: Promise<{ [key: string]: string }> }) => {
-    const token = getTokenFromRequest(request);
-    
-    if (!token) {
-      return NextResponse.json(
-        { error: 'Access token required' },
-        { status: 401 }
-      );
-    }
+export async function requireAuth(request: NextRequest) {
+  const token = getTokenFromRequest(request);
+  
+  if (!token) {
+    return null;
+  }
 
-    const decoded = verifyToken(token);
+  const decoded = verifyToken(token);
+  
+  if (!decoded) {
+    return null;
+  }
+
+  return decoded;
+}
+
+export function requireAuthWrapper(handler: Function) {
+  return async (request: NextRequest, context?: { params: Promise<{ [key: string]: string }> }) => {
+    const user = await requireAuth(request);
     
-    if (!decoded) {
-      return NextResponse.json(
-        { error: 'Invalid or expired token' },
-        { status: 401 }
-      );
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Add user info to request
-    (request as any).user = decoded;
+    (request as any).user = user;
     
     return handler(request, context);
   };

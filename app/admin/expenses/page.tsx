@@ -40,7 +40,8 @@ import {
   Wrench,
   Megaphone,
   ShoppingCart,
-  Zap
+  Zap,
+  User
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -51,6 +52,17 @@ interface Expense {
   date: string;
   category: string;
   notes?: string;
+  // Order creator and station tracking
+  createdBy?: {
+    userId: string;
+    name: string;
+    role: 'superadmin' | 'admin' | 'manager' | 'user';
+  };
+  station?: {
+    stationId: string;
+    name: string;
+    location: string;
+  };
 }
 
 const expenseCategories = [
@@ -74,7 +86,7 @@ const getCategoryColor = (category: string) => {
 };
 
 export default function ExpensesPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [filteredExpenses, setFilteredExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
@@ -209,20 +221,50 @@ export default function ExpensesPage() {
   const fetchExpenses = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/expenses");
+      const res = await fetch("/api/expenses", {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
       const data = await res.json();
       if (data.success) {
-        setExpenses(data.expenses);
+        let expensesToShow = data.expenses || [];
+        
+        // Filter out expenses without station or creator information
+        expensesToShow = expensesToShow.filter((expense: Expense) => {
+          const hasStation = expense.station?.stationId && expense.station?.name;
+          const hasCreator = expense.createdBy?.userId && expense.createdBy?.name;
+          return hasStation && hasCreator;
+        });
+
+        // If user is a manager or admin with a specific station, filter expenses by their station
+        if ((user?.role === 'manager' || user?.role === 'admin') && (user?.stationId || (user?.managedStations && user.managedStations.length > 0))) {
+          const userStationId = user.stationId || user.managedStations?.[0];
+          
+          expensesToShow = expensesToShow.filter((expense: Expense) => {
+            const matches = expense.station?.stationId === userStationId || 
+                          expense.station?.stationId === userStationId?.toString();
+            return matches;
+          });
+        }
+        
+        setExpenses(expensesToShow);
+      } else {
+        console.error('Failed to fetch expenses:', data.error);
+        setError(data.error || 'Failed to fetch expenses');
       }
     } catch (e) {
-      // handle error
+      console.error('Error fetching expenses:', e);
+      setError('Failed to fetch expenses');
     }
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchExpenses();
-  }, []);
+    if (token && user) {
+      fetchExpenses();
+    }
+  }, [token, user]);
 
   useEffect(() => {
     filterAndSortExpenses();
@@ -279,7 +321,11 @@ export default function ExpensesPage() {
         setDownloadRange({ startDate: "", endDate: "" });
       } else {
         const data = await res.json();
-        setError(data.error || "Failed to download expenses");
+        if (res.status === 403) {
+          setError("You don't have permission to download expense reports. Please contact your administrator.");
+        } else {
+          setError(data.error || "Failed to download expenses");
+        }
       }
     } catch (e) {
       setError("Failed to download expenses");
@@ -303,6 +349,12 @@ export default function ExpensesPage() {
 
   // Handle delete
   const handleDelete = async (expenseId: string) => {
+    // Check if user is a manager
+    if (user?.role === 'manager') {
+      setError("Managers cannot delete expenses. Please contact an administrator.");
+      return;
+    }
+    
     if (!confirm("Are you sure you want to delete this expense?")) return;
     
     try {
@@ -322,7 +374,11 @@ export default function ExpensesPage() {
           setCurrentPage(totalPages);
         }
       } else {
-        setError(data.error || "Failed to delete expense");
+        if (res.status === 403) {
+          setError("You don't have permission to delete expenses. Only administrators can delete expenses.");
+        } else {
+          setError(data.error || "Failed to delete expense");
+        }
       }
     } catch (e) {
       setError("Failed to delete expense");
@@ -761,48 +817,128 @@ export default function ExpensesPage() {
                   const categoryColor = getCategoryColor(exp.category);
                   
                   return (
-                    <Card key={exp._id} className="hover:shadow-lg transition-all duration-200 group">
-                      <CardContent className="p-6">
-                        <div className="flex items-start justify-between mb-4">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${categoryColor}`}>
-                              <CategoryIcon className="w-5 h-5" />
+                    <Card key={exp._id} className="group relative overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-500 bg-gradient-to-br from-white to-gray-50">
+                      {/* Animated Background Gradient */}
+                      <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-gray-100 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                      
+                      {/* Top Accent Bar */}
+                      <div className={`h-2 w-full ${categoryColor.split(' ')[0].replace('bg-', 'bg-gradient-to-r from-').replace('-100', '-500')} to-transparent`}></div>
+                      
+                      <CardContent className="relative p-0">
+                        {/* Header Section */}
+                        <div className="p-6 pb-4">
+                          <div className="flex items-start justify-between mb-6">
+                            <div className="flex items-center gap-4">
+                              <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg ${categoryColor} group-hover:scale-110 transition-transform duration-300`}>
+                                <CategoryIcon className="w-8 h-8" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-bold text-gray-900 text-xl mb-2 truncate group-hover:text-gray-700 transition-colors">
+                                  {exp.title}
+                                </h3>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className={`${categoryColor} font-semibold px-3 py-1 rounded-full text-sm`}>
+                                    {exp.category}
+                                  </Badge>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-semibold text-gray-900 truncate">{exp.title}</h3>
-                              <p className="text-sm text-gray-500">{exp.category}</p>
+                            
+                            {/* Action Buttons */}
+                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEdit(exp)}
+                                className="h-10 w-10 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-100 rounded-xl shadow-sm"
+                              >
+                                <Edit className="w-5 h-5" />
+                              </Button>
+                              {user?.role !== 'manager' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDelete(exp._id)}
+                                  className="h-10 w-10 p-0 text-red-600 hover:text-red-700 hover:bg-red-100 rounded-xl shadow-sm"
+                                >
+                                  <Trash2 className="w-5 h-5" />
+                                </Button>
+                              )}
                             </div>
                           </div>
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEdit(exp)}
-                              className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDelete(exp._id)}
-                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                          
+                          {/* Amount Display */}
+                          <div className="text-center mb-6">
+                            <div className="inline-flex items-center justify-center bg-gradient-to-r from-gray-900 to-gray-700 text-white px-6 py-4 rounded-2xl shadow-lg">
+                              <DollarSign className="w-6 h-6 mr-2" />
+                              <span className="text-4xl font-black tracking-tight">
+                                {exp.amount.toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Date Badge */}
+                          <div className="flex justify-center mb-6">
+                            <div className="flex items-center gap-2 bg-white shadow-md px-4 py-2 rounded-full border border-gray-200">
+                              <Calendar className="w-5 h-5 text-gray-600" />
+                              <span className="font-semibold text-gray-800">
+                                {new Date(exp.date).toLocaleDateString('en-US', { 
+                                  month: 'short', 
+                                  day: 'numeric', 
+                                  year: 'numeric' 
+                                })}
+                              </span>
+                            </div>
                           </div>
                         </div>
                         
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-2xl font-bold text-gray-900">Ksh {exp.amount.toLocaleString()}</span>
-                            <Badge variant="outline" className="text-xs">
-                              {new Date(exp.date).toLocaleDateString()}
-                            </Badge>
-                          </div>
+                        {/* Info Cards */}
+                        <div className="px-6 pb-6 space-y-3">
+                          {exp.station && (
+                            <div className="bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
+                                  <Building className="w-5 h-5 text-white" />
+                                </div>
+                                <div>
+                                  <p className="text-xs font-medium text-blue-600 uppercase tracking-wide">Station</p>
+                                  <p className="font-bold text-blue-900">{exp.station.name}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {exp.createdBy && (
+                            <div className="bg-gradient-to-r from-green-50 to-green-100 border border-green-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
+                                  <User className="w-5 h-5 text-white" />
+                                </div>
+                                <div className="flex-1">
+                                  <p className="text-xs font-medium text-green-600 uppercase tracking-wide">Created By</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-bold text-green-900">{exp.createdBy.name}</p>
+                                    <Badge variant="outline" className="text-xs bg-white border-green-300 text-green-700">
+                                      {exp.createdBy.role}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                           
                           {exp.notes && (
-                            <p className="text-sm text-gray-600 line-clamp-2">{exp.notes}</p>
+                            <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+                              <div className="flex items-start gap-3">
+                                <div className="w-10 h-10 bg-gray-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                                  <StickyNote className="w-5 h-5 text-white" />
+                                </div>
+                                <div className="flex-1">
+                                  <p className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">Notes</p>
+                                  <p className="text-sm text-gray-800 line-clamp-3 leading-relaxed">{exp.notes}</p>
+                                </div>
+                              </div>
+                            </div>
                           )}
                         </div>
                       </CardContent>
@@ -812,70 +948,134 @@ export default function ExpensesPage() {
               </div>
             ) : (
               /* List View */
-              <Card>
+              <Card className="border-0 shadow-2xl overflow-hidden">
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full">
-                      <thead className="bg-gray-50 border-b">
+                      <thead className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900">
                         <tr>
-                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expense</th>
-                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
-                          <th className="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                          <th className="px-8 py-6 text-left text-sm font-bold text-white uppercase tracking-wider">Expense</th>
+                          <th className="px-8 py-6 text-left text-sm font-bold text-white uppercase tracking-wider">Category</th>
+                          <th className="px-8 py-6 text-left text-sm font-bold text-white uppercase tracking-wider">Amount</th>
+                          <th className="px-8 py-6 text-left text-sm font-bold text-white uppercase tracking-wider">Date</th>
+                          <th className="px-8 py-6 text-left text-sm font-bold text-white uppercase tracking-wider">Station</th>
+                          <th className="px-8 py-6 text-left text-sm font-bold text-white uppercase tracking-wider">Created By</th>
+                          <th className="px-8 py-6 text-left text-sm font-bold text-white uppercase tracking-wider">Notes</th>
+                          <th className="px-8 py-6 text-right text-sm font-bold text-white uppercase tracking-wider">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {currentExpenses.map((exp) => {
+                      <tbody className="bg-white divide-y divide-gray-100">
+                        {currentExpenses.map((exp, index) => {
                           const CategoryIcon = getCategoryIcon(exp.category);
                           const categoryColor = getCategoryColor(exp.category);
                           
                           return (
-                            <tr key={exp._id} className="hover:bg-gray-50 transition-colors">
-                              <td className="px-6 py-4 whitespace-nowrap">
+                            <tr key={exp._id} className={`hover:bg-gradient-to-r hover:from-gray-50 hover:to-white transition-all duration-300 group ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                              <td className="px-8 py-6 whitespace-nowrap">
                                 <div className="flex items-center">
-                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center mr-3 ${categoryColor}`}>
-                                    <CategoryIcon className="w-4 h-4" />
-                      </div>
+                                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mr-4 shadow-lg ${categoryColor} group-hover:scale-105 transition-transform duration-300`}>
+                                    <CategoryIcon className="w-7 h-7" />
+                                  </div>
                                   <div>
-                                    <div className="text-sm font-medium text-gray-900">{exp.title}</div>
-                      </div>
-                    </div>
+                                    <div className="text-lg font-bold text-gray-900 group-hover:text-gray-700 transition-colors">{exp.title}</div>
+                                    <div className="text-xs text-gray-500 font-medium">ID: {exp._id.slice(-8)}</div>
+                                  </div>
+                                </div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <Badge variant="outline" className={categoryColor}>
-                        {exp.category}
+                              <td className="px-8 py-6 whitespace-nowrap">
+                                <Badge variant="secondary" className={`${categoryColor} font-bold px-4 py-2 rounded-full text-sm shadow-sm`}>
+                                  {exp.category}
                                 </Badge>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="text-sm font-semibold text-gray-900">Ksh {exp.amount.toLocaleString()}</div>
+                              <td className="px-8 py-6 whitespace-nowrap">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-10 h-10 bg-gradient-to-r from-gray-900 to-gray-700 rounded-xl flex items-center justify-center">
+                                    <DollarSign className="w-5 h-5 text-white" />
+                                  </div>
+                                  <div>
+                                    <div className="text-xl font-black text-gray-900">{exp.amount.toLocaleString()}</div>
+                                    <div className="text-xs text-gray-500 font-medium">Ksh</div>
+                                  </div>
+                                </div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {new Date(exp.date).toLocaleDateString()}
+                              <td className="px-8 py-6 whitespace-nowrap">
+                                <div className="flex items-center gap-2 bg-white shadow-md px-4 py-2 rounded-full border border-gray-200">
+                                  <Calendar className="w-5 h-5 text-gray-600" />
+                                  <span className="font-bold text-gray-800">
+                                    {new Date(exp.date).toLocaleDateString('en-US', { 
+                                      month: 'short', 
+                                      day: 'numeric', 
+                                      year: 'numeric' 
+                                    })}
+                                  </span>
+                                </div>
                               </td>
-                              <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                                {exp.notes || '-'}
+                              <td className="px-8 py-6 whitespace-nowrap">
+                                {exp.station ? (
+                                  <div className="bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-3 shadow-sm">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                                        <Building className="w-4 h-4 text-white" />
+                                      </div>
+                                      <span className="font-bold text-blue-900">{exp.station.name}</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400 text-sm font-medium">-</span>
+                                )}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                <div className="flex items-center justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEdit(exp)}
-                                    className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                      >
-                                    <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(exp._id)}
-                                    className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                                    <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+                              <td className="px-8 py-6 whitespace-nowrap">
+                                {exp.createdBy ? (
+                                  <div className="bg-gradient-to-r from-green-50 to-green-100 border border-green-200 rounded-xl p-3 shadow-sm">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+                                        <User className="w-4 h-4 text-white" />
+                                      </div>
+                                      <div>
+                                        <div className="font-bold text-green-900">{exp.createdBy.name}</div>
+                                        <Badge variant="outline" className="text-xs bg-white border-green-300 text-green-700 mt-1">
+                                          {exp.createdBy.role}
+                                        </Badge>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400 text-sm font-medium">-</span>
+                                )}
+                              </td>
+                              <td className="px-8 py-6 text-sm text-gray-600 max-w-xs">
+                                {exp.notes ? (
+                                  <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 rounded-xl p-3 shadow-sm">
+                                    <div className="flex items-start gap-2">
+                                      <StickyNote className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                                      <span className="line-clamp-2 font-medium text-gray-800">{exp.notes}</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400 font-medium">-</span>
+                                )}
+                              </td>
+                              <td className="px-8 py-6 whitespace-nowrap text-right">
+                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-2 group-hover:translate-x-0">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleEdit(exp)}
+                                    className="h-10 w-10 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-100 rounded-xl shadow-sm"
+                                  >
+                                    <Edit className="w-5 h-5" />
+                                  </Button>
+                                  {user?.role !== 'manager' && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleDelete(exp._id)}
+                                      className="h-10 w-10 p-0 text-red-600 hover:text-red-700 hover:bg-red-100 rounded-xl shadow-sm"
+                                    >
+                                      <Trash2 className="w-5 h-5" />
+                                    </Button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           );

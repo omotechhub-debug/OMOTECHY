@@ -33,6 +33,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isSuperAdmin: boolean;
+  isManager: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -188,8 +189,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshUserData,
     isLoading,
     isAuthenticated: !!user && !!token,
-    isAdmin: user?.role === 'admin' || user?.role === 'superadmin',
+    isAdmin: user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'manager',
     isSuperAdmin: user?.role === 'superadmin',
+    isManager: user?.role === 'manager',
   };
 
   return React.createElement(AuthContext.Provider, { value }, children);

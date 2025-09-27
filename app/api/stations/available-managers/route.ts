@@ -25,25 +25,51 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    // Get all admins and superadmins (can now manage multiple stations)
-    const admins = await User.find({
-      role: { $in: ['admin', 'superadmin'] },
+    // Get all managers who are not already assigned to any station
+    // First, get all managers assigned to stations (both through stationId and managers array)
+    const assignedManagerIds = new Set();
+    
+    // Get managers assigned through stationId field
+    const managersWithStationId = await User.find({
+      role: 'manager',
+      stationId: { $exists: true, $ne: null }
+    }).select('_id');
+    managersWithStationId.forEach(manager => assignedManagerIds.add(manager._id.toString()));
+    
+    // Get managers assigned through stations.managers array
+    const stationsWithManagers = await Station.find({
+      managers: { $exists: true, $ne: [] }
+    }).select('managers');
+    stationsWithManagers.forEach(station => {
+      station.managers.forEach(managerId => {
+        assignedManagerIds.add(managerId.toString());
+      });
+    });
+    
+    // Get all unassigned managers
+    const managers = await User.find({
+      role: 'manager',
       isActive: true,
-      approved: true
-    }).select('name email role managedStations');
+      approved: true,
+      _id: { $nin: Array.from(assignedManagerIds) }
+    }).select('name email role stationId');
 
-    // Get currently assigned managers
+    // Get currently assigned managers (both old and new methods)
     const assignedManagers = await Station.find({
-      managerId: { $exists: true, $ne: null }
-    }).populate('managerId', 'name email role');
+      $or: [
+        { managerId: { $exists: true, $ne: null } },
+        { managers: { $exists: true, $ne: [] } }
+      ]
+    }).populate('managerId', 'name email role').populate('managers', 'name email role');
 
     return NextResponse.json({
       success: true,
-      availableManagers: admins,
+      availableManagers: managers,
       assignedManagers: assignedManagers.map(station => ({
         stationId: station._id,
         stationName: station.name,
-        manager: station.managerId
+        manager: station.managerId,
+        managers: station.managers
       }))
     });
 

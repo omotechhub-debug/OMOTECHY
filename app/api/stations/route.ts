@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if managers exist and are admins
+    // Check if managers exist and are managers
     const managerIds = managers || (managerId ? [managerId] : []);
     if (managerIds.length > 0) {
       const managerUsers = await User.find({ _id: { $in: managerIds } });
@@ -135,9 +135,17 @@ export async function POST(request: NextRequest) {
       }
 
       for (const manager of managerUsers) {
-        if (!['admin', 'superadmin'].includes(manager.role)) {
+        if (manager.role !== 'manager') {
           return NextResponse.json(
-            { error: 'All managers must be admins or superadmins' },
+            { error: 'All assigned users must be managers' },
+            { status: 400 }
+          );
+        }
+
+        // Check if manager is already assigned to another station
+        if (manager.stationId) {
+          return NextResponse.json(
+            { error: `Manager ${manager.name} is already assigned to another station. A manager can only manage one station at a time.` },
             { status: 400 }
           );
         }

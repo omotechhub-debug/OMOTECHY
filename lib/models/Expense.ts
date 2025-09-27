@@ -6,6 +6,17 @@ export interface IExpense extends mongoose.Document {
   date: Date;
   category: string;
   notes?: string;
+  // Order creator and station tracking
+  createdBy?: {
+    userId: string;
+    name: string;
+    role: 'superadmin' | 'admin' | 'manager' | 'user';
+  };
+  station?: {
+    stationId: string;
+    name: string;
+    location: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,6 +44,36 @@ const expenseSchema = new mongoose.Schema<IExpense>({
   notes: {
     type: String,
     trim: true,
+  },
+  // Order creator and station tracking
+  createdBy: {
+    userId: {
+      type: String,
+      required: false,
+    },
+    name: {
+      type: String,
+      required: false,
+    },
+    role: {
+      type: String,
+      enum: ['superadmin', 'admin', 'manager', 'user'],
+      required: false,
+    },
+  },
+  station: {
+    stationId: {
+      type: String,
+      required: false,
+    },
+    name: {
+      type: String,
+      required: false,
+    },
+    location: {
+      type: String,
+      required: false,
+    },
   },
 }, {
   timestamps: true,

@@ -35,11 +35,27 @@ export default function UserStationInfo({
         return;
       }
 
-      // Fetch station information if user has one
-      if (user?.stationId || (user?.managedStations && user.managedStations.length > 0)) {
-        try {
+      try {
+        const token = localStorage.getItem('authToken');
+        
+        if (user?.role === 'manager') {
+          // For managers, use the my-station API to find their assigned station
+          const stationRes = await fetch('/api/stations/my-station', {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (stationRes.ok) {
+            const stationData = await stationRes.json();
+            if (stationData.success && stationData.station) {
+              setStationInfo(stationData.station);
+            }
+          }
+        } else if (user?.stationId || (user?.managedStations && user.managedStations.length > 0)) {
+          // For admins/superadmins, use the existing logic
           const stationId = user.stationId || user.managedStations?.[0];
-          const token = localStorage.getItem('authToken');
           
           if (stationId && token) {
             const stationRes = await fetch(`/api/stations/${stationId}`, {
@@ -54,9 +70,9 @@ export default function UserStationInfo({
               setStationInfo(stationData.station);
             }
           }
-        } catch (error) {
-          console.error('Error fetching station info:', error);
         }
+      } catch (error) {
+        console.error('Error fetching station info:', error);
       }
       
       setLoading(false);
@@ -111,9 +127,18 @@ export default function UserStationInfo({
 
   if (showInHeader) {
     return (
-      <div className={`flex items-center gap-4 ${className}`}>
-        {userDisplay}
-        {stationDisplay}
+      <div className={`flex items-center gap-2 ${className}`}>
+        <div className="flex items-center gap-1">
+          <User className="h-4 w-4 text-gray-600" />
+          <span className="font-medium text-gray-900 text-sm">{user.name}</span>
+          <span className="text-xs text-gray-500 capitalize">({user.role})</span>
+        </div>
+        {stationInfo && (
+          <div className="flex items-center gap-1">
+            <Building className="h-4 w-4 text-primary" />
+            <span className="font-medium text-primary text-sm">{stationInfo.name}</span>
+          </div>
+        )}
       </div>
     );
   }

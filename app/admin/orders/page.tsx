@@ -820,6 +820,18 @@ export default function OrdersPage() {
   const confirmDeleteOrder = async () => {
     if (!orderToDelete) return;
     
+    // Check if user is a manager
+    if (user?.role === 'manager') {
+      toast({
+        title: "Access Denied",
+        description: "Managers cannot delete orders. Please contact an administrator.",
+        variant: "destructive",
+      });
+      setDeleteDialogOpen(false);
+      setOrderToDelete(null);
+      return;
+    }
+    
     try {
       setDeleting(true);
       const response = await fetch(`/api/orders/${orderToDelete._id}`, {
@@ -2175,18 +2187,20 @@ export default function OrdersPage() {
                         <Edit className="w-4 h-4" />
                         <span className="truncate">Edit</span>
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteOrder(order);
-                        }}
-                        className="flex-1 border-red-600 text-red-600 hover:bg-red-600 hover:text-white min-w-0 whitespace-nowrap"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        <span className="truncate">Delete</span>
-                      </Button>
+                      {user?.role !== 'manager' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteOrder(order);
+                          }}
+                          className="flex-1 border-red-600 text-red-600 hover:bg-red-600 hover:text-white min-w-0 whitespace-nowrap"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span className="truncate">Delete</span>
+                        </Button>
+                      )}
                     </div>
 
                     {/* Payment Actions */}
@@ -2463,17 +2477,19 @@ export default function OrdersPage() {
                         >
                           <Edit className="w-4 h-4" />
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteOrder(order);
-                          }}
-                          className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        {user?.role !== 'manager' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteOrder(order);
+                            }}
+                            className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardContent>

@@ -132,7 +132,7 @@ export default function UserManagement() {
   // User management functions
   const promoteToAdmin = async (userId: string) => {
     try {
-      const response = await fetch('/api/users/promote', {
+      const response = await fetch('/api/users/promote-to-admin', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -160,9 +160,76 @@ export default function UserManagement() {
     }
   };
 
-  const demoteToUser = async (userId: string) => {
+  const promoteToManager = async (userId: string) => {
     try {
-      const response = await fetch('/api/users/demote', {
+      const response = await fetch('/api/users/promote-to-manager', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setUsers(prev => prev.map(user => 
+          user.id === userId ? data.user : user
+        ));
+        setMessage(data.message);
+        setTimeout(() => setMessage(""), 3000);
+      } else {
+        setError(data.error || 'Failed to promote user to manager');
+        setTimeout(() => setError(""), 3000);
+      }
+    } catch (error) {
+      console.error('Error promoting user to manager:', error);
+      setError('Failed to promote user to manager');
+      setTimeout(() => setError(""), 3000);
+    }
+  };
+
+  const demoteToManager = async (userId: string) => {
+    try {
+      const response = await fetch('/api/users/demote-to-manager', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setUsers(prev => prev.map(user => 
+          user.id === userId ? data.user : user
+        ));
+        setMessage(data.message);
+        setTimeout(() => setMessage(""), 3000);
+      } else {
+        setError(data.error || 'Failed to demote user to manager');
+        setTimeout(() => setError(""), 3000);
+      }
+    } catch (error) {
+      console.error('Error demoting user to manager:', error);
+      setError('Failed to demote user to manager');
+      setTimeout(() => setError(""), 3000);
+    }
+  };
+
+  const demoteToUser = async (userId: string, currentRole: string) => {
+    try {
+      // Use specific API based on current role
+      const apiEndpoint = currentRole === 'manager' 
+        ? '/api/users/demote-manager-to-user'
+        : currentRole === 'admin'
+        ? '/api/users/demote-admin-to-user'
+        : '/api/users/demote';
+
+      const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -330,7 +397,8 @@ export default function UserManagement() {
 
   const activeUsers = users.filter(u => u.isActive).length;
   const inactiveUsers = users.filter(u => !u.isActive).length;
-  const adminUsers = users.filter(u => u.role === 'admin' || u.role === 'superadmin').length;
+  const superAdminUsers = users.filter(u => u.role === 'superadmin').length;
+  const adminUsers = users.filter(u => u.role === 'admin').length;
   const managerUsers = users.filter(u => u.role === 'manager').length;
   const pendingUsers = users.filter(u => !u.approved).length;
 
@@ -388,6 +456,13 @@ export default function UserManagement() {
               All Roles
             </Button>
             <Button
+              variant={filterRole === "superadmin" ? "default" : "outline"}
+              onClick={() => setFilterRole("superadmin")}
+              size="sm"
+            >
+              Super Admins
+            </Button>
+            <Button
               variant={filterRole === "admin" ? "default" : "outline"}
               onClick={() => setFilterRole("admin")}
               size="sm"
@@ -395,18 +470,18 @@ export default function UserManagement() {
               Admins
             </Button>
             <Button
-              variant={filterRole === "user" ? "default" : "outline"}
-              onClick={() => setFilterRole("user")}
-              size="sm"
-            >
-              Users
-            </Button>
-            <Button
               variant={filterRole === "manager" ? "default" : "outline"}
               onClick={() => setFilterRole("manager")}
               size="sm"
             >
               Managers
+            </Button>
+            <Button
+              variant={filterRole === "user" ? "default" : "outline"}
+              onClick={() => setFilterRole("user")}
+              size="sm"
+            >
+              Users
             </Button>
           </div>
           <div className="flex gap-2">
@@ -475,9 +550,17 @@ export default function UserManagement() {
                       <h3 className="font-medium">{user.name}</h3>
                       <p className="text-sm text-gray-500">{user.email}</p>
                         <div className="flex items-center space-x-2 mt-1">
-                          <Badge variant={user.role === 'admin' || user.role === 'superadmin' ? 'default' : user.role === 'manager' ? 'secondary' : 'outline'}>
-                          {user.role}
-                        </Badge>
+                          <Badge variant={
+                            user.role === 'superadmin' ? 'default' : 
+                            user.role === 'admin' ? 'secondary' : 
+                            user.role === 'manager' ? 'outline' : 
+                            'outline'
+                          }>
+                            {user.role === 'superadmin' ? 'Super Admin' : 
+                             user.role === 'admin' ? 'Admin' : 
+                             user.role === 'manager' ? 'Manager' : 
+                             'User'}
+                          </Badge>
                         {user.station && (
                           <Badge variant="outline" className="text-blue-600 border-blue-600">
                             {user.station.name}
@@ -513,34 +596,57 @@ export default function UserManagement() {
                         </Button>
                       )}
                       {user.role === 'user' && user.approved ? (
-                      <Button
-                        size="sm"
-                        onClick={() => promoteToAdmin(user.id)}
-                        className="bg-yellow-600 hover:bg-yellow-700"
-                      >
-                        <Crown className="h-4 w-4 mr-1" />
-                        Promote to Admin
-                      </Button>
-                      ) : (user.role === 'admin' && user.approved) ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => demoteToUser(user.id)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <UserX className="h-4 w-4 mr-1" />
-                        Demote to User
-                      </Button>
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            onClick={() => promoteToManager(user.id)}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            <Shield className="h-4 w-4 mr-1" />
+                            Promote to Manager
+                          </Button>
+                        </div>
                       ) : (user.role === 'manager' && user.approved) ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => demoteToUser(user.id)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <UserX className="h-4 w-4 mr-1" />
-                        Demote to User
-                      </Button>
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            onClick={() => promoteToAdmin(user.id)}
+                            className="bg-blue-600 hover:bg-blue-700"
+                          >
+                            <Crown className="h-4 w-4 mr-1" />
+                            Promote to Admin
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => demoteToUser(user.id, user.role)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <UserX className="h-4 w-4 mr-1" />
+                            Demote to User
+                          </Button>
+                        </div>
+                      ) : (user.role === 'admin' && user.approved) ? (
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => demoteToManager(user.id)}
+                            className="text-orange-600 hover:text-orange-700"
+                          >
+                            <Shield className="h-4 w-4 mr-1" />
+                            Demote to Manager
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => demoteToUser(user.id, user.role)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <UserX className="h-4 w-4 mr-1" />
+                            Demote to User
+                          </Button>
+                        </div>
                       ) : null}
                     <Button
                       size="sm"

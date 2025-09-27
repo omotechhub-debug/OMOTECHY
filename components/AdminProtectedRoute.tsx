@@ -4,12 +4,13 @@ import React, { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Loader2, AlertTriangle, Lock, Shield, Clock } from 'lucide-react';
-import { canViewPage, isAdminUser, isSuperAdminUser } from '@/lib/permissions';
+import { canViewPage, isAdminUser, isSuperAdminUser, isManagerUser, isAdminOrManagerUser } from '@/lib/permissions';
 
 interface AdminProtectedRouteProps {
   children: React.ReactNode;
   requireAdmin?: boolean;
   requireSuperAdmin?: boolean;
+  requireManager?: boolean;
   requiredPage?: string; // Specific page permission required
 }
 
@@ -17,12 +18,16 @@ export default function AdminProtectedRoute({
   children, 
   requireAdmin = false, 
   requireSuperAdmin = false,
+  requireManager = false,
   requiredPage 
 }: AdminProtectedRouteProps) {
-  const { isAuthenticated, isAdmin, isLoading, user } = useAuth();
+  const { isAuthenticated, isAdmin, isManager, isLoading, user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
+  
+  // Define isSuperAdmin based on user role
+  const isSuperAdmin = user?.role === 'superadmin';
 
   // Auto-detect page from pathname if not specified
   const getPageKey = (path: string) => {
@@ -38,6 +43,7 @@ export default function AdminProtectedRoute({
     if (path.startsWith('/admin/gallery')) return 'gallery';
     if (path.startsWith('/admin/testimonials')) return 'testimonials';
     if (path.startsWith('/admin/promotions')) return 'promotions';
+    if (path.startsWith('/admin/stations')) return 'stations';
     if (path.startsWith('/admin/banners')) return 'settings';
     if (path.startsWith('/admin/sms')) return 'settings';
     if (path.startsWith('/admin/settings')) return 'settings';
@@ -64,6 +70,18 @@ export default function AdminProtectedRoute({
         console.log('🚫 Regular user attempted admin access, redirecting to user dashboard');
         router.push('/dashboard');
         return;
+      }
+
+      // Manager users should only access specific pages (POS, Orders, Expenses)
+      if (user && user.role === 'manager') {
+        const allowedPages = ['dashboard', 'orders', 'pos', 'expenses'];
+        const currentPage = getPageKey(pathname || '');
+        
+        if (currentPage && !allowedPages.includes(currentPage)) {
+          console.log('🚫 Manager user attempted unauthorized access to:', currentPage);
+          router.push('/admin');
+          return;
+        }
       }
     }
   }, [isAuthenticated, isLoading, user, router]);
@@ -109,8 +127,8 @@ export default function AdminProtectedRoute({
     );
   }
 
-  // Admin user but not approved yet
-  if (user && (user.role === 'admin' || user.role === 'superadmin') && !user.approved) {
+  // Admin/Manager user but not approved yet
+  if (user && (isAdmin || isManager) && !user.approved) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center max-w-md mx-auto p-6">
@@ -155,7 +173,7 @@ export default function AdminProtectedRoute({
   }
 
   // Super admin requirement check
-  if (requireSuperAdmin && !isSuperAdminUser(user)) {
+  if (requireSuperAdmin && !isSuperAdmin) {
     console.log('🚫 Access denied - Super admin required');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -174,9 +192,29 @@ export default function AdminProtectedRoute({
     );
   }
 
+  // Manager requirement check
+  if (requireManager && !isManager) {
+    console.log('🚫 Access denied - Manager privileges required');
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center max-w-md mx-auto p-6">
+          <Lock className="h-16 w-16 mx-auto mb-4 text-red-500" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Manager Access Required</h2>
+          <p className="text-gray-600 mb-4">You need manager privileges to access this resource.</p>
+          <button 
+            onClick={() => router.push('/admin')}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Admin requirement check
-  if (requireAdmin && !isAdminUser(user)) {
-    console.log('🚫 Access denied - Admin privileges required');
+  if (requireAdmin && !isAdmin && !isManager) {
+    console.log('🚫 Access denied - Admin or Manager privileges required');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center max-w-md mx-auto p-6">

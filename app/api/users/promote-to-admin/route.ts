@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
 import User from '@/lib/models/User';
-import Station from '@/lib/models/Station';
 
-async function demoteUser(request: NextRequest) {
+async function promoteToAdmin(request: NextRequest) {
   try {
     await connectDB();
     
@@ -17,28 +16,31 @@ async function demoteUser(request: NextRequest) {
       );
     }
 
-    // Remove user from all stations they were managing (both as manager and admin)
-    const stationUpdateResult = await Station.updateMany(
-      { managers: userId },
-      { $pull: { managers: userId } }
-    );
+    // Check if user exists and validate current role
+    const existingUser = await User.findById(userId);
+    if (!existingUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
 
-    // Clear legacy managerId field if it exists
-    const legacyUpdateResult = await Station.updateMany(
-      { managerId: userId },
-      { $unset: { managerId: 1 } }
-    );
+    // Only allow promotion from manager role to admin
+    if (existingUser.role !== 'manager') {
+      return NextResponse.json(
+        { error: 'User must be a manager to be promoted to admin' },
+        { status: 400 }
+      );
+    }
 
-    // Find and update user
+    // Find and update user to admin role
     const user = await User.findByIdAndUpdate(
       userId,
       { 
-        role: 'user',
-        // Clear stationId when demoting to user
+        role: 'admin',
+        approved: true, // Auto-approve admins
+        // Clear stationId when promoting to admin (admin is not station-specific)
         $unset: { stationId: 1 }
       },
       { new: true }
-    ).select('-password');
+    );
 
     if (!user) {
       return NextResponse.json(
@@ -59,11 +61,11 @@ async function demoteUser(request: NextRequest) {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
       },
-      message: `User demoted to regular user successfully. Removed from ${stationUpdateResult.modifiedCount + legacyUpdateResult.modifiedCount} stations.`
+      message: 'User promoted to admin successfully'
     });
 
   } catch (error) {
-    console.error('Demote user error:', error);
+    console.error('Promote to admin error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -71,4 +73,4 @@ async function demoteUser(request: NextRequest) {
   }
 }
 
-export const POST = requireAdmin(demoteUser); 
+export const POST = requireAdmin(promoteToAdmin);

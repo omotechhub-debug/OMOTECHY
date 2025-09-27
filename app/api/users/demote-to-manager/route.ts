@@ -4,7 +4,7 @@ import connectDB from '@/lib/mongodb';
 import User from '@/lib/models/User';
 import Station from '@/lib/models/Station';
 
-async function demoteUser(request: NextRequest) {
+async function demoteToManager(request: NextRequest) {
   try {
     await connectDB();
     
@@ -13,6 +13,20 @@ async function demoteUser(request: NextRequest) {
     if (!userId) {
       return NextResponse.json(
         { error: 'User ID is required' },
+        { status: 400 }
+      );
+    }
+
+    // Check if user exists and validate current role
+    const existingUser = await User.findById(userId);
+    if (!existingUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // Only allow demotion from admin role to manager
+    if (existingUser.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'User must be an admin to be demoted to manager' },
         { status: 400 }
       );
     }
@@ -29,16 +43,16 @@ async function demoteUser(request: NextRequest) {
       { $unset: { managerId: 1 } }
     );
 
-    // Find and update user
+    // Find and update user to manager role
     const user = await User.findByIdAndUpdate(
       userId,
       { 
-        role: 'user',
-        // Clear stationId when demoting to user
+        role: 'manager',
+        // Clear stationId when demoting from admin to manager
         $unset: { stationId: 1 }
       },
       { new: true }
-    ).select('-password');
+    );
 
     if (!user) {
       return NextResponse.json(
@@ -56,14 +70,15 @@ async function demoteUser(request: NextRequest) {
         role: user.role,
         isActive: user.isActive,
         approved: user.approved,
+        stationId: user.stationId,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
       },
-      message: `User demoted to regular user successfully. Removed from ${stationUpdateResult.modifiedCount + legacyUpdateResult.modifiedCount} stations.`
+      message: `Admin demoted to manager successfully. Removed from ${stationUpdateResult.modifiedCount + legacyUpdateResult.modifiedCount} stations.`
     });
 
   } catch (error) {
-    console.error('Demote user error:', error);
+    console.error('Demote to manager error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -71,4 +86,4 @@ async function demoteUser(request: NextRequest) {
   }
 }
 
-export const POST = requireAdmin(demoteUser); 
+export const POST = requireAdmin(demoteToManager);

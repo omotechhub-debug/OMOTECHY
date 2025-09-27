@@ -125,6 +125,8 @@ export default function StationManagement() {
   const [stationToDelete, setStationToDelete] = useState<Station | null>(null);
   const [isManagerViewOpen, setIsManagerViewOpen] = useState(false);
   const [selectedStationForManagerView, setSelectedStationForManagerView] = useState<Station | null>(null);
+  const [isAssignManagerOpen, setIsAssignManagerOpen] = useState(false);
+  const [selectedStationForAssignment, setSelectedStationForAssignment] = useState<Station | null>(null);
 
   // Form states
   const [formData, setFormData] = useState({
@@ -438,6 +440,73 @@ export default function StationManagement() {
     setIsDeleteDialogOpen(true);
   };
 
+  const assignManagerToStation = async (stationId: string, managerId: string) => {
+    try {
+      const response = await fetch('/api/stations/assign-manager', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ stationId, managerId }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setStations(prev => prev.map(station => 
+          station._id === stationId ? data.station : station
+        ));
+        setMessage(data.message);
+        setTimeout(() => setMessage(""), 3000);
+        fetchAvailableManagers(); // Refresh available managers
+      } else {
+        setError(data.error || 'Failed to assign manager');
+        setTimeout(() => setError(""), 3000);
+      }
+    } catch (error) {
+      console.error('Error assigning manager:', error);
+      setError('Failed to assign manager');
+      setTimeout(() => setError(""), 3000);
+    }
+  };
+
+  const removeManagerFromStation = async (stationId: string, managerId: string) => {
+    try {
+      const response = await fetch('/api/stations/remove-manager', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ stationId, managerId }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setStations(prev => prev.map(station => 
+          station._id === stationId ? data.station : station
+        ));
+        setMessage(data.message);
+        setTimeout(() => setMessage(""), 3000);
+        fetchAvailableManagers(); // Refresh available managers
+      } else {
+        setError(data.error || 'Failed to remove manager');
+        setTimeout(() => setError(""), 3000);
+      }
+    } catch (error) {
+      console.error('Error removing manager:', error);
+      setError('Failed to remove manager');
+      setTimeout(() => setError(""), 3000);
+    }
+  };
+
+  const openAssignManagerDialog = (station: Station) => {
+    setSelectedStationForAssignment(station);
+    setIsAssignManagerOpen(true);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -647,6 +716,15 @@ export default function StationManagement() {
                       >
                         <Users className="h-4 w-4 mr-1" />
                         View Managers
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openAssignManagerDialog(station)}
+                        className="text-green-600 hover:text-green-700"
+                      >
+                        <User className="h-4 w-4 mr-1" />
+                        Assign Manager
                       </Button>
                       <Button
                         size="sm"
@@ -1132,9 +1210,19 @@ export default function StationManagement() {
                                     <p className="text-sm font-medium text-blue-900">{managerName}</p>
                                     <p className="text-xs text-blue-600">{managerEmail}</p>
                                   </div>
-                                  <Badge variant="outline" className="text-xs">
-                                    {managerRole}
-                                  </Badge>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-xs">
+                                      {managerRole}
+                                    </Badge>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => removeManagerFromStation(selectedStationForManagerView._id, managerId)}
+                                      className="text-red-600 hover:text-red-700"
+                                    >
+                                      <XCircle className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -1163,6 +1251,58 @@ export default function StationManagement() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsManagerViewOpen(false)}>
                 Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Assign Manager Dialog */}
+        <Dialog open={isAssignManagerOpen} onOpenChange={setIsAssignManagerOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                Assign Manager to Station
+              </DialogTitle>
+              <DialogDescription>
+                Select a manager to assign to {selectedStationForAssignment?.name}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              {selectedStationForAssignment && (
+                <div className="border rounded-lg p-4">
+                  <h3 className="font-semibold text-lg">{selectedStationForAssignment.name}</h3>
+                  <p className="text-sm text-gray-600">{selectedStationForAssignment.location}</p>
+                </div>
+              )}
+              
+              <div>
+                <Label htmlFor="manager-select">Available Managers</Label>
+                <Select onValueChange={(managerId) => {
+                  if (selectedStationForAssignment) {
+                    assignManagerToStation(selectedStationForAssignment._id, managerId);
+                    setIsAssignManagerOpen(false);
+                  }
+                }}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a manager..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableManagers.map((manager) => (
+                      <SelectItem key={manager._id} value={manager._id}>
+                        <div className="flex items-center gap-2">
+                          <User className="w-4 h-4" />
+                          <span>{manager.name} ({manager.email})</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsAssignManagerOpen(false)}>
+                Cancel
               </Button>
             </DialogFooter>
           </DialogContent>

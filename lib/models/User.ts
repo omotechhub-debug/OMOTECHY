@@ -147,12 +147,12 @@ const userSchema = new mongoose.Schema<IUser>({
           canDelete: ['orders', 'customers', 'stations'].includes(page)
         }));
       } else if (this.role === 'manager') {
-        // Manager gets limited access to their station and related data
+        // Manager gets very limited access - only POS, Orders, and Expenses
         return defaultPages.map(page => ({
           page,
-          canView: ['dashboard', 'orders', 'pos', 'customers', 'services', 'categories', 'reports'].includes(page),
-          canEdit: ['orders', 'pos', 'customers', 'services'].includes(page),
-          canDelete: ['orders', 'customers'].includes(page)
+          canView: ['dashboard', 'orders', 'pos', 'expenses'].includes(page),
+          canEdit: ['orders', 'pos', 'expenses'].includes(page),
+          canDelete: ['orders'].includes(page)
         }));
       } else {
         // Regular users get limited access

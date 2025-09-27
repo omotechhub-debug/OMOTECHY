@@ -1,109 +1,76 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAdmin } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
 import User from '@/lib/models/User';
-import Station from '@/lib/models/Station';
-import { verifyToken } from '@/lib/auth';
 
-export async function POST(request: NextRequest) {
+async function promoteToManager(request: NextRequest) {
   try {
     await connectDB();
     
-    // Verify authentication
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'No token provided' }, { status: 401 });
-    }
+    const { userId, stationId } = await request.json();
 
-    const decoded = verifyToken(token);
-    if (!decoded) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-
-    // Check if user is admin or superadmin
-    const currentUser = await User.findById(decoded.userId);
-    if (!currentUser || !['admin', 'superadmin'].includes(currentUser.role)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
-    }
-
-    const body = await request.json();
-    const { userId, stationId } = body;
-
-    if (!userId || !stationId) {
+    if (!userId) {
       return NextResponse.json(
-        { error: 'User ID and Station ID are required' },
+        { error: 'User ID is required' },
         { status: 400 }
       );
     }
 
-    // Check if user exists and is an admin
-    const user = await User.findById(userId);
-    if (!user) {
+    // Check if user exists and validate current role
+    const existingUser = await User.findById(userId);
+    if (!existingUser) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    if (!['admin', 'superadmin'].includes(user.role)) {
+    // Only allow promotion from user role to manager
+    if (existingUser.role !== 'user') {
       return NextResponse.json(
-        { error: 'User must be an admin to be promoted to manager' },
+        { error: 'User must be a regular user to be promoted to manager' },
         { status: 400 }
       );
     }
 
-    // Check if station exists
-    const station = await Station.findById(stationId);
-    if (!station) {
-      return NextResponse.json({ error: 'Station not found' }, { status: 404 });
-    }
-
-    // Check if user is already managing this station
-    if (user.managedStations && user.managedStations.includes(stationId)) {
-      return NextResponse.json(
-        { error: 'User is already managing this station' },
-        { status: 400 }
-      );
-    }
-
-    // Add station to user's managedStations (keep original role)
-    const updatedUser = await User.findByIdAndUpdate(
+    // Find and update user to manager role
+    const user = await User.findByIdAndUpdate(
       userId,
-      {
-        $addToSet: { managedStations: stationId }
+      { 
+        role: 'manager',
+        stationId: stationId || null,
+        approved: true // Auto-approve managers
       },
       { new: true }
-    ).populate('managedStations', 'name location');
+    );
 
-    // Update station to assign manager (add to managers array)
-    await Station.findByIdAndUpdate(stationId, {
-      $addToSet: { managers: userId }
-    });
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
       user: {
-        id: updatedUser._id,
-        name: updatedUser.name,
-        email: updatedUser.email,
-        role: updatedUser.role,
-        isActive: updatedUser.isActive,
-        approved: updatedUser.approved,
-        reasonForAdminAccess: updatedUser.reasonForAdminAccess,
-        managedStations: updatedUser.managedStations,
-        stations: updatedUser.managedStations ? updatedUser.managedStations.map(station => ({
-          _id: station._id,
-          name: station.name,
-          location: station.location
-        })) : [],
-        pagePermissions: updatedUser.pagePermissions,
-        createdAt: updatedUser.createdAt,
-        updatedAt: updatedUser.updatedAt
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        approved: user.approved,
+        stationId: user.stationId,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
       },
       message: 'User promoted to manager successfully'
     });
 
   } catch (error) {
-    console.error('Error promoting user to manager:', error);
+    console.error('Promote to manager error:', error);
     return NextResponse.json(
-      { error: 'Failed to promote user to manager' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
 }
+
+export const POST = requireAdmin(promoteToManager);

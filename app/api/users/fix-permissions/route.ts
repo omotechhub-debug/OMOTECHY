@@ -31,8 +31,15 @@ function getDefaultPermissions(role: string) {
     return defaultPages.map(page => ({
       page,
       canView: true,
-      canEdit: ['dashboard', 'orders', 'pos', 'customers', 'services', 'categories'].includes(page),
-      canDelete: ['orders', 'customers'].includes(page)
+      canEdit: ['dashboard', 'orders', 'pos', 'customers', 'services', 'categories', 'stations'].includes(page),
+      canDelete: ['orders', 'customers', 'stations'].includes(page)
+    }));
+  } else if (role === 'manager') {
+    return defaultPages.map(page => ({
+      page,
+      canView: ['dashboard', 'orders', 'pos', 'expenses'].includes(page),
+      canEdit: ['orders', 'pos', 'expenses'].includes(page),
+      canDelete: ['orders'].includes(page)
     }));
   } else {
     return defaultPages.map(page => ({

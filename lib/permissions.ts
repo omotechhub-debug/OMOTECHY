@@ -112,6 +112,11 @@ export function getAccessiblePages(user: IUser | null): string[] {
     ];
   }
 
+  // Manager has very limited access - only POS, Orders, and Expenses
+  if (user.role === 'manager') {
+    return ['dashboard', 'orders', 'pos', 'expenses'];
+  }
+
   // Regular users should not access admin pages at all
   if (user.role === 'user') {
     return [];
@@ -147,6 +152,28 @@ export function isSuperAdminUser(user: IUser | null): boolean {
   }
   
   return user.role === 'superadmin';
+}
+
+/**
+ * Check if user is manager
+ */
+export function isManagerUser(user: IUser | null): boolean {
+  if (!user || !user.isActive || !user.approved) {
+    return false;
+  }
+  
+  return user.role === 'manager';
+}
+
+/**
+ * Check if user is admin, manager, or superadmin
+ */
+export function isAdminOrManagerUser(user: IUser | null): boolean {
+  if (!user || !user.isActive || !user.approved) {
+    return false;
+  }
+  
+  return ['admin', 'manager', 'superadmin'].includes(user.role);
 }
 
 /**
