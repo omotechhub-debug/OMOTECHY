@@ -8,6 +8,7 @@ const STATIC_FILES = [
   '/manifest.json',
   '/icon-192x192.png',
   '/icon-512x512.png',
+  '/icon-144x144.svg',
   '/offline.html'
 ]
 
