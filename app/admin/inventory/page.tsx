@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -70,8 +70,20 @@ interface InventoryItem {
   serviceDuration?: number;
   profitMargin?: number;
   stockStatus?: string;
+  stationIds?: {
+    _id: string;
+    name: string;
+    location: string;
+  }[];
   createdAt: string;
   updatedAt: string;
+}
+
+interface Station {
+  _id: string;
+  name: string;
+  location: string;
+  isActive: boolean;
 }
 
 const CATEGORIES = [
@@ -110,6 +122,7 @@ export default function InventoryPage() {
   const { token } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [allInventory, setAllInventory] = useState<InventoryItem[]>([]);
+  const [stations, setStations] = useState<Station[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +136,7 @@ export default function InventoryPage() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all');
+  const [stationFilter, setStationFilter] = useState('all');
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -153,7 +167,8 @@ export default function InventoryPage() {
     status: 'active',
     tags: [] as string[],
     supplier: '',
-    warranty: ''
+    warranty: '',
+    stationIds: []
   });
 
   // Debounce search term
@@ -177,6 +192,7 @@ export default function InventoryPage() {
   useEffect(() => {
     if (token) {
       fetchAllInventory();
+      fetchStations();
     }
   }, [token]);
 
@@ -215,8 +231,19 @@ export default function InventoryPage() {
       });
     }
 
+    // Apply station filter
+    if (stationFilter !== 'all') {
+      if (stationFilter === 'no_station') {
+        filtered = filtered.filter(item => !item.stationIds || item.stationIds.length === 0);
+      } else {
+        filtered = filtered.filter(item => 
+          item.stationIds && item.stationIds.some(station => station._id === stationFilter)
+        );
+      }
+    }
+
     return filtered;
-  }, [allInventory, debouncedSearchTerm, categoryFilter, statusFilter, stockFilter]);
+  }, [allInventory, debouncedSearchTerm, categoryFilter, statusFilter, stockFilter, stationFilter]);
 
   // Paginate filtered results
   const paginatedInventory = useMemo(() => {
@@ -289,11 +316,80 @@ export default function InventoryPage() {
     }
   };
 
+  const fetchStations = async () => {
+    try {
+      const response = await fetch('/api/stations', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setStations(data.stations || []);
+      } else {
+        console.error('Failed to fetch stations');
+      }
+    } catch (error) {
+      console.error('Error fetching stations:', error);
+    }
+  };
+
   const handleCreateItem = async () => {
     if (isCreating) return; // Prevent multiple submissions
-    
+
+    // Validate that at least one station is selected
+    if (!formData.stationIds || formData.stationIds.length === 0) {
+      setError('Please select at least one station');
+      return;
+    }
+
     try {
       setIsCreating(true);
+      console.log('Creating item with data:', formData); // Debug log
+      console.log('Station IDs being sent:', formData.stationIds);
+      
+      // If multiple stations are selected, create a copy for each station
+      if (formData.stationIds && formData.stationIds.length > 1) {
+        console.log('Creating multiple copies for stations:', formData.stationIds);
+        
+        const createPromises = formData.stationIds.map((stationId, index) => {
+          const itemData = {
+            ...formData,
+            sku: `${formData.sku}-${index + 1}`, // Add index to make SKU unique
+            stationIds: [stationId] // Only one station per copy
+          };
+          
+          return fetch('/api/inventory', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(itemData)
+          });
+        });
+        
+        const responses = await Promise.all(createPromises);
+        const results = await Promise.all(responses.map(r => r.json()));
+        
+        const successCount = results.filter(r => r.success).length;
+        const errorCount = results.filter(r => !r.success).length;
+        
+        if (successCount > 0) {
+          setSuccess(`Successfully created ${successCount} inventory item(s) for selected stations!`);
+          setIsCreateDialogOpen(false);
+          resetForm();
+          fetchAllInventory();
+        }
+        
+        if (errorCount > 0) {
+          setError(`Failed to create ${errorCount} item(s). Please try again.`);
+        }
+        return;
+      }
+      
       const response = await fetch('/api/inventory', {
         method: 'POST',
         headers: {
@@ -320,11 +416,20 @@ export default function InventoryPage() {
     }
   };
 
+
   const handleUpdateItem = async () => {
     if (!selectedItem || isUpdating) return; // Prevent multiple submissions
 
+    // Validate that at least one station is selected
+    if (!formData.stationIds || formData.stationIds.length === 0) {
+      setError('Please select at least one station');
+      return;
+    }
+
     try {
       setIsUpdating(true);
+      console.log('Updating item with data:', formData);
+      
       const response = await fetch(`/api/inventory/${selectedItem._id}`, {
         method: 'PUT',
         headers: {
@@ -335,14 +440,27 @@ export default function InventoryPage() {
       });
 
       if (response.ok) {
+        const responseData = await response.json();
+        console.log('Update response data:', responseData);
+        console.log('Updated item stationIds:', responseData.data?.stationIds);
         setSuccess('Inventory item updated successfully!');
         setIsEditDialogOpen(false);
         setSelectedItem(null);
         resetForm();
         fetchAllInventory();
       } else {
-        const errorData = await response.json();
-        setError(errorData.error || 'Failed to update inventory item');
+        const responseText = await response.text();
+        console.error('Response status:', response.status);
+        console.error('Response text:', responseText);
+        
+        let errorData;
+        try {
+          errorData = JSON.parse(responseText);
+        } catch (e) {
+          errorData = { error: 'Failed to parse error response', raw: responseText };
+        }
+        console.error('Update error response:', errorData);
+        setError(`Update failed: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Error updating inventory item:', error);
@@ -397,9 +515,42 @@ export default function InventoryPage() {
       status: item.status,
       tags: item.tags || [],
       supplier: item.supplier || '',
-      warranty: item.warranty || ''
+      warranty: item.warranty || '',
+      stationIds: item.stationIds?.map(station => station._id) || []
     });
     setIsEditDialogOpen(true);
+  };
+
+  const handleCreateCopyForStation = (item: InventoryItem) => {
+    console.log('Creating copy for station from item:', item);
+    setSelectedItem(item); // Keep reference to original item
+    setFormData({
+      name: item.name,
+      description: item.description,
+      category: item.category,
+      subcategory: item.subcategory,
+      sku: `${item.sku}-COPY`, // Add COPY suffix to SKU
+      price: item.price,
+      cost: item.cost,
+      stock: 0, // Start with 0 stock for new copy
+      minStock: item.minStock,
+      maxStock: item.maxStock,
+      unit: item.unit,
+      brand: item.brand || '',
+      model: item.model || '',
+      images: [...item.images], // Copy images
+      status: item.status,
+      tags: [...item.tags], // Copy tags
+      supplier: item.supplier || '',
+      warranty: item.warranty || '',
+      stationIds: [] // Start with no stations - user will select
+    });
+    console.log('Form data set for copy:', {
+      name: item.name,
+      sku: `${item.sku}-COPY`,
+      stationIds: []
+    });
+    setIsCreateDialogOpen(true);
   };
 
   const resetForm = () => {
@@ -421,7 +572,8 @@ export default function InventoryPage() {
       status: 'active',
       tags: [],
       supplier: '',
-      warranty: ''
+      warranty: '',
+      stationIds: []
     });
   };
 
@@ -492,6 +644,9 @@ export default function InventoryPage() {
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add New Inventory Item</DialogTitle>
+                <DialogDescription>
+                  Create a new inventory item and assign it to one or more stations.
+                </DialogDescription>
               </DialogHeader>
               <InventoryForm 
                 formData={formData} 
@@ -499,6 +654,7 @@ export default function InventoryPage() {
                 onSubmit={handleCreateItem}
                 onCancel={() => setIsCreateDialogOpen(false)}
                 isLoading={isCreating}
+                stations={stations}
               />
             </DialogContent>
           </Dialog>
@@ -522,7 +678,7 @@ export default function InventoryPage() {
         {/* Filters */}
         <Card className="mb-6">
           <CardContent className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="relative">
                 {searchLoading ? (
                   <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 animate-spin" />
@@ -573,6 +729,21 @@ export default function InventoryPage() {
                   <SelectItem value="low_stock">Low Stock</SelectItem>
                   <SelectItem value="out_of_stock">Out of Stock</SelectItem>
                   <SelectItem value="overstock">Overstock</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={stationFilter} onValueChange={setStationFilter}>
+                <SelectTrigger className="border-gray-300 focus:border-primary focus:ring-primary">
+                  <SelectValue placeholder="Station" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Stations</SelectItem>
+                  <SelectItem value="no_station">No Station</SelectItem>
+                  {stations.map((station) => (
+                    <SelectItem key={station._id} value={station._id}>
+                      {station.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -687,6 +858,14 @@ export default function InventoryPage() {
                         <span className="text-gray-700">{item.brand}</span>
                       </div>
                     )}
+                    {item.stationIds && item.stationIds.length > 0 && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">Stations:</span>
+                        <span className="text-gray-700">
+                          {item.stationIds.map(station => station.name).join(', ')}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Pricing */}
@@ -762,14 +941,81 @@ export default function InventoryPage() {
                     </Badge>
                   </div>
 
-                  {/* Status */}
-                  <div className="flex justify-between items-center">
-                    <Badge 
-                      variant={item.status === 'active' ? 'default' : 'secondary'}
-                      className={item.status === 'active' ? 'bg-emerald-100 text-emerald-800' : ''}
-                    >
-                      {item.status}
-                    </Badge>
+                  {/* Status and Stations */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <Badge 
+                        variant={item.status === 'active' ? 'default' : 'secondary'}
+                        className={item.status === 'active' ? 'bg-emerald-100 text-emerald-800' : ''}
+                      >
+                        {item.status}
+                      </Badge>
+                    </div>
+                    
+                    {/* Station Tags */}
+                    <div className="space-y-1">
+                      <div className="text-xs text-gray-500 font-medium">Assigned Stations:</div>
+                      {item.stationIds && item.stationIds.length > 0 ? (
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap gap-1">
+                            {item.stationIds.map((station, index) => (
+                              <Badge 
+                                key={station._id || index}
+                                variant="outline"
+                                className="text-xs px-2 py-1 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                              >
+                                {station.name}
+                              </Badge>
+                            ))}
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleEditItem(item)}
+                              className="h-6 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            >
+                              Edit Stations
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleCreateCopyForStation(item)}
+                              className="h-6 px-2 text-xs text-green-600 hover:text-green-700 hover:bg-green-50"
+                            >
+                              Copy for Station
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Badge 
+                            variant="outline"
+                            className="text-xs px-2 py-1 bg-gray-50 text-gray-500 border-gray-200"
+                          >
+                            No Station
+                          </Badge>
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleEditItem(item)}
+                              className="h-6 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            >
+                              Add Station
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleCreateCopyForStation(item)}
+                              className="h-6 px-2 text-xs text-green-600 hover:text-green-700 hover:bg-green-50"
+                            >
+                              Copy for Station
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -785,11 +1031,11 @@ export default function InventoryPage() {
             </div>
             <h3 className="text-2xl font-bold mb-3 text-gray-900">No inventory items found</h3>
             <p className="text-gray-600 text-lg max-w-md mx-auto mb-6">
-              {searchTerm || categoryFilter !== 'all' || statusFilter !== 'all' || stockFilter !== 'all'
+              {searchTerm || categoryFilter !== 'all' || statusFilter !== 'all' || stockFilter !== 'all' || stationFilter !== 'all'
                 ? 'Try adjusting your filters to see more results.'
                 : 'Get started by adding your first inventory item.'}
             </p>
-            {(!searchTerm && categoryFilter === 'all' && statusFilter === 'all' && stockFilter === 'all') && (
+            {(!searchTerm && categoryFilter === 'all' && statusFilter === 'all' && stockFilter === 'all' && stationFilter === 'all') && (
               <Button 
                 className="bg-primary hover:bg-primary/90 text-white"
                 onClick={() => setIsCreateDialogOpen(true)}
@@ -843,6 +1089,9 @@ export default function InventoryPage() {
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Edit Inventory Item</DialogTitle>
+              <DialogDescription>
+                Update inventory item details and station assignments.
+              </DialogDescription>
             </DialogHeader>
             <InventoryForm 
               formData={formData} 
@@ -854,6 +1103,7 @@ export default function InventoryPage() {
                 resetForm();
               }}
               isLoading={isUpdating}
+              stations={stations}
             />
           </DialogContent>
         </Dialog>
@@ -868,13 +1118,15 @@ function InventoryForm({
   setFormData, 
   onSubmit, 
   onCancel,
-  isLoading = false
+  isLoading = false,
+  stations = []
 }: {
   formData: any;
   setFormData: (data: any) => void;
   onSubmit: () => void;
   onCancel: () => void;
   isLoading?: boolean;
+  stations?: Station[];
 }) {
   const [tagInput, setTagInput] = useState('');
 
@@ -1098,6 +1350,52 @@ function InventoryForm({
         </div>
       </div>
 
+      {/* Station Selection */}
+      <div>
+        <Label htmlFor="stationIds">Stations *</Label>
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {stations.map((station) => (
+              <div key={station._id} className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id={`station-${station._id}`}
+                  checked={formData.stationIds.includes(station._id)}
+                  onChange={(e) => {
+                    console.log('Station checkbox changed:', station.name, e.target.checked);
+                    if (e.target.checked) {
+                      const newStationIds = [...formData.stationIds, station._id];
+                      console.log('Adding station, new stationIds:', newStationIds);
+                      setFormData({
+                        ...formData,
+                        stationIds: newStationIds
+                      });
+                    } else {
+                      const newStationIds = formData.stationIds.filter(id => id !== station._id);
+                      console.log('Removing station, new stationIds:', newStationIds);
+                      setFormData({
+                        ...formData,
+                        stationIds: newStationIds
+                      });
+                    }
+                  }}
+                  className="rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <label
+                  htmlFor={`station-${station._id}`}
+                  className="text-sm font-medium text-gray-700 cursor-pointer"
+                >
+                  {station.name} - {station.location}
+                </label>
+              </div>
+            ))}
+          </div>
+          {formData.stationIds.length === 0 && (
+            <p className="text-sm text-red-600">Please select at least one station</p>
+          )}
+        </div>
+      </div>
+
       {/* Tags */}
       <div>
         <Label>Tags</Label>
@@ -1154,7 +1452,7 @@ function InventoryForm({
         </Button>
         <Button 
           onClick={onSubmit} 
-          disabled={isLoading}
+          disabled={isLoading || formData.stationIds.length === 0}
           className="bg-primary hover:bg-primary/90 text-white disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? (

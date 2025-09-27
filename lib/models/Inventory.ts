@@ -22,6 +22,7 @@ export interface IInventory extends Document {
   tags: string[];
   supplier?: string;
   warranty?: string;
+  stationIds: mongoose.Types.ObjectId[];
   dimensions?: {
     length?: number;
     width?: number;
@@ -132,6 +133,11 @@ const InventorySchema = new Schema<IInventory>({
     type: String,
     trim: true
   },
+  stationIds: [{
+    type: Schema.Types.ObjectId,
+    ref: 'Station',
+    required: true
+  }],
   dimensions: {
     length: { type: Number, min: 0 },
     width: { type: Number, min: 0 },

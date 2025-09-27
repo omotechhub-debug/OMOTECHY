@@ -1,11 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Inventory from '@/lib/models/Inventory';
+import Station from '@/lib/models/Station';
 import { requireAdmin } from '@/lib/auth';
+import mongoose from 'mongoose';
+
+// Ensure Station model is registered
+if (!mongoose.models.Station) {
+  const StationSchema = new mongoose.Schema({
+    name: String,
+    location: String,
+    isActive: Boolean
+  });
+  mongoose.model('Station', StationSchema);
+}
 
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
+    
     
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
@@ -51,10 +64,28 @@ export async function GET(request: NextRequest) {
       .skip(skip)
       .limit(limit)
       .lean();
+    
+    
+    // Manually populate station data
+    const inventoryWithStations = await Promise.all(
+      inventory.map(async (item) => {
+        if (item.stationIds && item.stationIds.length > 0) {
+          try {
+            const stations = await Station.find({ _id: { $in: item.stationIds } }).select('name location').lean();
+            return { ...item, stationIds: stations };
+          } catch (error) {
+            console.error('Error populating stations for item:', item._id, error);
+            return { ...item, stationIds: [] };
+          }
+        }
+        return item;
+      })
+    );
+
 
     return NextResponse.json({
       success: true,
-      data: inventory,
+      data: inventoryWithStations,
       pagination: {
         page,
         limit,
@@ -78,9 +109,23 @@ export async function POST(request: NextRequest) {
     await connectDB();
 
     const body = await request.json();
+    console.log('Inventory create request body:', body); // Debug log
+    
+    // Validate and convert stationIds if provided
+    if (body.stationIds && Array.isArray(body.stationIds)) {
+      console.log('Processing stationIds:', body.stationIds);
+      // Convert string IDs to ObjectIds
+      body.stationIds = body.stationIds.map(id => {
+        if (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id)) {
+          return new mongoose.Types.ObjectId(id);
+        }
+        return id;
+      });
+      console.log('Converted stationIds to ObjectIds:', body.stationIds);
+    }
     
     // Validate required fields
-    const requiredFields = ['name', 'description', 'category', 'subcategory', 'price', 'cost', 'unit'];
+    const requiredFields = ['name', 'description', 'category', 'subcategory', 'price', 'cost', 'unit', 'stationIds'];
     for (const field of requiredFields) {
       if (!body[field]) {
         return NextResponse.json(
@@ -88,6 +133,14 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+    }
+
+    // Validate stationIds specifically
+    if (!body.stationIds || !Array.isArray(body.stationIds) || body.stationIds.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'At least one station must be selected' },
+        { status: 400 }
+      );
     }
 
     // Generate SKU if not provided (same logic as pre-save middleware)
@@ -110,6 +163,13 @@ export async function POST(request: NextRequest) {
 
     const inventory = new Inventory(body);
     await inventory.save();
+    
+    // Populate station info for response
+    await inventory.populate({
+      path: 'stationIds',
+      select: 'name location',
+      options: { strictPopulate: false }
+    });
 
     return NextResponse.json({
       success: true,
@@ -119,8 +179,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error creating inventory item:', error);
+    console.error('Error details:', error.message);
     return NextResponse.json(
-      { success: false, error: 'Failed to create inventory item' },
+      { success: false, error: `Failed to create inventory item: ${error.message}` },
       { status: 500 }
     );
   }

@@ -3,13 +3,14 @@ import mongoose from 'mongoose';
 export interface IService extends mongoose.Document {
   name: string;
   description: string;
-  category: 'electronics' | 'gas' | 'printing' | 'accessories';
+  category: 'electronics' | 'gas' | 'printing' | 'accessories' | 'repair' | 'maintenance' | 'installation' | 'consultation';
   price: string;
   turnaround: string;
   active: boolean;
   featured: boolean;
   image: string; // Cloudinary URL
   features: string[];
+  stationIds?: mongoose.Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -55,6 +56,10 @@ const serviceSchema = new mongoose.Schema<IService>({
   features: [{
     type: String,
     trim: true,
+  }],
+  stationIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Station'
   }],
 }, {
   timestamps: true,

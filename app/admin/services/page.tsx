@@ -64,6 +64,11 @@ interface Service {
   featured: boolean;
   image: string;
   features: string[];
+  stationIds?: {
+    _id: string;
+    name: string;
+    location: string;
+  }[];
   createdAt: string;
   updatedAt: string;
 }
@@ -80,11 +85,19 @@ interface Category {
   updatedAt: string;
 }
 
+interface Station {
+  _id: string;
+  name: string;
+  location: string;
+  isActive: boolean;
+}
+
 export default function ServicesPage() {
   const { token } = useAuth()
   const [activeTab, setActiveTab] = useState("services")
   const [services, setServices] = useState<Service[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [stations, setStations] = useState<Station[]>([])
   const [showSuccess, setShowSuccess] = useState(false)
   const [showFeaturedLimitAlert, setShowFeaturedLimitAlert] = useState(false)
   const [editingService, setEditingService] = useState<Service | null>(null)
@@ -93,6 +106,7 @@ export default function ServicesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [successMessage, setSuccessMessage] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [stationFilter, setStationFilter] = useState("all")
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false)
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string>("")
@@ -109,6 +123,7 @@ export default function ServicesPage() {
     turnaround: "",
     features: "",
     featured: false,
+    stationIds: [],
   })
   const [categoryFormData, setCategoryFormData] = useState({
     name: "",
@@ -147,6 +162,7 @@ export default function ServicesPage() {
     if (token) {
       fetchServices()
       fetchCategories()
+      fetchStations()
     }
   }, [token])
 
@@ -189,6 +205,26 @@ export default function ServicesPage() {
       }
     } catch (error) {
       console.error('Error fetching categories:', error)
+    }
+  }
+
+  const fetchStations = async () => {
+    try {
+      const response = await fetch('/api/stations', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+      const data = await response.json()
+      
+      if (data.success) {
+        setStations(data.stations || [])
+      } else {
+        console.error('Stations API returned error:', data.error)
+      }
+    } catch (error) {
+      console.error('Error fetching stations:', error)
     }
   }
 
@@ -350,6 +386,7 @@ export default function ServicesPage() {
         features: featuresArray,
         image: imageUrl,
         featured: formData.featured,
+        stationIds: formData.stationIds,
       }
 
 
@@ -439,6 +476,23 @@ export default function ServicesPage() {
       turnaround: service.turnaround,
       features: service.features.join('\n'),
       featured: service.featured,
+      stationIds: service.stationIds?.map(station => station._id) || [],
+    })
+    setImagePreview(service.image)
+    setIsDialogOpen(true)
+  }
+
+  const handleCreateCopyForStation = (service: Service) => {
+    setEditingService(null) // Clear editing service for new creation
+    setFormData({
+      name: service.name,
+      description: service.description,
+      category: service.category,
+      price: service.price,
+      turnaround: service.turnaround,
+      features: service.features.join('\n'),
+      featured: service.featured,
+      stationIds: [], // Start with no stations - user will select
     })
     setImagePreview(service.image)
     setIsDialogOpen(true)
@@ -483,6 +537,7 @@ export default function ServicesPage() {
         features: featuresArray,
         image: imageUrl,
         featured: formData.featured,
+        stationIds: formData.stationIds,
       }
 
       const response = await fetch(`/api/services/${editingService._id}`, {
@@ -721,6 +776,7 @@ export default function ServicesPage() {
       turnaround: "",
       features: "",
       featured: false,
+      stationIds: [],
     })
     setSelectedImage(null)
     setImagePreview("")
@@ -975,7 +1031,7 @@ export default function ServicesPage() {
                     {editingService ? 'Edit Service' : 'Add New Service'}
                   </DialogTitle>
                   <DialogDescription>
-                    {editingService ? 'Update service details' : 'Create a new service offering for your customers'}
+                    {editingService ? 'Update service details and station assignments' : 'Create a new service offering and assign it to one or more stations'}
                   </DialogDescription>
                 </DialogHeader>
                 <div className="flex-1 overflow-y-auto space-y-4 py-4 px-1">
@@ -1123,6 +1179,39 @@ export default function ServicesPage() {
                       onChange={(e) => handleInputChange('features', e.target.value)}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="stationIds">Stations *</Label>
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap gap-2">
+                        {stations?.map((station) => (
+                          <div key={station._id} className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              id={`service-station-${station._id}`}
+                              checked={formData.stationIds.includes(station._id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  handleInputChange('stationIds', [...formData.stationIds, station._id]);
+                                } else {
+                                  handleInputChange('stationIds', formData.stationIds.filter(id => id !== station._id));
+                                }
+                              }}
+                              className="rounded border-gray-300 text-accent focus:ring-accent"
+                            />
+                            <label
+                              htmlFor={`service-station-${station._id}`}
+                              className="text-sm font-medium text-gray-700 cursor-pointer"
+                            >
+                              {station.name} - {station.location}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                      {formData.stationIds.length === 0 && (
+                        <p className="text-sm text-red-600">Please select at least one station</p>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <Switch 
@@ -1158,9 +1247,38 @@ export default function ServicesPage() {
             </Dialog>
           </div>
 
+          {/* Station Filter */}
+          <div className="mb-6">
+            <div className="flex flex-wrap gap-4 items-center">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="station-filter" className="text-sm font-medium">Filter by Station:</Label>
+                <Select value={stationFilter} onValueChange={setStationFilter}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="All Stations" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Stations</SelectItem>
+                    <SelectItem value="no_station">No Station</SelectItem>
+                    {stations?.map((station) => (
+                      <SelectItem key={station._id} value={station._id}>
+                        {station.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
           {/* Services Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-            {services?.map((service, index) => (
+            {services?.filter(service => {
+              if (stationFilter === 'all') return true;
+              if (stationFilter === 'no_station') {
+                return !service.stationIds || service.stationIds.length === 0;
+              }
+              return service.stationIds && service.stationIds.some(station => station._id === stationFilter);
+            }).map((service, index) => (
               <motion.div
                 key={service._id}
                 initial={{ opacity: 0, y: 20 }}
@@ -1257,6 +1375,11 @@ export default function ServicesPage() {
                             ? " per sqm" 
                             : " per kg"}
                         </span>
+                        {service.stationIds && service.stationIds.length > 0 && (
+                          <div className="text-xs text-text-light mt-1">
+                            Stations: {service.stationIds.map(station => station.name).join(', ')}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge
@@ -1300,6 +1423,71 @@ export default function ServicesPage() {
                           </li>
                         ))}
                       </ul>
+                    </div>
+                    
+                    {/* Station Tags */}
+                    <div className="space-y-1">
+                      <div className="text-xs text-gray-500 font-medium">Assigned Stations:</div>
+                      {service.stationIds && service.stationIds.length > 0 ? (
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap gap-1">
+                            {service.stationIds.map((station) => (
+                              <Badge 
+                                key={station._id}
+                                variant="outline"
+                                className="text-xs px-2 py-1 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                              >
+                                {station.name}
+                              </Badge>
+                            ))}
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleEditService(service)}
+                              className="h-6 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            >
+                              Edit Stations
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleCreateCopyForStation(service)}
+                              className="h-6 px-2 text-xs text-green-600 hover:text-green-700 hover:bg-green-50"
+                            >
+                              Copy for Station
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Badge 
+                            variant="outline"
+                            className="text-xs px-2 py-1 bg-gray-50 text-gray-500 border-gray-200"
+                          >
+                            No Station
+                          </Badge>
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleEditService(service)}
+                              className="h-6 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            >
+                              Add Station
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleCreateCopyForStation(service)}
+                              className="h-6 px-2 text-xs text-green-600 hover:text-green-700 hover:bg-green-50"
+                            >
+                              Copy for Station
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

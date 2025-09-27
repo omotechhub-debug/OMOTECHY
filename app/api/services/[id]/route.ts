@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Service from '@/lib/models/Service';
+import Station from '@/lib/models/Station';
 import mongoose from 'mongoose';
 import { requireAdmin } from '@/lib/auth';
 
@@ -20,7 +21,13 @@ export async function GET(
       );
     }
 
-    const service = await Service.findById(id).lean();
+    const service = await Service.findById(id)
+      .populate({
+        path: 'stationIds',
+        select: 'name location',
+        options: { strictPopulate: false }
+      })
+      .lean();
 
     if (!service) {
       return NextResponse.json(
@@ -60,7 +67,27 @@ export const PUT = requireAdmin(async (
       );
     }
 
-    const { name, description, category, price, turnaround, features, image, active, featured } = await request.json();
+    const { name, description, category, price, turnaround, features, image, active, featured, stationIds } = await request.json();
+
+    console.log('Service update request body:', { name, stationIds }); // Debug log
+
+    // Validate stationIds if provided
+    if (stationIds && Array.isArray(stationIds)) {
+      for (const stationId of stationIds) {
+        if (!mongoose.Types.ObjectId.isValid(stationId)) {
+          return NextResponse.json(
+            { success: false, error: `Invalid station ID: ${stationId}` },
+            { status: 400 }
+          );
+        }
+      }
+    }
+    
+    // If stationIds is empty array, set it to undefined to avoid validation issues
+    if (stationIds && Array.isArray(stationIds) && stationIds.length === 0) {
+      stationIds = undefined;
+      console.log('Set stationIds to undefined for empty array');
+    }
 
     const service = await Service.findById(id);
     if (!service) {
@@ -80,6 +107,7 @@ export const PUT = requireAdmin(async (
     if (image !== undefined) service.image = image;
     if (active !== undefined) service.active = active;
     if (featured !== undefined) service.featured = featured;
+    if (stationIds !== undefined) service.stationIds = stationIds;
 
     await service.save();
 
@@ -91,8 +119,9 @@ export const PUT = requireAdmin(async (
 
   } catch (error) {
     console.error('Error updating service:', error);
+    console.error('Error details:', error.message);
     return NextResponse.json(
-      { success: false, error: 'Failed to update service' },
+      { success: false, error: `Failed to update service: ${error.message}` },
       { status: 500 }
     );
   }
