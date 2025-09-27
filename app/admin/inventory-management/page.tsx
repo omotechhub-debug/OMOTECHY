@@ -128,12 +128,16 @@ export default function InventoryManagementPage() {
   });
 
   useEffect(() => {
+    console.log('useEffect triggered - token:', token ? 'Present' : 'Missing');
+    console.log('useEffect triggered - user:', user);
     if (token) {
       fetchInventory();
       fetchMovements();
       fetchStations();
+    } else {
+      console.log('No token available, skipping API calls');
     }
-  }, [token]);
+  }, [token, user]);
 
   // Auto-remove messages
   useEffect(() => {
@@ -363,6 +367,7 @@ export default function InventoryManagementPage() {
               onClick={() => {
                 fetchInventory();
                 fetchMovements();
+                fetchStations();
               }}
               className="flex items-center gap-2"
             >
@@ -393,6 +398,16 @@ export default function InventoryManagementPage() {
             <AlertDescription className="text-emerald-600">{success}</AlertDescription>
           </Alert>
         )}
+
+        {/* Debug Info */}
+        <div className="mb-4 p-4 bg-gray-100 rounded-lg text-sm">
+          <h3 className="font-medium mb-2">Debug Info:</h3>
+          <p>Token: {token ? 'Present' : 'Missing'}</p>
+          <p>User Role: {user?.role || 'Unknown'}</p>
+          <p>Stations Loading: {stationsLoading ? 'Yes' : 'No'}</p>
+          <p>Stations Count: {stations.length}</p>
+          <p>Station Names: {stations.map(s => s.name).join(', ') || 'None'}</p>
+        </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
