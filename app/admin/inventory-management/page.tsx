@@ -154,6 +154,11 @@ export default function InventoryManagementPage() {
     }
   }, [error]);
 
+  // Debug effect for stations loading
+  useEffect(() => {
+    console.log('stationsLoading changed to:', stationsLoading);
+  }, [stationsLoading]);
+
   const fetchInventory = async () => {
     try {
       setLoading(true);
@@ -217,6 +222,7 @@ export default function InventoryManagementPage() {
         const data = await response.json();
         console.log('Stations data:', data);
         setStations(data.stations || []);
+        console.log('Stations set successfully, count:', data.stations?.length || 0);
       } else {
         const errorData = await response.json();
         console.error('Error fetching stations:', errorData);
@@ -228,6 +234,7 @@ export default function InventoryManagementPage() {
       setError('Network error while fetching stations. Please check your connection.');
       setStations([]);
     } finally {
+      console.log('Setting stationsLoading to false');
       setStationsLoading(false);
     }
   };
