@@ -18,7 +18,9 @@ interface Service {
   description: string;
   category: string;
   price: string;
+  unit?: string;
   turnaround: string;
+  turnaroundUnit?: string;
   active: boolean;
   featured: boolean;
   image: string;
@@ -395,7 +397,9 @@ export default function ServicesPage() {
                         </div>
                         <div>
                           <h3 className="font-semibold text-lg">{service.name}</h3>
-                          <p className="text-text-light text-sm">{service.turnaround}</p>
+                          <p className="text-text-light text-sm">
+                            {service.turnaround}{service.turnaroundUnit ? ` ${service.turnaroundUnit}` : ''}
+                          </p>
                     </div>
                   </div>
 
@@ -405,7 +409,8 @@ export default function ServicesPage() {
                         <div>
                           <span className="text-2xl font-bold text-primary">{service.price}</span>
                           <span className="text-text-light text-sm ml-1">
-                            {service.category === "gas" 
+                            {service.unit ? ` per ${service.unit}` :
+                             service.category === "gas" 
                               ? " per kg" 
                               : service.category === "printing"
                               ? " per item"

@@ -36,7 +36,9 @@ interface Service {
   description: string;
   category: string;
   price: string;
+  unit?: string;
   turnaround: string;
+  turnaroundUnit?: string;
   active: boolean;
   featured: boolean;
   image: string;
@@ -206,7 +208,7 @@ export default function ServiceDetailPage() {
               <div className="flex items-center gap-4 text-sm text-gray-600">
                 <div className="flex items-center gap-1">
                   <Clock className="w-4 h-4 text-blue-600" />
-                  <span>Turnaround: {service.turnaround}</span>
+                  <span>Turnaround: {service.turnaround}{service.turnaroundUnit ? ` ${service.turnaroundUnit}` : ''}</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <CheckCircle className="w-4 h-4 text-emerald-600" />

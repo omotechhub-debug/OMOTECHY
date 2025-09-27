@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
     const subcategory = searchParams.get('subcategory');
     const status = searchParams.get('status');
     const search = searchParams.get('search');
+    const stationId = searchParams.get('stationId');
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
@@ -38,6 +39,11 @@ export async function GET(request: NextRequest) {
     if (category) filter.category = category;
     if (subcategory) filter.subcategory = subcategory;
     if (status) filter.status = status;
+    
+    // Filter by station if stationId is provided
+    if (stationId && mongoose.Types.ObjectId.isValid(stationId)) {
+      filter.stationIds = { $in: [new mongoose.Types.ObjectId(stationId)] };
+    }
     
     if (search) {
       filter.$or = [

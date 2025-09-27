@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get('category');
     const status = searchParams.get('status');
     const search = searchParams.get('search');
+    const stationId = searchParams.get('stationId');
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
@@ -26,6 +27,11 @@ export async function GET(request: NextRequest) {
       if (status === 'active') filter.active = true;
       if (status === 'inactive') filter.active = false;
       if (status === 'featured') filter.featured = true;
+    }
+    
+    // Filter by station if stationId is provided
+    if (stationId && mongoose.Types.ObjectId.isValid(stationId)) {
+      filter.stationIds = { $in: [new mongoose.Types.ObjectId(stationId)] };
     }
     
     if (search) {
@@ -94,7 +100,7 @@ export const POST = requireAdmin(async (request: NextRequest) => {
   try {
     await connectDB();
     
-    const { name, description, category, price, turnaround, features, image, active = true, featured = false, stationIds = [] } = await request.json();
+    const { name, description, category, price, unit, turnaround, turnaroundUnit, features, image, active = true, featured = false, stationIds = [] } = await request.json();
 
     console.log('Service create request body:', { name, stationIds }); // Debug log
 
@@ -147,7 +153,9 @@ export const POST = requireAdmin(async (request: NextRequest) => {
       description: description.trim(),
       category,
       price: price.trim(),
+      unit: unit?.trim(),
       turnaround: turnaround.trim(),
+      turnaroundUnit: turnaroundUnit?.trim(),
       features: features || [],
       image: image || '/placeholder.svg',
       active,

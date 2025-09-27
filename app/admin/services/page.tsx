@@ -59,7 +59,9 @@ interface Service {
   description: string;
   category: string;
   price: string;
+  unit?: string;
   turnaround: string;
+  turnaroundUnit?: string;
   active: boolean;
   featured: boolean;
   image: string;
@@ -120,7 +122,9 @@ export default function ServicesPage() {
     description: "",
     category: "",
     price: "",
+    unit: "",
     turnaround: "",
+    turnaroundUnit: "",
     features: "",
     featured: false,
     stationIds: [],
@@ -168,7 +172,7 @@ export default function ServicesPage() {
 
   const fetchServices = async () => {
     try {
-      const response = await fetch('/api/services?limit=50', {
+      const response = await fetch(`/api/services?limit=50&t=${Date.now()}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -241,6 +245,7 @@ export default function ServicesPage() {
         return // Don't update the form data
       }
     }
+    
     
     setFormData(prev => ({
       ...prev,
@@ -382,7 +387,9 @@ export default function ServicesPage() {
         description: formData.description,
         category: formData.category,
         price: formData.price,
+        unit: formData.unit,
         turnaround: formData.turnaround,
+        turnaroundUnit: formData.turnaroundUnit,
         features: featuresArray,
         image: imageUrl,
         featured: formData.featured,
@@ -473,7 +480,9 @@ export default function ServicesPage() {
       description: service.description,
       category: service.category,
       price: service.price,
+      unit: service.unit || '',
       turnaround: service.turnaround,
+      turnaroundUnit: service.turnaroundUnit || '',
       features: service.features.join('\n'),
       featured: service.featured,
       stationIds: service.stationIds?.map(station => station._id) || [],
@@ -489,7 +498,9 @@ export default function ServicesPage() {
       description: service.description,
       category: service.category,
       price: service.price,
+      unit: service.unit || '',
       turnaround: service.turnaround,
+      turnaroundUnit: service.turnaroundUnit || '',
       features: service.features.join('\n'),
       featured: service.featured,
       stationIds: [], // Start with no stations - user will select
@@ -533,12 +544,15 @@ export default function ServicesPage() {
         description: formData.description,
         category: formData.category,
         price: formData.price,
+        unit: formData.unit,
         turnaround: formData.turnaround,
+        turnaroundUnit: formData.turnaroundUnit,
         features: featuresArray,
         image: imageUrl,
         featured: formData.featured,
         stationIds: formData.stationIds,
       }
+
 
       const response = await fetch(`/api/services/${editingService._id}`, {
         method: 'PUT',
@@ -773,7 +787,9 @@ export default function ServicesPage() {
       description: "",
       category: "",
       price: "",
+      unit: "",
       turnaround: "",
+      turnaroundUnit: "",
       features: "",
       featured: false,
       stationIds: [],
@@ -1083,18 +1099,58 @@ export default function ServicesPage() {
                         onChange={(e) => handleInputChange('price', e.target.value)}
                       />
                       <p className="text-xs text-gray-500">
-                        Use "per kg" for laundry services, "per sqm" for cleaning services
+                        e.g. Ksh 1,299 per {formData.unit || 'unit'}
                       </p>
                     </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="unit">Unit</Label>
+                      <Select value={formData.unit} onValueChange={(value) => handleInputChange('unit', value)}>
+                        <SelectTrigger className="luxury-input">
+                          <SelectValue placeholder="Select unit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="piece">piece</SelectItem>
+                          <SelectItem value="unit">unit</SelectItem>
+                          <SelectItem value="cylinder">cylinder</SelectItem>
+                          <SelectItem value="kg">kg</SelectItem>
+                          <SelectItem value="sqm">sqm</SelectItem>
+                          <SelectItem value="hour">hour</SelectItem>
+                          <SelectItem value="job">job</SelectItem>
+                          <SelectItem value="setup">setup</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500">
+                        Use "per piece" for printing, "per unit" for electronics, "per cylinder" for gas
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="turnaround">Turnaround Time</Label>
                       <Input 
                         id="turnaround" 
-                        placeholder="e.g. 2-3 days" 
+                        placeholder="e.g. 2-3" 
                         className="luxury-input"
                         value={formData.turnaround}
                         onChange={(e) => handleInputChange('turnaround', e.target.value)}
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="turnaroundUnit">Time Unit</Label>
+                      <Select value={formData.turnaroundUnit} onValueChange={(value) => handleInputChange('turnaroundUnit', value)}>
+                        <SelectTrigger className="luxury-input">
+                          <SelectValue placeholder="Select time unit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="hour">hour(s)</SelectItem>
+                          <SelectItem value="day">day(s)</SelectItem>
+                          <SelectItem value="week">week(s)</SelectItem>
+                          <SelectItem value="month">month(s)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500">
+                        e.g. 2-3 {formData.turnaroundUnit || 'days'}
+                      </p>
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -1371,7 +1427,8 @@ export default function ServicesPage() {
                       <div>
                         <span className="text-base sm:text-lg font-bold">{service.price}</span>
                         <span className="text-text-light text-xs">
-                          {service.category === "home-cleaning" || service.category === "business-cleaning" 
+                          {service.unit ? ` per ${service.unit}` : 
+                           service.category === "home-cleaning" || service.category === "business-cleaning" 
                             ? " per sqm" 
                             : " per kg"}
                         </span>
@@ -1410,7 +1467,9 @@ export default function ServicesPage() {
                         >
                           {mapEnumToCategoryName(service.category)}
                         </Badge>
-                        <Badge variant="secondary" className="text-xs">{service.turnaround}</Badge>
+                        <Badge variant="secondary" className="text-xs">
+                          {service.turnaround}{service.turnaroundUnit ? ` ${service.turnaroundUnit}` : ''}
+                        </Badge>
                       </div>
                     </div>
                     <div className="space-y-2">

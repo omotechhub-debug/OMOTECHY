@@ -69,7 +69,9 @@ interface Service {
   description: string;
   category: string;
   price: string;
+  unit?: string;
   turnaround: string;
+  turnaroundUnit?: string;
   active: boolean;
   featured: boolean;
   image: string;
@@ -547,7 +549,9 @@ export default function ShopPage() {
                       </div>
                       <div className="flex justify-between text-xs">
                         <span className="text-gray-500 flex-shrink-0">Turnaround:</span>
-                        <span className="text-gray-700 text-xs truncate ml-2 min-w-0">{service.turnaround}</span>
+                        <span className="text-gray-700 text-xs truncate ml-2 min-w-0">
+                          {service.turnaround}{service.turnaroundUnit ? ` ${service.turnaroundUnit}` : ''}
+                        </span>
                       </div>
                     </div>
 

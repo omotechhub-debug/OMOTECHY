@@ -58,7 +58,9 @@ interface Service {
   description: string;
   category: string;
   price: string;
+  unit?: string;
   turnaround: string;
+  turnaroundUnit?: string;
   active: boolean;
   featured: boolean;
   image: string;
@@ -360,12 +362,12 @@ export default function POSPage() {
 
   // Fetch services, products and categories
   useEffect(() => {
-    if (token) {
+    if (token && user) {
       fetchServices();
       fetchProducts();
       fetchCategories();
     }
-  }, [token]);
+  }, [token, user]);
 
   // Filter services based on search and category
   useEffect(() => {
@@ -439,7 +441,34 @@ export default function POSPage() {
 
   const fetchServices = async () => {
     try {
-      const response = await fetch('/api/services?limit=50', {
+      // Get station ID for filtering
+      let stationId = null;
+      if (user?.role === 'manager') {
+        // For managers, get their assigned station
+        const stationRes = await fetch('/api/stations/my-station', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (stationRes.ok) {
+          const stationData = await stationRes.json();
+          if (stationData.success && stationData.station) {
+            stationId = stationData.station._id;
+          }
+        }
+      } else if (user?.stationId || (user?.managedStations && user.managedStations.length > 0)) {
+        // For admins/superadmins, use their station
+        stationId = user.stationId || user.managedStations?.[0];
+      }
+
+      // Build URL with station filter
+      let url = '/api/services?limit=50';
+      if (stationId) {
+        url += `&stationId=${stationId}`;
+      }
+
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -448,7 +477,8 @@ export default function POSPage() {
       const data = await response.json();
       
       if (data.success) {
-        setServices(data.data);
+        console.log('📋 Services fetched for POS:', data.services?.map((s: any) => ({ name: s.name, unit: s.unit, turnaroundUnit: s.turnaroundUnit })) || 'No services');
+        setServices(data.services || data.data || []);
       }
     } catch (error) {
       console.error('Error fetching services:', error);
@@ -457,7 +487,34 @@ export default function POSPage() {
 
   const fetchProducts = async () => {
     try {
-      const response = await fetch('/api/inventory?limit=50', {
+      // Get station ID for filtering
+      let stationId = null;
+      if (user?.role === 'manager') {
+        // For managers, get their assigned station
+        const stationRes = await fetch('/api/stations/my-station', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (stationRes.ok) {
+          const stationData = await stationRes.json();
+          if (stationData.success && stationData.station) {
+            stationId = stationData.station._id;
+          }
+        }
+      } else if (user?.stationId || (user?.managedStations && user.managedStations.length > 0)) {
+        // For admins/superadmins, use their station
+        stationId = user.stationId || user.managedStations?.[0];
+      }
+
+      // Build URL with station filter
+      let url = '/api/inventory?limit=50';
+      if (stationId) {
+        url += `&stationId=${stationId}`;
+      }
+
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -856,6 +913,50 @@ Need help? Call us at +254 757 883 799`;
     }
   };
 
+  // Inventory reduction function
+  const reduceInventory = async (cartItems: any[], stationId: string) => {
+    try {
+      console.log('Reducing inventory for station:', stationId);
+      
+      // Filter cart items to only include products (not services)
+      const productItems = cartItems.filter(item => item.type === 'product');
+      
+      if (productItems.length === 0) {
+        console.log('No products in cart, skipping inventory reduction');
+        return;
+      }
+
+      // Reduce inventory for each product
+      for (const item of productItems) {
+        const productId = item.item._id;
+        const quantity = item.quantity;
+        
+        console.log(`Reducing inventory for product ${productId} by ${quantity}`);
+        
+        const response = await fetch(`/api/inventory/${productId}/reduce-stock`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            quantity: quantity,
+            stationId: stationId
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`✅ Inventory reduced for ${item.item.name}:`, data);
+        } else {
+          console.error(`❌ Failed to reduce inventory for ${item.item.name}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error reducing inventory:', error);
+    }
+  };
+
   // Order Processing
   const handleCreateOrder = async () => {
     // Prevent multiple simultaneous order creation
@@ -980,6 +1081,12 @@ Need help? Call us at +254 757 883 799`;
             console.error('SMS sending failed:', smsError);
             // Don't fail the order creation if SMS fails
           }
+        }
+
+        // Reduce inventory for products in the cart
+        const currentStationId = user?.stationId || user?.managedStations?.[0];
+        if (currentStationId) {
+          await reduceInventory(cart, currentStationId);
         }
 
         setOrderSuccess(true);
@@ -1398,7 +1505,7 @@ Need help? Call us at +254 757 883 799`;
                               {service.price}
                             </div>
                             <div className="text-xs text-gray-500">
-                              {service.category.includes('cleaning') ? 'per sqm' : 'per kg'}
+                              {service.unit ? `per ${service.unit}` : (service.category === 'printing' ? 'per piece' : service.category === 'gas' ? 'per cylinder' : service.category === 'electronics' ? 'per unit' : 'per piece')}
                             </div>
                           </div>
 
@@ -1612,7 +1719,7 @@ Need help? Call us at +254 757 883 799`;
                   </div>
                   <div className="text-xs text-gray-500 mb-1">
                     {cartItem.type === 'service' 
-                      ? (cartItem.item as Service).category.includes('cleaning') ? 'per sqm' : 'per kg'
+                      ? (cartItem.item as Service).unit ? `per ${(cartItem.item as Service).unit}` : ((cartItem.item as Service).category === 'printing' ? 'per piece' : (cartItem.item as Service).category === 'gas' ? 'per cylinder' : (cartItem.item as Service).category === 'electronics' ? 'per unit' : 'per piece')
                       : `per ${(cartItem.item as Product).unit}`
                     }
                   </div>

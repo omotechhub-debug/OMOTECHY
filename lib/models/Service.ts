@@ -5,7 +5,9 @@ export interface IService extends mongoose.Document {
   description: string;
   category: 'electronics' | 'gas' | 'printing' | 'accessories' | 'repair' | 'maintenance' | 'installation' | 'consultation';
   price: string;
+  unit?: string;
   turnaround: string;
+  turnaroundUnit?: string;
   active: boolean;
   featured: boolean;
   image: string; // Cloudinary URL
@@ -36,9 +38,17 @@ const serviceSchema = new mongoose.Schema<IService>({
     required: [true, 'Service price is required'],
     trim: true,
   },
+  unit: {
+    type: String,
+    trim: true,
+  },
   turnaround: {
     type: String,
     required: [true, 'Turnaround time is required'],
+    trim: true,
+  },
+  turnaroundUnit: {
+    type: String,
     trim: true,
   },
   active: {

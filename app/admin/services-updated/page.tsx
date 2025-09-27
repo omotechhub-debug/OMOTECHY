@@ -49,7 +49,9 @@ interface Service {
   description: string;
   category: string;
   price: string;
+  unit?: string;
   turnaround: string;
+  turnaroundUnit?: string;
   active: boolean;
   featured: boolean;
   image: string;
@@ -954,12 +956,15 @@ export default function ServicesPage() {
                       <div>
                         <span className="text-lg font-bold">{service.price}</span>
                         <span className="text-text-light text-xs">
-                          {service.category === "home-cleaning" || service.category === "business-cleaning" 
+                          {service.unit ? ` per ${service.unit}` :
+                           service.category === "home-cleaning" || service.category === "business-cleaning" 
                             ? " per sqm" 
                             : " per kg"}
                         </span>
                       </div>
-                      <Badge variant="secondary">{service.turnaround}</Badge>
+                      <Badge variant="secondary">
+                        {service.turnaround}{service.turnaroundUnit ? ` ${service.turnaroundUnit}` : ''}
+                      </Badge>
                     </div>
                     <div className="space-y-2">
                       <h4 className="font-medium text-sm">Features:</h4>

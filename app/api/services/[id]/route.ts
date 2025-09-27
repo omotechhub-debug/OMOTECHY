@@ -67,9 +67,9 @@ export const PUT = requireAdmin(async (
       );
     }
 
-    const { name, description, category, price, turnaround, features, image, active, featured, stationIds } = await request.json();
+    const { name, description, category, price, unit, turnaround, turnaroundUnit, features, image, active, featured, stationIds } = await request.json();
 
-    console.log('Service update request body:', { name, stationIds }); // Debug log
+    console.log('Service update request body:', { name, unit, turnaroundUnit, stationIds }); // Debug log
 
     // Validate stationIds if provided
     if (stationIds && Array.isArray(stationIds)) {
@@ -102,14 +102,31 @@ export const PUT = requireAdmin(async (
     if (description !== undefined) service.description = description.trim();
     if (category !== undefined) service.category = category;
     if (price !== undefined) service.price = price.trim();
+    if (unit !== undefined) service.unit = unit?.trim();
     if (turnaround !== undefined) service.turnaround = turnaround.trim();
+    if (turnaroundUnit !== undefined) service.turnaroundUnit = turnaroundUnit?.trim();
     if (features !== undefined) service.features = features;
     if (image !== undefined) service.image = image;
     if (active !== undefined) service.active = active;
     if (featured !== undefined) service.featured = featured;
     if (stationIds !== undefined) service.stationIds = stationIds;
 
-    await service.save();
+    try {
+      const savedService = await service.save();
+      console.log('✅ Service saved successfully to database');
+      console.log('📋 Saved service data:', {
+        name: savedService.name,
+        unit: savedService.unit,
+        turnaroundUnit: savedService.turnaroundUnit,
+        updatedAt: savedService.updatedAt
+      });
+    } catch (saveError) {
+      console.error('❌ Error saving service:', saveError);
+      return NextResponse.json(
+        { success: false, error: `Failed to save service: ${saveError.message}` },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
