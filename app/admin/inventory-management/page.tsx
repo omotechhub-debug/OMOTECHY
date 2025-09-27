@@ -197,6 +197,9 @@ export default function InventoryManagementPage() {
     try {
       setStationsLoading(true);
       console.log('Fetching stations...');
+      console.log('Token:', token ? 'Present' : 'Missing');
+      console.log('User:', user);
+      
       const response = await fetch('/api/stations', {
         headers: {
           'Authorization': `Bearer ${token}`,

@@ -19,9 +19,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    // Check if user is admin or superadmin
+    // Check if user is admin, superadmin, or manager
     const user = await User.findById(decoded.userId);
-    if (!user || !['admin', 'superadmin'].includes(user.role)) {
+    if (!user || !['admin', 'superadmin', 'manager'].includes(user.role)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -118,9 +118,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    // Check if user is admin or superadmin
+    // Check if user is admin, superadmin, or manager
     const user = await User.findById(decoded.userId);
-    if (!user || !['admin', 'superadmin'].includes(user.role)) {
+    if (!user || !['admin', 'superadmin', 'manager'].includes(user.role)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
