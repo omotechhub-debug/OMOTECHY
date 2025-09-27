@@ -61,7 +61,14 @@ export async function GET(request: NextRequest) {
     }
 
     const movements = await InventoryMovement.find(query)
-      .populate('inventoryItem', 'name sku')
+      .populate({
+        path: 'inventoryItem',
+        select: 'name sku stationIds',
+        populate: {
+          path: 'stationIds',
+          select: 'name location'
+        }
+      })
       .populate('performedBy', 'name email')
       .sort({ createdAt: -1 })
       .limit(limit)

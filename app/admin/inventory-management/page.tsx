@@ -28,7 +28,8 @@ import {
   Loader2,
   ArrowUpDown,
   Minus,
-  RefreshCw
+  RefreshCw,
+  Download
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -74,6 +75,11 @@ interface InventoryMovement {
     _id: string;
     name: string;
     sku: string;
+    stationIds?: {
+      _id: string;
+      name: string;
+      location: string;
+    }[];
   } | null;
   movementType: string;
   quantity: number;
@@ -316,6 +322,204 @@ export default function InventoryManagementPage() {
     return MOVEMENT_TYPES.find(mt => mt.value === type) || { label: type, color: 'bg-gray-100 text-gray-800' };
   };
 
+  const downloadMovements = (format: 'csv' | 'pdf' | 'word') => {
+    const data = filteredMovements.map(movement => ({
+      date: new Date(movement.createdAt).toLocaleString(),
+      itemName: movement.inventoryItem?.name || 'N/A',
+      sku: movement.inventoryItem?.sku || 'N/A',
+      movementType: movement.movementType,
+      quantity: movement.quantity.toString(),
+      previousStock: movement.previousStock.toString(),
+      newStock: movement.newStock.toString(),
+      reason: movement.reason || 'N/A',
+      performedBy: movement.performedBy?.name || 'N/A',
+      stations: movement.inventoryItem?.stationIds?.map(s => s.name).join(', ') || 'No Station',
+      notes: movement.notes || 'N/A'
+    }));
+
+    const fileName = `inventory_movements_${new Date().toISOString().split('T')[0]}`;
+
+    if (format === 'csv') {
+      const csvData = [
+        ['Date', 'Item Name', 'SKU', 'Movement Type', 'Quantity', 'Previous Stock', 'New Stock', 'Reason', 'Performed By', 'Stations', 'Notes'],
+        ...data.map(item => [
+          item.date,
+          item.itemName,
+          item.sku,
+          item.movementType,
+          item.quantity,
+          item.previousStock,
+          item.newStock,
+          item.reason,
+          item.performedBy,
+          item.stations,
+          item.notes
+        ])
+      ];
+
+      const csvContent = csvData.map(row => row.map(field => `"${field}"`).join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      downloadFile(blob, `${fileName}.csv`);
+    } else if (format === 'pdf') {
+      generatePDF(data, fileName);
+    } else if (format === 'word') {
+      generateWord(data, fileName);
+    }
+  };
+
+  const downloadFile = (blob: Blob, fileName: string) => {
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', fileName);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const generatePDF = (data: any[], fileName: string) => {
+    // Create HTML content for PDF
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Inventory Movements Report</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          h1 { color: #333; text-align: center; }
+          h2 { color: #666; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+          th { background-color: #f2f2f2; font-weight: bold; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .date { color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Inventory Movements Report</h1>
+          <p class="date">Generated on: ${new Date().toLocaleString()}</p>
+          <p>Total Movements: ${data.length}</p>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Item Name</th>
+              <th>SKU</th>
+              <th>Movement Type</th>
+              <th>Quantity</th>
+              <th>Previous Stock</th>
+              <th>New Stock</th>
+              <th>Reason</th>
+              <th>Performed By</th>
+              <th>Stations</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.map(item => `
+              <tr>
+                <td>${item.date}</td>
+                <td>${item.itemName}</td>
+                <td>${item.sku}</td>
+                <td>${item.movementType}</td>
+                <td>${item.quantity}</td>
+                <td>${item.previousStock}</td>
+                <td>${item.newStock}</td>
+                <td>${item.reason}</td>
+                <td>${item.performedBy}</td>
+                <td>${item.stations}</td>
+                <td>${item.notes}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    // Create blob and download
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    downloadFile(blob, `${fileName}.html`);
+    
+    // Note: For actual PDF generation, you would need a library like jsPDF or Puppeteer
+    // This creates an HTML file that can be printed to PDF
+  };
+
+  const generateWord = (data: any[], fileName: string) => {
+    // Create HTML content for Word document
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" 
+            xmlns:w="urn:schemas-microsoft-com:office:word" 
+            xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8">
+        <title>Inventory Movements Report</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          h1 { color: #333; text-align: center; }
+          h2 { color: #666; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+          th { background-color: #f2f2f2; font-weight: bold; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .date { color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Inventory Movements Report</h1>
+          <p class="date">Generated on: ${new Date().toLocaleString()}</p>
+          <p>Total Movements: ${data.length}</p>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Item Name</th>
+              <th>SKU</th>
+              <th>Movement Type</th>
+              <th>Quantity</th>
+              <th>Previous Stock</th>
+              <th>New Stock</th>
+              <th>Reason</th>
+              <th>Performed By</th>
+              <th>Stations</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.map(item => `
+              <tr>
+                <td>${item.date}</td>
+                <td>${item.itemName}</td>
+                <td>${item.sku}</td>
+                <td>${item.movementType}</td>
+                <td>${item.quantity}</td>
+                <td>${item.previousStock}</td>
+                <td>${item.newStock}</td>
+                <td>${item.reason}</td>
+                <td>${item.performedBy}</td>
+                <td>${item.stations}</td>
+                <td>${item.notes}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    // Create blob and download as .doc file
+    const blob = new Blob([htmlContent], { type: 'application/msword' });
+    downloadFile(blob, `${fileName}.doc`);
+  };
+
   // Filter inventory
   const filteredInventory = inventory.filter(item => {
     const matchesSearch = !searchTerm || 
@@ -351,13 +555,18 @@ export default function InventoryManagementPage() {
     return matchesSearch && matchesCategory && matchesStatus && matchesStockAlert && matchesStation;
   });
 
-  // Filter movements
+  // Filter movements (last 24 hours only)
   const filteredMovements = movements.filter(movement => {
     const matchesType = movementTypeFilter === 'all' || movement.movementType === movementTypeFilter;
     const hasValidItem = movement.inventoryItem !== null && movement.inventoryItem !== undefined;
     
+    // Filter to last 24 hours
+    const movementDate = new Date(movement.createdAt);
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+    const isWithin24Hours = movementDate >= twentyFourHoursAgo;
     
-    return matchesType && hasValidItem;
+    return matchesType && hasValidItem && isWithin24Hours;
   });
 
   if (loading) {
@@ -418,15 +627,6 @@ export default function InventoryManagementPage() {
           </Alert>
         )}
 
-        {/* Debug Info */}
-        <div className="mb-4 p-4 bg-gray-100 rounded-lg text-sm">
-          <h3 className="font-medium mb-2">Debug Info:</h3>
-          <p>Token: {token ? 'Present' : 'Missing'}</p>
-          <p>User Role: {user?.role || 'Unknown'}</p>
-          <p>Stations Loading: {stationsLoading ? 'Yes' : 'No'}</p>
-          <p>Stations Count: {stations.length}</p>
-          <p>Station Names: {stations.map(s => s.name).join(', ') || 'None'}</p>
-        </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -729,10 +929,41 @@ export default function InventoryManagementPage() {
           {/* Movement History */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <History className="w-5 h-5" />
-                Recent Movements ({filteredMovements.length})
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <History className="w-5 h-5" />
+                  Recent Movements (24h) ({filteredMovements.length})
+                </CardTitle>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadMovements('csv')}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    CSV
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadMovements('pdf')}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    PDF
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadMovements('word')}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Word
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="max-h-96 overflow-y-auto">
@@ -781,6 +1012,31 @@ export default function InventoryManagementPage() {
                         <div className="text-xs text-gray-500">
                           {movement.previousStock} → {movement.newStock} • {movement.reason}
                         </div>
+                        
+                        {/* Station Information */}
+                        <div className="mt-1">
+                          <div className="flex flex-wrap gap-1">
+                            {movement.inventoryItem.stationIds && movement.inventoryItem.stationIds.length > 0 ? (
+                              movement.inventoryItem.stationIds.map((station, index) => (
+                                <Badge 
+                                  key={station._id || index}
+                                  variant="outline"
+                                  className="text-xs px-2 py-1 bg-blue-50 text-blue-700 border-blue-200"
+                                >
+                                  {station.name}
+                                </Badge>
+                              ))
+                            ) : (
+                              <Badge 
+                                variant="outline"
+                                className="text-xs px-2 py-1 bg-gray-50 text-gray-500 border-gray-200"
+                              >
+                                No Station
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        
                         <div className="text-xs text-gray-400 mt-1">
                           {new Date(movement.createdAt).toLocaleString()}
                         </div>
