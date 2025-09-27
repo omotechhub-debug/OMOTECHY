@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { canAddInventory } from '@/lib/permissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -634,13 +635,14 @@ export default function InventoryPage() {
               </p>
             </div>
           </div>
-          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary/90 text-white">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Item
-              </Button>
-            </DialogTrigger>
+          {canAddInventory(user) && (
+            <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="bg-primary hover:bg-primary/90 text-white">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Item
+                </Button>
+              </DialogTrigger>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add New Inventory Item</DialogTitle>
@@ -658,6 +660,7 @@ export default function InventoryPage() {
               />
             </DialogContent>
           </Dialog>
+          )}
         </div>
 
         {/* Messages */}

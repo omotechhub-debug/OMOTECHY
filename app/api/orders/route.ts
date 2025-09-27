@@ -247,6 +247,14 @@ export async function POST(request: NextRequest) {
       managedStations: currentUser.managedStations
     });
     
+    // Check if user has permission to create orders
+    if (!['superadmin', 'manager'].includes(currentUser.role)) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Insufficient permissions to create orders. Only superadmins and managers can add orders.' 
+      }, { status: 403 });
+    }
+    
     const orderData = await request.json();
     
     // Validate required fields

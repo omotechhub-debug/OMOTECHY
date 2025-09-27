@@ -44,6 +44,7 @@ import {
   User
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { canAddExpenses } from "@/lib/permissions";
 
 interface Expense {
   _id: string;
@@ -237,8 +238,9 @@ export default function ExpensesPage() {
           return hasStation && hasCreator;
         });
 
-        // If user is a manager or admin with a specific station, filter expenses by their station
-        if ((user?.role === 'manager' || user?.role === 'admin') && (user?.stationId || (user?.managedStations && user.managedStations.length > 0))) {
+        // If user is a manager, filter expenses by their station
+        // Admins and superadmins can view all expenses from different stations
+        if (user?.role === 'manager' && (user?.stationId || (user?.managedStations && user.managedStations.length > 0))) {
           const userStationId = user.stationId || user.managedStations?.[0];
           
           expensesToShow = expensesToShow.filter((expense: Expense) => {
@@ -247,6 +249,7 @@ export default function ExpensesPage() {
             return matches;
           });
         }
+        // Admins and superadmins can view all expenses from all stations (no filtering)
         
         setExpenses(expensesToShow);
       } else {
@@ -511,13 +514,14 @@ export default function ExpensesPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-                <Button className="bg-primary hover:bg-primary/90 text-white rounded-xl">
-                <Plus className="mr-2 w-4 h-4" />
-                Add Expense
-              </Button>
-            </DialogTrigger>
+          {canAddExpenses(user) && (
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+              <DialogTrigger asChild>
+                  <Button className="bg-primary hover:bg-primary/90 text-white rounded-xl">
+                  <Plus className="mr-2 w-4 h-4" />
+                  Add Expense
+                </Button>
+              </DialogTrigger>
               <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>{isEditMode ? 'Edit Expense' : 'Add New Expense'}</DialogTitle>
@@ -593,6 +597,7 @@ export default function ExpensesPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          )}
         </div>
       </div>
       </div>

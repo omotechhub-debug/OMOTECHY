@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Inventory from '@/lib/models/Inventory';
 import Station from '@/lib/models/Station';
-import { requireAdmin } from '@/lib/auth';
+import User from '@/lib/models/User';
+import { requireAdmin, getTokenFromRequest, verifyToken } from '@/lib/auth';
 import mongoose from 'mongoose';
 
 // Ensure Station model is registered
@@ -133,6 +134,28 @@ export async function POST(request: NextRequest) {
   try {
     await requireAdmin(request);
     await connectDB();
+
+    // Get the authenticated user to check specific permissions
+    const token = getTokenFromRequest(request);
+    const decoded = verifyToken(token);
+    const currentUser = await User.findById(decoded.userId);
+    
+    // Check if user has permission to add inventory
+    if (currentUser?.role === 'admin') {
+      // Check if admin has inventory edit permission
+      const inventoryPermission = currentUser.pagePermissions?.find(p => p.page === 'inventory');
+      if (!inventoryPermission?.canEdit) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Insufficient permissions to add inventory. Contact superadmin to grant inventory permissions.' 
+        }, { status: 403 });
+      }
+    } else if (currentUser?.role === 'manager') {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Managers cannot add inventory items. Only superadmins and authorized admins can add inventory.' 
+      }, { status: 403 });
+    }
 
     const body = await request.json();
     console.log('Inventory create request body:', body); // Debug log

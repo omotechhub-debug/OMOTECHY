@@ -177,6 +177,130 @@ export function isAdminOrManagerUser(user: IUser | null): boolean {
 }
 
 /**
+ * Check if user can add orders (POS functionality)
+ */
+export function canAddOrders(user: IUser | null): boolean {
+  if (!user || !user.isActive || !user.approved) {
+    return false;
+  }
+
+  // Superadmin can always add orders
+  if (user.role === 'superadmin') {
+    return true;
+  }
+
+  // Managers can add orders
+  if (user.role === 'manager') {
+    return true;
+  }
+
+  // Regular admins cannot add orders (view only)
+  if (user.role === 'admin') {
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Check if user can add expenses
+ */
+export function canAddExpenses(user: IUser | null): boolean {
+  if (!user || !user.isActive || !user.approved) {
+    return false;
+  }
+
+  // Superadmin can always add expenses
+  if (user.role === 'superadmin') {
+    return true;
+  }
+
+  // Managers can add expenses
+  if (user.role === 'manager') {
+    return true;
+  }
+
+  // Regular admins cannot add expenses (view only)
+  if (user.role === 'admin') {
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Check if user can add inventory (based on superadmin permission)
+ */
+export function canAddInventory(user: IUser | null): boolean {
+  if (!user || !user.isActive || !user.approved) {
+    return false;
+  }
+
+  // Superadmin can always add inventory
+  if (user.role === 'superadmin') {
+    return true;
+  }
+
+  // Check if admin has inventory add permission
+  if (user.role === 'admin') {
+    if (user.pagePermissions && Array.isArray(user.pagePermissions)) {
+      const inventoryPermission = user.pagePermissions.find(p => p.page === 'inventory');
+      return inventoryPermission ? inventoryPermission.canEdit : false;
+    }
+    return false;
+  }
+
+  // Managers cannot add inventory
+  if (user.role === 'manager') {
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Check if user can view all orders from different stations
+ */
+export function canViewAllOrders(user: IUser | null): boolean {
+  if (!user || !user.isActive || !user.approved) {
+    return false;
+  }
+
+  // Superadmin and admin can view all orders
+  if (user.role === 'superadmin' || user.role === 'admin') {
+    return true;
+  }
+
+  // Managers can only view their station's orders
+  if (user.role === 'manager') {
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Check if user can view all expenses from different stations
+ */
+export function canViewAllExpenses(user: IUser | null): boolean {
+  if (!user || !user.isActive || !user.approved) {
+    return false;
+  }
+
+  // Superadmin and admin can view all expenses
+  if (user.role === 'superadmin' || user.role === 'admin') {
+    return true;
+  }
+
+  // Managers can only view their station's expenses
+  if (user.role === 'manager') {
+    return false;
+  }
+
+  return false;
+}
+
+/**
  * Page metadata for admin navigation
  */
 export const ADMIN_PAGES = {

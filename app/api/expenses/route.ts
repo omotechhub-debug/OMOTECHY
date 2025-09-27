@@ -93,10 +93,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user has permission to create expenses
-    if (!['admin', 'superadmin', 'manager'].includes(currentUser.role)) {
+    if (!['superadmin', 'manager'].includes(currentUser.role)) {
       return NextResponse.json({ 
         success: false, 
-        error: 'Insufficient permissions to create expenses' 
+        error: 'Insufficient permissions to create expenses. Only superadmins and managers can add expenses.' 
       }, { status: 403 });
     }
 

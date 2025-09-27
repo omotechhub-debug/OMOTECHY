@@ -206,8 +206,9 @@ export default function OrdersPage() {
           return hasStation && hasCreator;
         });
 
-        // If user is a manager or admin with a specific station, filter orders by their station
-        if ((user?.role === 'manager' || user?.role === 'admin') && (user?.stationId || (user?.managedStations && user.managedStations.length > 0))) {
+        // If user is a manager, filter orders by their station
+        // Admins and superadmins can view all orders from different stations
+        if (user?.role === 'manager' && (user?.stationId || (user?.managedStations && user.managedStations.length > 0))) {
           const userStationId = user.stationId || user.managedStations?.[0];
           
           ordersToShow = ordersToShow.filter((order: Order) => {
@@ -216,6 +217,7 @@ export default function OrdersPage() {
             return matches;
           });
         }
+        // Admins and superadmins can view all orders from all stations (no filtering)
         
         setOrders(ordersToShow);
         setFilteredOrders(ordersToShow);

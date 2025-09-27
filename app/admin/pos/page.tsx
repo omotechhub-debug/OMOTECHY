@@ -51,6 +51,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/useAuth";
 import UserStationInfo from "@/components/UserStationInfo";
+import { canAddOrders } from "@/lib/permissions";
 
 interface Service {
   _id: string;
@@ -2202,22 +2203,29 @@ Need help? Call us at +254 757 883 799`;
                       <X className="w-4 h-4" />
                       Clear Cart
                     </Button>
-                    <Button
-                      onClick={handleCreateOrder}
-                      disabled={isProcessingOrder || !customerInfo.phone}
-                      className={`flex items-center justify-center gap-2 h-12 text-white ${
-                        isProcessingOrder 
-                          ? 'bg-gray-400 cursor-not-allowed' 
-                          : 'bg-primary hover:bg-primary/90'
-                      }`}
-                    >
-                      {isProcessingOrder ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
+                    {canAddOrders(user) ? (
+                      <Button
+                        onClick={handleCreateOrder}
+                        disabled={isProcessingOrder || !customerInfo.phone}
+                        className={`flex items-center justify-center gap-2 h-12 text-white ${
+                          isProcessingOrder 
+                            ? 'bg-gray-400 cursor-not-allowed' 
+                            : 'bg-primary hover:bg-primary/90'
+                        }`}
+                      >
+                        {isProcessingOrder ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Package className="w-4 h-4" />
+                        )}
+                        {isProcessingOrder ? 'Processing...' : (isEditing ? 'Update Order' : 'Create Order')}
+                      </Button>
+                    ) : (
+                      <div className="flex items-center justify-center gap-2 h-12 px-4 bg-gray-100 text-gray-500 rounded-lg">
                         <Package className="w-4 h-4" />
-                      )}
-                      {isProcessingOrder ? 'Processing...' : (isEditing ? 'Update Order' : 'Create Order')}
-                    </Button>
+                        View Only - Cannot Create Orders
+                      </div>
+                    )}
                   </div>
                   
                   {/* Initiate Payment Button - Will work after M-Pesa integration */}
