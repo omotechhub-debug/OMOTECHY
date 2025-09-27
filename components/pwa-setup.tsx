@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { PWAInstallPrompt } from './pwa-install-prompt'
+import { PWAFloatingInstall } from './pwa-floating-install'
 
 // Enhanced PWA setup with install prompt
 export function PWASetup() {
@@ -62,6 +63,7 @@ export function PWASetup() {
   return (
     <>
       <PWAInstallPrompt />
+      <PWAFloatingInstall />
       {/* Online/Offline indicator */}
       {!isOnline && (
         <div className="fixed top-4 left-4 right-4 z-40 md:left-auto md:right-4 md:max-w-sm">

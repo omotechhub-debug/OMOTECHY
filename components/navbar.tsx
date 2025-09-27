@@ -45,19 +45,44 @@ export function Navbar() {
 
   // PWA Install functionality
   useEffect(() => {
+    const checkStandalone = () => {
+      const isStandaloneMode = window.matchMedia('(display-mode: standalone)').matches
+      const isInStandaloneMode = (window.navigator as any).standalone === true
+      return isStandaloneMode || isInStandaloneMode
+    }
+
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault()
       setDeferredPrompt(e)
       setShowInstallButton(true)
+      console.log('PWA: beforeinstallprompt event received in navbar')
     }
 
     const handleAppInstalled = () => {
       setShowInstallButton(false)
       setDeferredPrompt(null)
+      console.log('PWA: App installed')
+    }
+
+    // Check if we should show install button for all platforms
+    const shouldShowInstall = () => {
+      const isStandalone = checkStandalone()
+      const dismissedTime = localStorage.getItem('pwa-install-dismissed')
+      const recentlyDismissed = dismissedTime && (Date.now() - parseInt(dismissedTime)) / (1000 * 60 * 60) < 24
+      
+      return !isStandalone && !recentlyDismissed
     }
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     window.addEventListener('appinstalled', handleAppInstalled)
+
+    // Show install button for all platforms if conditions are met
+    if (shouldShowInstall()) {
+      // Show after a delay to ensure page is loaded
+      setTimeout(() => {
+        setShowInstallButton(true)
+      }, 3000)
+    }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
@@ -461,18 +486,13 @@ export function Navbar() {
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.3, delay: 0.5 }}
             >
-                <Button
+              <Button
                 onClick={handleInstallClick}
-                className="btn-primary rounded-full w-12 h-12 p-0 shadow-lg"
-                title="Install App"
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-full px-4 py-2 shadow-lg flex items-center gap-2"
+                title="Install OMOTECH HUB App"
               >
-                <Image 
-                  src="/preloader.svg" 
-                  alt="Install OMOTECH HUB App" 
-                  width={24} 
-                  height={24} 
-                  className="w-5 h-5 object-contain"
-                />
+                <Download className="w-4 h-4" />
+                <span className="text-sm font-medium">Install App</span>
               </Button>
             </motion.div>
           )}
@@ -504,18 +524,10 @@ export function Navbar() {
               {showInstallButton && (
                 <Button
                   onClick={handleInstallClick}
-                  variant="ghost"
-                  size="sm"
-                  className="text-[#263C7C] hover:bg-[#263C7C]/10"
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-full px-3 py-1.5 flex items-center gap-1"
                 >
-                  <Image 
-                    src="/preloader.svg" 
-                    alt="Install App" 
-                    width={16} 
-                    height={16} 
-                    className="w-4 h-4 mr-1 object-contain"
-                  />
-                  Install
+                  <Download className="w-3 h-3" />
+                  <span className="text-xs font-medium">Install</span>
                 </Button>
               )}
               <Link href="/account">

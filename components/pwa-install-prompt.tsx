@@ -21,6 +21,7 @@ export function PWAInstallPrompt() {
   const [isStandalone, setIsStandalone] = useState(false)
   const [isAndroid, setIsAndroid] = useState(false)
   const [isDesktop, setIsDesktop] = useState(false)
+  const [hasShownPrompt, setHasShownPrompt] = useState(false)
 
   useEffect(() => {
     // Check if app is already installed
@@ -45,16 +46,27 @@ export function PWAInstallPrompt() {
 
     detectPlatform()
 
+    // Check if user recently dismissed
+    const checkDismissal = () => {
+      const dismissedTime = localStorage.getItem('pwa-install-dismissed')
+      if (dismissedTime) {
+        const hoursSinceDismissed = (Date.now() - parseInt(dismissedTime)) / (1000 * 60 * 60)
+        return hoursSinceDismissed < 24
+      }
+      return false
+    }
+
     // Listen for beforeinstallprompt event
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault()
       setDeferredPrompt(e as BeforeInstallPromptEvent)
+      console.log('PWA: beforeinstallprompt event received')
       
-      // Show install prompt after a delay if not already installed
-      if (!checkStandalone()) {
+      // Show install prompt after a delay if not already installed and not recently dismissed
+      if (!checkStandalone() && !checkDismissal()) {
         setTimeout(() => {
           setShowInstallPrompt(true)
-        }, 3000) // Show after 3 seconds
+        }, 2000) // Show after 2 seconds
       }
     }
 
@@ -68,16 +80,34 @@ export function PWAInstallPrompt() {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     window.addEventListener('appinstalled', handleAppInstalled)
 
-    // Check if we should show iOS instructions
-    if (isIOS && !checkStandalone()) {
+    // Show install prompt for all platforms if not already installed and not recently dismissed
+    if (!checkStandalone() && !checkDismissal() && !hasShownPrompt) {
+      const delay = isIOS ? 3000 : 2000 // iOS gets a bit more time
       setTimeout(() => {
         setShowInstallPrompt(true)
-      }, 5000) // Show iOS instructions after 5 seconds
+        setHasShownPrompt(true)
+      }, delay)
     }
+
+    // Also show prompt after user interaction (scroll, click, etc.)
+    const handleUserInteraction = () => {
+      if (!checkStandalone() && !checkDismissal() && !hasShownPrompt) {
+        setShowInstallPrompt(true)
+        setHasShownPrompt(true)
+      }
+    }
+
+    // Add event listeners for user interaction
+    window.addEventListener('scroll', handleUserInteraction, { once: true })
+    window.addEventListener('click', handleUserInteraction, { once: true })
+    window.addEventListener('touchstart', handleUserInteraction, { once: true })
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       window.removeEventListener('appinstalled', handleAppInstalled)
+      window.removeEventListener('scroll', handleUserInteraction)
+      window.removeEventListener('click', handleUserInteraction)
+      window.removeEventListener('touchstart', handleUserInteraction)
     }
   }, [isIOS, isAndroid, isDesktop])
 
@@ -104,23 +134,14 @@ export function PWAInstallPrompt() {
     localStorage.setItem('pwa-install-dismissed', Date.now().toString())
   }
 
-  // Don't show if already installed or recently dismissed
+  // Don't show if already installed or not ready to show
   if (isStandalone || !showInstallPrompt) {
     return null
   }
 
-  // Check if user recently dismissed
-  const dismissedTime = localStorage.getItem('pwa-install-dismissed')
-  if (dismissedTime) {
-    const hoursSinceDismissed = (Date.now() - parseInt(dismissedTime)) / (1000 * 60 * 60)
-    if (hoursSinceDismissed < 24) {
-      return null
-    }
-  }
-
   return (
     <div className="fixed bottom-4 left-4 right-4 z-50 md:left-auto md:right-4 md:max-w-sm">
-      <Card className="bg-gradient-to-r from-blue-600 to-purple-600 text-white border-0 shadow-2xl">
+      <Card className="bg-gradient-to-r from-blue-600 to-purple-600 text-white border-0 shadow-2xl animate-pulse">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">

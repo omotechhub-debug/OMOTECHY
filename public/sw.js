@@ -6,9 +6,9 @@ const DYNAMIC_CACHE = 'omotech-dynamic-v2'
 const STATIC_FILES = [
   '/',
   '/manifest.json',
-  '/icon-192x192.png',
-  '/icon-512x512.png',
-  '/icon-144x144.svg',
+  '/icon-192x192.svg',
+  '/icon-512x512.svg',
+  '/icon-144by144.png',
   '/offline.html'
 ]
 
