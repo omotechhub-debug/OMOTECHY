@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import AdminPageProtection from '@/components/AdminPageProtection';
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -156,7 +157,7 @@ const iconMap: { [key: string]: React.ComponentType<any> } = {
   Building,
 };
 
-export default function POSPage() {
+function POSPageContent() {
   const { token, user, refreshUserData } = useAuth();
   const router = useRouter();
   const [services, setServices] = useState<Service[]>([]);
@@ -2318,5 +2319,13 @@ Need help? Call us at +254 757 883 799`;
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function POSPage() {
+  return (
+    <AdminPageProtection pageName="POS System">
+      <POSPageContent />
+    </AdminPageProtection>
   );
 } 

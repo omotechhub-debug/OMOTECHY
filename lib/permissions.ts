@@ -23,9 +23,9 @@ export function canViewPage(user: IUser | null, page: string): boolean {
     return false;
   }
 
-  // Superadmin has access to everything
+  // Superadmin has limited access - only specific pages
   if (user.role === 'superadmin') {
-    return true;
+    return ['inventory', 'inventory-management', 'stations', 'services'].includes(page);
   }
 
   // Regular users should not access admin pages at all
@@ -50,9 +50,9 @@ export function canEditPage(user: IUser | null, page: string): boolean {
     return false;
   }
 
-  // Superadmin has access to everything
+  // Superadmin has view-only access (no editing)
   if (user.role === 'superadmin') {
-    return true;
+    return false;
   }
 
   // Regular users should not access admin pages at all
@@ -77,9 +77,9 @@ export function canDeletePage(user: IUser | null, page: string): boolean {
     return false;
   }
 
-  // Superadmin has access to everything
+  // Superadmin has view-only access (no deleting)
   if (user.role === 'superadmin') {
-    return true;
+    return false;
   }
 
   // Regular users should not access admin pages at all
@@ -104,12 +104,9 @@ export function getAccessiblePages(user: IUser | null): string[] {
     return [];
   }
 
-  // Superadmin has access to everything
+  // Superadmin has access to only specific pages (Inventory, Inventory Management, Stations, Services)
   if (user.role === 'superadmin') {
-    return [
-      'dashboard', 'orders', 'pos', 'customers', 'services', 'categories',
-      'reports', 'mpesa-transactions', 'users', 'expenses', 'gallery', 'testimonials', 'promotions', 'inventory', 'inventory-management', 'stations'
-    ];
+    return ['inventory', 'inventory-management', 'stations', 'services'];
   }
 
   // Manager has very limited access - only POS, Orders, and Expenses
@@ -184,9 +181,9 @@ export function canAddOrders(user: IUser | null): boolean {
     return false;
   }
 
-  // Superadmin can always add orders
+  // Superadmin has view-only access (cannot add orders)
   if (user.role === 'superadmin') {
-    return true;
+    return false;
   }
 
   // Managers can add orders
@@ -210,9 +207,9 @@ export function canAddExpenses(user: IUser | null): boolean {
     return false;
   }
 
-  // Superadmin can always add expenses
+  // Superadmin has view-only access (cannot add expenses)
   if (user.role === 'superadmin') {
-    return true;
+    return false;
   }
 
   // Managers can add expenses
@@ -236,9 +233,9 @@ export function canAddInventory(user: IUser | null): boolean {
     return false;
   }
 
-  // Superadmin can always add inventory
+  // Superadmin has view-only access (cannot add inventory)
   if (user.role === 'superadmin') {
-    return true;
+    return false;
   }
 
   // Check if admin has inventory add permission

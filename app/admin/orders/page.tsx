@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback } from 'react';
+import AdminPageProtection from '@/components/AdminPageProtection';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
@@ -132,7 +133,7 @@ const statusIcons = {
   cancelled: XCircle,
 };
 
-export default function OrdersPage() {
+function OrdersPageContent() {
   const { isAdmin, logout, isLoading, token, user } = useAuth();
   const { toast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -3300,5 +3301,13 @@ export default function OrdersPage() {
       </Dialog>
 
     </div>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <AdminPageProtection pageName="Orders">
+      <OrdersPageContent />
+    </AdminPageProtection>
   );
 } 

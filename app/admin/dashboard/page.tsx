@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import AdminPageProtection from '@/components/AdminPageProtection'
 import { motion } from "framer-motion"
 import {
   TrendingUp,
@@ -24,7 +25,7 @@ import { Progress } from "@/components/ui/progress"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ChartContainer } from '@/components/ui/chart';
 
-export default function AdminDashboard() {
+function AdminDashboardContent() {
   const { user, refreshUserData } = useAuth();
   const [allTime, setAllTime] = useState({
     revenue: 0,
@@ -578,4 +579,12 @@ export default function AdminDashboard() {
       </div>
     </div>
   )
+}
+
+export default function AdminDashboard() {
+  return (
+    <AdminPageProtection pageName="Dashboard">
+      <AdminDashboardContent />
+    </AdminPageProtection>
+  );
 }

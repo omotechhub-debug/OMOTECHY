@@ -77,18 +77,32 @@ export async function POST(request: NextRequest) {
     if (!user.pagePermissions || !Array.isArray(user.pagePermissions) || user.pagePermissions.length === 0) {
       console.log(`⚠️ Admin user ${email} has no page permissions, creating default permissions`);
       
-      // Create default admin permissions
-      const defaultPages = [
-        'dashboard', 'orders', 'pos', 'customers', 'services', 'categories',
-        'reports', 'users', 'expenses', 'gallery', 'testimonials', 'promotions', 'settings'
-      ];
+      // Create permissions based on user role
+      let defaultPages: string[];
+      let defaultPermissions: any[];
       
-      const defaultPermissions = defaultPages.map(page => ({
-        page,
-        canView: true,
-        canEdit: user.role === 'superadmin' ? true : ['dashboard', 'orders', 'pos', 'customers', 'services', 'categories'].includes(page),
-        canDelete: user.role === 'superadmin' ? true : ['orders', 'customers'].includes(page)
-      }));
+      if (user.role === 'superadmin') {
+        // Superadmin can only access Inventory, Inventory Management, Stations, and Services
+        defaultPages = ['inventory', 'inventory-management', 'stations', 'services'];
+        defaultPermissions = defaultPages.map(page => ({
+          page,
+          canView: true,
+          canEdit: false, // View only
+          canDelete: false // View only
+        }));
+      } else {
+        // Regular admin permissions
+        defaultPages = [
+          'dashboard', 'orders', 'pos', 'customers', 'services', 'categories',
+          'reports', 'users', 'expenses', 'gallery', 'testimonials', 'promotions', 'settings'
+        ];
+        defaultPermissions = defaultPages.map(page => ({
+          page,
+          canView: true,
+          canEdit: ['dashboard', 'orders', 'pos', 'customers', 'services', 'categories'].includes(page),
+          canDelete: ['orders', 'customers'].includes(page)
+        }));
+      }
       
       user.pagePermissions = defaultPermissions;
       await user.save();
