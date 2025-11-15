@@ -21,11 +21,16 @@ export default function CheckoutPage() {
   const router = useRouter()
   
   const [isProcessing, setIsProcessing] = useState(false)
+  const [initiatingPayment, setInitiatingPayment] = useState(false)
+  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'pending' | 'success' | 'failed'>('idle')
+  const [orderId, setOrderId] = useState<string | null>(null)
+  const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null)
   const [deliveryAddress, setDeliveryAddress] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('mpesa')
   const [selectedShop, setSelectedShop] = useState('kutus')
   const [notes, setNotes] = useState('')
+  const [errorMessage, setErrorMessage] = useState('')
 
   // Shop options
   const shopOptions = [
@@ -71,20 +76,174 @@ export default function CheckoutPage() {
     )
   }
 
+  // Poll payment status
+  const pollPaymentStatus = async (checkoutRequestId: string, orderId: string) => {
+    const maxAttempts = 30 // Poll for up to 5 minutes (30 * 10 seconds)
+    let attempts = 0
+    
+    const poll = async () => {
+      if (attempts >= maxAttempts) {
+        console.log('Payment polling timeout')
+        setPaymentStatus('failed')
+        setErrorMessage('Payment verification timeout. Please contact support if payment was successful.')
+        return
+      }
+      
+      attempts++
+      
+      try {
+        const token = localStorage.getItem('clientAuthToken')
+        const response = await fetch(`/api/mpesa/status/${checkoutRequestId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        const data = await response.json()
+        
+        if (data.success && data.resultCode === '0') {
+          // Payment successful
+          setPaymentStatus('success')
+          clearCart()
+          // Redirect to success page with order ID
+          router.push(`/order-success?orderId=${orderId}`)
+        } else if (data.resultCode && data.resultCode !== '1032') {
+          // Payment failed (1032 means still processing)
+          setPaymentStatus('failed')
+          setErrorMessage(data.resultDesc || 'Payment failed. Please try again.')
+        } else {
+          // Still processing, poll again
+          setTimeout(poll, 10000) // Poll every 10 seconds
+        }
+      } catch (error) {
+        console.error('Error polling payment status:', error)
+        // Continue polling on error
+        setTimeout(poll, 10000)
+      }
+    }
+    
+    // Start polling after 5 seconds
+    setTimeout(poll, 5000)
+  }
+
   const handlePlaceOrder = async () => {
+    if (!phoneNumber.trim() || !deliveryAddress.trim()) {
+      setErrorMessage('Please fill in all required fields')
+      return
+    }
+
     setIsProcessing(true)
+    setErrorMessage('')
     
     try {
-      // Simulate order processing
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      // Clear cart after successful order
-      clearCart()
-      
-      // Redirect to success page
-      router.push('/order-success')
-    } catch (error) {
+      const token = localStorage.getItem('clientAuthToken')
+      if (!token) {
+        setErrorMessage('Please login to place an order')
+        router.push('/login')
+        return
+      }
+
+      // Format phone number (remove spaces, ensure +254 format)
+      let formattedPhone = phoneNumber.replace(/\s+/g, '')
+      if (!formattedPhone.startsWith('+254')) {
+        if (formattedPhone.startsWith('254')) {
+          formattedPhone = '+' + formattedPhone
+        } else if (formattedPhone.startsWith('0')) {
+          formattedPhone = '+254' + formattedPhone.substring(1)
+        } else {
+          formattedPhone = '+254' + formattedPhone
+        }
+      }
+
+      // Prepare order data
+      const orderData = {
+        customer: {
+          name: user?.name || '',
+          phone: formattedPhone,
+          email: user?.email || '',
+          address: deliveryAddress
+        },
+        services: state.items.map(item => ({
+          serviceId: item.id,
+          serviceName: item.name,
+          quantity: item.quantity,
+          price: typeof item.price === 'string' ? item.price.replace(/[^\d.]/g, '') : item.price.toString()
+        })),
+        location: paymentMethod === 'cash' ? selectedShop : 'delivery',
+        totalAmount: state.total,
+        paymentStatus: paymentMethod === 'mpesa' ? 'unpaid' : 'unpaid',
+        partialAmount: 0,
+        remainingAmount: state.total,
+        status: 'pending',
+        notes: notes || undefined
+      }
+
+      // Create order
+      const orderResponse = await fetch('/api/orders', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(orderData)
+      })
+
+      const orderResult = await orderResponse.json()
+
+      if (!orderResult.success || !orderResult.order) {
+        throw new Error(orderResult.error || 'Failed to create order')
+      }
+
+      const createdOrder = orderResult.order
+      setOrderId(createdOrder._id)
+
+      // If M-Pesa payment is selected, automatically initiate STK push
+      if (paymentMethod === 'mpesa') {
+        setInitiatingPayment(true)
+        setPaymentStatus('pending')
+
+        try {
+          const stkResponse = await fetch('/api/mpesa/initiate', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              orderId: createdOrder._id,
+              phoneNumber: formattedPhone,
+              amount: state.total,
+              paymentType: 'full'
+            })
+          })
+
+          const stkData = await stkResponse.json()
+
+          if (stkData.success && stkData.checkoutRequestId) {
+            setCheckoutRequestId(stkData.checkoutRequestId)
+            // Start polling for payment status
+            pollPaymentStatus(stkData.checkoutRequestId, createdOrder._id)
+          } else {
+            setPaymentStatus('failed')
+            setErrorMessage(stkData.error || 'Failed to initiate payment. Please try again.')
+            setInitiatingPayment(false)
+          }
+        } catch (paymentError) {
+          console.error('Payment initiation error:', paymentError)
+          setPaymentStatus('failed')
+          setErrorMessage('Failed to initiate payment. Please try again.')
+          setInitiatingPayment(false)
+        }
+      } else {
+        // Cash payment - just redirect to success
+        clearCart()
+        router.push(`/order-success?orderId=${createdOrder._id}`)
+      }
+    } catch (error: any) {
       console.error('Order failed:', error)
+      setErrorMessage(error.message || 'Failed to place order. Please try again.')
+      setPaymentStatus('failed')
     } finally {
       setIsProcessing(false)
     }
@@ -307,20 +466,45 @@ export default function CheckoutPage() {
                   </div>
                 </div>
 
+                {/* Error Message */}
+                {errorMessage && (
+                  <Alert variant="destructive" className="mt-4">
+                    <AlertDescription>{errorMessage}</AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Payment Status */}
+                {paymentStatus === 'pending' && (
+                  <Alert className="mt-4 border-blue-200 bg-blue-50">
+                    <AlertDescription className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Payment request sent! Please check your phone and enter your M-Pesa PIN to complete payment.</span>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {paymentStatus === 'success' && (
+                  <Alert className="mt-4 border-green-200 bg-green-50">
+                    <AlertDescription className="flex items-center gap-2">
+                      <span>✅ Payment successful! Redirecting...</span>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 <Button
                   onClick={handlePlaceOrder}
-                  disabled={isProcessing || !deliveryAddress.trim() || !phoneNumber.trim()}
+                  disabled={isProcessing || initiatingPayment || !deliveryAddress.trim() || !phoneNumber.trim() || paymentStatus === 'pending'}
                   className="w-full mt-6 bg-primary hover:bg-primary/90"
                 >
-                  {isProcessing ? (
+                  {isProcessing || initiatingPayment ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Processing Order...
+                      {initiatingPayment ? 'Sending Payment Request...' : 'Processing Order...'}
                     </>
                   ) : (
                     <>
                       <CreditCard className="w-4 h-4 mr-2" />
-                      Place Order
+                      {paymentMethod === 'mpesa' ? 'Place Order & Pay with M-Pesa' : 'Place Order'}
                     </>
                   )}
                 </Button>

@@ -15,8 +15,9 @@ export async function POST(request: NextRequest) {
     }
 
     const decoded = verifyToken(token);
-    if (!decoded || (decoded.role !== 'admin' && decoded.role !== 'superadmin' && decoded.role !== 'manager')) {
-      return NextResponse.json({ error: 'Admin or Manager access required' }, { status: 403 });
+    // Allow admin, superadmin, manager, and regular users (for shop orders)
+    if (!decoded || !['admin', 'superadmin', 'manager', 'user'].includes(decoded.role)) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 403 });
     }
 
     const { orderId, phoneNumber, amount, paymentType = 'full' } = await request.json();

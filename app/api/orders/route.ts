@@ -248,12 +248,16 @@ export async function POST(request: NextRequest) {
     });
     
     // Check if user has permission to create orders
-    if (!['superadmin', 'manager'].includes(currentUser.role)) {
+    // Allow superadmin, manager, admin, and regular users (for shop orders)
+    if (!['superadmin', 'manager', 'admin', 'user'].includes(currentUser.role)) {
       return NextResponse.json({ 
         success: false, 
-        error: 'Insufficient permissions to create orders. Only superadmins and managers can add orders.' 
+        error: 'Insufficient permissions to create orders.' 
       }, { status: 403 });
     }
+    
+    // For regular users (shop customers), allow order creation without station requirement
+    const isShopCustomer = currentUser.role === 'user'
     
     const orderData = await request.json();
     
@@ -265,12 +269,15 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Validate that user has station assignment
-    if (!currentUser.stationId && (!currentUser.managedStations || currentUser.managedStations.length === 0)) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'User must be assigned to a station to create orders' 
-      }, { status: 400 });
+    // For shop customers (regular users), skip station requirement
+    // For admin/manager/superadmin, station is required
+    if (!isShopCustomer) {
+      if (!currentUser.stationId && (!currentUser.managedStations || currentUser.managedStations.length === 0)) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'User must be assigned to a station to create orders' 
+        }, { status: 400 });
+      }
     }
 
     // Get user's station information
@@ -286,7 +293,27 @@ export async function POST(request: NextRequest) {
     console.log('🔍 User managedStations type:', typeof currentUser.managedStations);
     console.log('🔍 User managedStations value:', currentUser.managedStations);
     
-    if ((currentUser.role === 'manager' || currentUser.role === 'admin') && currentUser.stationId) {
+    // For shop customers, try to get a default station or use the first available station
+    if (isShopCustomer) {
+      // For shop orders, try to find a default station or use the first active station
+      try {
+        const defaultStation = await Station.findOne({ isActive: true }).sort({ createdAt: 1 });
+        if (defaultStation) {
+          stationInfo = {
+            stationId: defaultStation._id,
+            name: defaultStation.name,
+            location: defaultStation.location
+          };
+          console.log('✅ Using default station for shop order:', stationInfo);
+        } else {
+          console.warn('⚠️ No active station found, creating order without station');
+          // Allow order creation without station for shop customers
+        }
+      } catch (stationError) {
+        console.error('❌ Error fetching default station for shop order:', stationError);
+        // Allow order creation without station for shop customers
+      }
+    } else if ((currentUser.role === 'manager' || currentUser.role === 'admin') && currentUser.stationId) {
       console.log('🔍 User has stationId, looking up station:', currentUser.stationId);
       try {
         const station = await Station.findById(currentUser.stationId);
@@ -333,7 +360,8 @@ export async function POST(request: NextRequest) {
           error: 'Failed to fetch station information' 
         }, { status: 500 });
       }
-    } else {
+    } else if (!isShopCustomer) {
+      // Only require station for admin/manager/superadmin, not for shop customers
       console.log('❌ User has no station assignment');
       return NextResponse.json({ 
         success: false, 
@@ -341,8 +369,8 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
-    // Validate that we have station information
-    if (!stationInfo) {
+    // Validate that we have station information (only required for admin/manager, optional for shop customers)
+    if (!stationInfo && !isShopCustomer) {
       console.log('❌ No station information found');
       return NextResponse.json({ 
         success: false, 
@@ -462,10 +490,12 @@ export async function POST(request: NextRequest) {
       hasStation: !!order.station,
       createdBy: order.createdBy,
       station: order.station,
-      stationInfo: stationInfo
+      stationInfo: stationInfo,
+      isShopCustomer: isShopCustomer
     });
     
-    if (!order.createdBy || !order.station) {
+    // For shop customers, station is optional. For admin/manager, station is required.
+    if (!order.createdBy || (!order.station && !isShopCustomer)) {
       console.error('❌ Order missing required fields:', {
         hasCreatedBy: !!order.createdBy,
         hasStation: !!order.station,
