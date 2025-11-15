@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
 
 // GET endpoint to check current registration status
 export async function GET(request: NextRequest) {
+  //TODO: Implement this endpoint
   try {
     // Verify admin authentication
     const token = getTokenFromRequest(request);
