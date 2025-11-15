@@ -9,12 +9,16 @@ export function PWASetup() {
   const [isOnline, setIsOnline] = useState(true)
 
   useEffect(() => {
-    // Register service worker
+    // Register service worker with cache-busting
     if ('serviceWorker' in navigator) {
+      // Register service worker (browser will check for updates automatically)
       navigator.serviceWorker
-        .register('/sw.js')
+        .register('/sw.js', { updateViaCache: 'none' })
         .then((registration) => {
           console.log('PWA: Service Worker registered successfully')
+          
+          // Force update check on every page load
+          registration.update()
           
           // Check for updates
           registration.addEventListener('updatefound', () => {
@@ -22,18 +26,35 @@ export function PWASetup() {
             if (newWorker) {
               newWorker.addEventListener('statechange', () => {
                 if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  // New content is available, prompt user to refresh
-                  if (confirm('New version available! Refresh to update?')) {
-                    window.location.reload()
-                  }
+                  // New content is available, automatically reload
+                  console.log('PWA: New version available, reloading...')
+                  window.location.reload()
+                } else if (newWorker.state === 'activated') {
+                  // New worker activated, reload to use it
+                  console.log('PWA: New service worker activated, reloading...')
+                  window.location.reload()
                 }
               })
             }
           })
+          
+          // Periodically check for updates (every 60 seconds)
+          setInterval(() => {
+            registration.update()
+          }, 60000)
         })
         .catch((error) => {
           console.error('PWA: Service Worker registration failed', error)
         })
+      
+      // Unregister old service workers if they exist
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => {
+          if (registration.active?.scriptURL && !registration.active.scriptURL.includes('sw.js')) {
+            registration.unregister()
+          }
+        })
+      })
     }
 
     // Monitor online/offline status

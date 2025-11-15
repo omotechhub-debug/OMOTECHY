@@ -1,6 +1,8 @@
-const CACHE_NAME = 'omotech-hub-v2'
-const STATIC_CACHE = 'omotech-static-v2'
-const DYNAMIC_CACHE = 'omotech-dynamic-v2'
+// Update version to force cache refresh - change this on each deployment
+const CACHE_VERSION = 'v3-' + new Date().getTime()
+const CACHE_NAME = 'omotech-hub-' + CACHE_VERSION
+const STATIC_CACHE = 'omotech-static-' + CACHE_VERSION
+const DYNAMIC_CACHE = 'omotech-dynamic-' + CACHE_VERSION
 
 // Files to cache for offline functionality
 const STATIC_FILES = [
@@ -39,7 +41,8 @@ self.addEventListener('activate', (event) => {
       .then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName !== STATIC_CACHE && cacheName !== DYNAMIC_CACHE) {
+            // Delete all old caches that don't match current version
+            if (!cacheName.includes(CACHE_VERSION) && cacheName.startsWith('omotech-')) {
               console.log('Service Worker: Deleting old cache', cacheName)
               return caches.delete(cacheName)
             }
@@ -47,7 +50,7 @@ self.addEventListener('activate', (event) => {
         )
       })
       .then(() => {
-        console.log('Service Worker: Activated')
+        console.log('Service Worker: Activated with version', CACHE_VERSION)
         return self.clients.claim()
       })
   )
@@ -83,7 +86,19 @@ self.addEventListener('fetch', (event) => {
 // Handle navigation requests (pages)
 async function handleNavigationRequest(request) {
   try {
-    const networkResponse = await fetch(request)
+    // Add cache-busting query parameter for navigation requests
+    const url = new URL(request.url)
+    url.searchParams.set('_sw', CACHE_VERSION)
+    
+    const networkResponse = await fetch(url.toString(), {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    })
+    
     if (networkResponse.ok) {
       const cache = await caches.open(DYNAMIC_CACHE)
       cache.put(request, networkResponse.clone())
