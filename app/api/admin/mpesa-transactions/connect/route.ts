@@ -13,8 +13,8 @@ export async function POST(request: NextRequest) {
     }
 
     const decoded = verifyToken(token);
-    if (!decoded || (decoded.role !== 'admin' && decoded.role !== 'superadmin')) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    if (!decoded || decoded.role !== 'superadmin') {
+      return NextResponse.json({ error: 'Superadmin access required' }, { status: 403 });
     }
 
     const { transactionId, orderId } = await request.json();

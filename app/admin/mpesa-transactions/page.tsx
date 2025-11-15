@@ -31,7 +31,7 @@ import { motion } from 'framer-motion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import ProtectedRoute from '@/components/ProtectedRoute';
+import AdminProtectedRoute from '@/components/AdminProtectedRoute';
 
 interface MpesaTransaction {
   _id: string;
@@ -63,7 +63,7 @@ interface Order {
 }
 
 export default function MpesaTransactionsPage() {
-  const { isAdmin, logout, isLoading, token } = useAuth();
+  const { token } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   
@@ -93,13 +93,6 @@ export default function MpesaTransactionsPage() {
     notes: ''
   });
   const [addingTransaction, setAddingTransaction] = useState(false);
-
-
-  useEffect(() => {
-    if (!isLoading && !isAdmin) {
-      logout();
-    }
-  }, [isAdmin, isLoading, logout]);
 
   useEffect(() => {
     if (token) {
@@ -446,7 +439,7 @@ export default function MpesaTransactionsPage() {
   };
 
   return (
-    <ProtectedRoute requiredPermission="mpesa-transactions">
+    <AdminProtectedRoute requireSuperAdmin={true}>
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}

@@ -4,6 +4,7 @@ import Order from '@/lib/models/Order';
 import Customer from '@/lib/models/Customer';
 import MpesaTransaction from '@/lib/models/MpesaTransaction';
 import { C2BConfirmationRequest, C2BConfirmationResponse } from '@/lib/mpesa';
+import mongoose from 'mongoose';
 
 // SMS notification function
 const sendPaymentConfirmationSMS = async (order: any, amountPaid: number, isFullyPaid: boolean, mpesaReceiptNumber: string) => {
@@ -140,11 +141,19 @@ export async function POST(request: NextRequest) {
     // Try to find and update existing order
     if (billRefNumber && billRefNumber !== '') {
       try {
+        // Build query - only use _id if billRefNumber is a valid ObjectId
+        // This prevents CastError when billRefNumber is not a valid MongoDB ObjectId
+        const queryConditions: any[] = [
+          { orderNumber: billRefNumber }
+        ];
+        
+        // Only add _id to query if billRefNumber is a valid MongoDB ObjectId
+        if (mongoose.Types.ObjectId.isValid(billRefNumber)) {
+          queryConditions.push({ _id: billRefNumber });
+        }
+        
         const order = await Order.findOne({
-          $or: [
-            { orderNumber: billRefNumber },
-            { _id: billRefNumber }
-          ]
+          $or: queryConditions
         });
 
         if (order) {
@@ -542,11 +551,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET endpoint for testing/health check
-export async function GET() {
+// GET endpoint - M-Pesa only sends POST requests, but we handle GET for health checks
+export async function GET(request: NextRequest) {
+  // Return a simple response indicating the endpoint is active
+  // M-Pesa will only use POST, but this helps with testing and health checks
   return NextResponse.json({
     message: 'C2B Confirmation endpoint is active',
+    method: 'GET',
+    note: 'This endpoint expects POST requests from M-Pesa',
     timestamp: new Date().toISOString(),
     status: 'healthy'
-  });
+  }, { status: 200 });
 } 

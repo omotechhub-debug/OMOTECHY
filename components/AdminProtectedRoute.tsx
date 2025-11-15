@@ -44,6 +44,7 @@ export default function AdminProtectedRoute({
     if (path.startsWith('/admin/testimonials')) return 'testimonials';
     if (path.startsWith('/admin/promotions')) return 'promotions';
     if (path.startsWith('/admin/stations')) return 'stations';
+    if (path.startsWith('/admin/mpesa-transactions')) return 'mpesa-transactions';
     if (path.startsWith('/admin/banners')) return 'settings';
     if (path.startsWith('/admin/sms')) return 'settings';
     if (path.startsWith('/admin/settings')) return 'settings';
