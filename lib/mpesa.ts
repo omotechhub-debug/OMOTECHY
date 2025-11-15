@@ -142,12 +142,23 @@ class MpesaService {
 
   private async generateAccessToken(): Promise<string> {
     try {
+      // Validate credentials are present
+      if (!this.config.consumerKey || !this.config.consumerSecret) {
+        throw new Error('M-Pesa consumer key or secret is missing. Please check your environment variables.');
+      }
+
       const auth = Buffer.from(`${this.config.consumerKey}:${this.config.consumerSecret}`).toString('base64');
+      const authUrl = `${this.getBaseUrl()}/oauth/v1/generate?grant_type=client_credentials`;
       
-      console.log('Generating access token for environment:', this.config.environment);
-      console.log('Auth URL:', `${this.getBaseUrl()}/oauth/v1/generate?grant_type=client_credentials`);
+      console.log('Generating M-Pesa access token:', {
+        environment: this.config.environment,
+        baseUrl: this.getBaseUrl(),
+        authUrl: authUrl,
+        consumerKeyLength: this.config.consumerKey.length,
+        consumerSecretLength: this.config.consumerSecret.length
+      });
       
-      const response = await axios.get(`${this.getBaseUrl()}/oauth/v1/generate?grant_type=client_credentials`, {
+      const response = await axios.get(authUrl, {
         headers: {
           'Authorization': `Basic ${auth}`,
           'Content-Type': 'application/json'
@@ -155,15 +166,35 @@ class MpesaService {
         timeout: 30000
       });
 
-      console.log('Access token generated successfully');
-      return response.data.access_token;
-    } catch (error: any) {
-      console.error('Error generating access token:', error);
-      if (error.response) {
-        console.error('Auth error response status:', error.response.status);
-        console.error('Auth error response data:', JSON.stringify(error.response.data, null, 2));
+      if (!response.data || !response.data.access_token) {
+        console.error('Invalid token response:', response.data);
+        throw new Error('M-Pesa API did not return a valid access token');
       }
-      throw new Error(`Failed to generate M-Pesa access token: ${error.response?.data?.error_description || error.message}`);
+
+      const accessToken = response.data.access_token;
+      console.log('✅ Access token generated successfully, length:', accessToken.length);
+      
+      return accessToken;
+    } catch (error: any) {
+      console.error('❌ Error generating M-Pesa access token:', {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText
+      });
+      
+      if (error.response) {
+        const errorData = error.response.data;
+        const errorMessage = errorData?.error_description || 
+                           errorData?.errorMessage || 
+                           errorData?.error || 
+                           `HTTP ${error.response.status}: ${error.response.statusText}`;
+        
+        throw new Error(`Failed to generate M-Pesa access token: ${errorMessage}`);
+      }
+      
+      throw new Error(`Failed to generate M-Pesa access token: ${error.message}`);
     }
   }
 
@@ -360,7 +391,30 @@ class MpesaService {
 
   async registerC2BURLs(): Promise<C2BRegisterURLResponse> {
     try {
+      // Validate configuration first
+      if (!this.config.consumerKey || !this.config.consumerSecret) {
+        return {
+          success: false,
+          error: 'M-Pesa credentials are not configured. Please set MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET environment variables.'
+        };
+      }
+
+      if (!this.config.shortCode) {
+        return {
+          success: false,
+          error: 'M-Pesa short code is not configured. Please set MPESA_SHORT_CODE environment variable.'
+        };
+      }
+
+      console.log('Generating access token for C2B registration...');
       const accessToken = await this.generateAccessToken();
+      
+      if (!accessToken || accessToken.length < 10) {
+        return {
+          success: false,
+          error: 'Failed to generate valid access token from M-Pesa API'
+        };
+      }
       
       // Get URLs from environment variables
       const validationURL = process.env.MPESA_C2B_VALIDATION_URL;
@@ -368,7 +422,10 @@ class MpesaService {
       const responseType = (process.env.MPESA_C2B_RESPONSE_TYPE as 'Completed' | 'Cancelled') || 'Completed';
       
       if (!validationURL || !confirmationURL) {
-        throw new Error('C2B validation and confirmation URLs must be configured in environment variables');
+        return {
+          success: false,
+          error: 'C2B validation and confirmation URLs must be configured in environment variables (MPESA_C2B_VALIDATION_URL and MPESA_C2B_CONFIRMATION_URL)'
+        };
       }
 
       const payload: C2BRegisterURLRequest = {
@@ -387,28 +444,70 @@ class MpesaService {
         ValidationURL: payload.validationURL
       };
 
+      const registerUrl = `${this.getBaseUrl()}/mpesa/c2b/v2/registerurl`;
+      
       console.log('M-Pesa C2B Register URL Request:', {
-        url: `${this.getBaseUrl()}/mpesa/c2b/v1/registerurl`,
+        url: registerUrl,
         payload: requestPayload,
-        environment: this.config.environment
+        environment: this.config.environment,
+        shortCode: payload.shortCode,
+        accessTokenLength: accessToken.length,
+        accessTokenPrefix: accessToken.substring(0, 20) + '...'
       });
 
+      // Validate access token format (should be a JWT-like string)
+      if (!accessToken || typeof accessToken !== 'string' || accessToken.length < 50) {
+        return {
+          success: false,
+          error: 'Invalid access token format received from M-Pesa API',
+          responseCode: '401',
+          responseDescription: 'Access token validation failed'
+        };
+      }
+
       const response = await axios.post(
-        `${this.getBaseUrl()}/mpesa/c2b/v1/registerurl`,
+        registerUrl,
         requestPayload,
         {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
-          timeout: 30000
+          timeout: 30000,
+          validateStatus: (status) => status < 500 // Don't throw on 4xx errors
         }
       );
 
       console.log('M-Pesa C2B Register URL Response:', {
         status: response.status,
+        statusText: response.statusText,
         data: response.data
       });
+
+      // Check for HTTP error status codes first
+      if (response.status === 401 || response.status === 403) {
+        return {
+          success: false,
+          responseCode: String(response.status),
+          responseDescription: response.data?.ResponseDescription || response.data?.errorMessage || 'Authentication failed',
+          error: response.data?.errorMessage || 
+                 response.data?.ResponseDescription || 
+                 `HTTP ${response.status}: Invalid access token or credentials`,
+          details: response.data
+        };
+      }
+
+      if (response.status >= 400) {
+        return {
+          success: false,
+          responseCode: String(response.status),
+          responseDescription: response.data?.ResponseDescription || response.data?.errorMessage || `HTTP ${response.status} error`,
+          error: response.data?.errorMessage || 
+                 response.data?.ResponseDescription || 
+                 `HTTP ${response.status}: ${response.statusText}`,
+          details: response.data
+        };
+      }
 
       // M-Pesa returns ResponseCode as string "0" for success
       if (response.data.ResponseCode === '0' || response.data.ResponseCode === 0) {
@@ -423,7 +522,8 @@ class MpesaService {
           success: false,
           responseCode: String(response.data.ResponseCode || 'Unknown'),
           responseDescription: response.data.ResponseDescription || 'C2B URL registration failed',
-          error: response.data.ResponseDescription || response.data.errorMessage || 'C2B URL registration failed'
+          error: response.data.ResponseDescription || response.data.errorMessage || 'C2B URL registration failed',
+          details: response.data
         };
       }
     } catch (error: any) {
