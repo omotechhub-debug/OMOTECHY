@@ -36,8 +36,9 @@ export const GET = requireAdmin(async (request: NextRequest) => {
     
     const range = searchParams.get('range') || '30';
     
-    // Calculate date range
+    // Calculate date range - set to start and end of day for accurate filtering
     const endDate = new Date();
+    endDate.setHours(23, 59, 59, 999); // End of today
     const startDate = new Date();
     
     switch (range) {
@@ -56,6 +57,9 @@ export const GET = requireAdmin(async (request: NextRequest) => {
       default:
         startDate.setDate(endDate.getDate() - 30);
     }
+    startDate.setHours(0, 0, 0, 0); // Start of day
+    
+    console.log(`📊 Reports: Fetching data from ${startDate.toISOString()} to ${endDate.toISOString()} (${range} days)`);
 
     // Fetch orders within date range (customer is embedded, not a reference)
     const orders = await Order.find({
@@ -88,6 +92,8 @@ export const GET = requireAdmin(async (request: NextRequest) => {
         }
       ]
     }).lean();
+    
+    console.log(`📊 M-Pesa: Found ${mpesaTransactions.length} transactions in date range`);
 
     // Calculate sales report
     const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
@@ -96,8 +102,12 @@ export const GET = requireAdmin(async (request: NextRequest) => {
 
     // Additional sales metrics
     const totalPickDropAmount = orders.reduce((sum, order) => sum + (order.pickDropAmount || 0), 0);
-    const totalDiscounts = orders.reduce((sum, order) => sum + (order.discount || 0), 0);
-    const grossRevenue = totalRevenue + totalDiscounts - totalPickDropAmount;
+    const totalDiscounts = orders.reduce((sum, order) => sum + (order.discount || 0) + (order.promoDiscount || 0), 0);
+    // Gross revenue = total revenue before discounts (revenue + discounts)
+    // Net revenue = total revenue after discounts
+    const grossRevenue = totalRevenue + totalDiscounts;
+    
+    console.log(`📊 Sales Summary: ${totalOrders} orders, Revenue: ${totalRevenue}, Discounts: ${totalDiscounts}, Pick&Drop: ${totalPickDropAmount}`);
 
     // Revenue by month
     const revenueByMonth = [];
@@ -424,20 +434,29 @@ export const GET = requireAdmin(async (request: NextRequest) => {
     const totalMpesaAmount = mpesaTransactions.reduce((sum, transaction) => sum + (transaction.amountPaid || 0), 0);
     
     // Categorize M-Pesa transactions by connection status
-    const fullyPaidMpesa = mpesaTransactions.filter(transaction => 
-      transaction.isConnectedToOrder && transaction.confirmationStatus === 'confirmed'
-    );
-    const partialMpesa = mpesaTransactions.filter(transaction => 
-      transaction.isConnectedToOrder && 
-      transaction.confirmationStatus === 'confirmed' && 
-      transaction.connectedOrderId && 
-      orders.find(order => order._id.toString() === transaction.connectedOrderId?.toString())?.paymentStatus === 'partial'
-    );
+    // Fully paid: connected to order and order is paid
+    const fullyPaidMpesa = mpesaTransactions.filter(transaction => {
+      if (!transaction.isConnectedToOrder || !transaction.connectedOrderId) return false;
+      const order = orders.find(o => o._id.toString() === transaction.connectedOrderId?.toString());
+      return order && order.paymentStatus === 'paid';
+    });
+    
+    // Partial: connected to order but order is partial
+    const partialMpesa = mpesaTransactions.filter(transaction => {
+      if (!transaction.isConnectedToOrder || !transaction.connectedOrderId) return false;
+      const order = orders.find(o => o._id.toString() === transaction.connectedOrderId?.toString());
+      return order && order.paymentStatus === 'partial';
+    });
+    
+    // Unpaid: not connected or pending/rejected
     const unpaidMpesa = mpesaTransactions.filter(transaction => 
       !transaction.isConnectedToOrder || 
+      !transaction.connectedOrderId ||
       transaction.confirmationStatus === 'pending' || 
       transaction.confirmationStatus === 'rejected'
     );
+    
+    console.log(`📊 M-Pesa Breakdown: Fully Paid: ${fullyPaidMpesa.length}, Partial: ${partialMpesa.length}, Unpaid: ${unpaidMpesa.length}`);
 
     // M-Pesa transaction status distribution
     const mpesaStatusCounts = {
@@ -566,41 +585,76 @@ export const GET = requireAdmin(async (request: NextRequest) => {
       }))
       .sort((a, b) => b.daysPending - a.daysPending);
 
+    // Ensure all arrays are initialized (not undefined)
     const reportData = {
       salesReport: {
-        totalRevenue,
-        totalOrders,
-        averageOrderValue,
-        revenueByMonth,
-        ordersByStatus,
-        grossRevenue,
-        totalPickDropAmount,
-        totalDiscounts
+        totalRevenue: totalRevenue || 0,
+        totalOrders: totalOrders || 0,
+        averageOrderValue: averageOrderValue || 0,
+        revenueByMonth: revenueByMonth || [],
+        ordersByStatus: ordersByStatus || [],
+        grossRevenue: grossRevenue || 0,
+        totalPickDropAmount: totalPickDropAmount || 0,
+        totalDiscounts: totalDiscounts || 0
       },
       customerReport: {
-        totalCustomers,
-        newCustomers,
-        topCustomers,
-        customerStatus,
-        customerRetentionRate,
-        repeatCustomers
+        totalCustomers: totalCustomers || 0,
+        newCustomers: newCustomers || 0,
+        topCustomers: topCustomers || [],
+        customerStatus: customerStatus || [],
+        customerRetentionRate: customerRetentionRate || 0,
+        repeatCustomers: repeatCustomers || 0
       },
       expenseReport: {
-        totalExpenses,
-        expensesByCategory,
-        monthlyExpenses
+        totalExpenses: totalExpenses || 0,
+        expensesByCategory: expensesByCategory || [],
+        monthlyExpenses: monthlyExpenses || []
       },
       serviceReport: {
-        topServices,
-        servicePerformance
+        topServices: topServices || [],
+        servicePerformance: servicePerformance || []
       },
-      promotionReport,
-      paymentStatusPie,
-      paymentStatusAmountPie,
-      paymentStatusDetails,
-      orderTrends,
-      financialMetrics,
-      mpesaReport,
+      promotionReport: promotionReport || {
+        totalPromotions: 0,
+        activePromotions: 0,
+        promotionsByType: {},
+        totalPromotionValue: 0,
+        promotions: []
+      },
+      paymentStatusPie: paymentStatusPie || [],
+      paymentStatusAmountPie: paymentStatusAmountPie || [],
+      paymentStatusDetails: paymentStatusDetails || {},
+      orderTrends: orderTrends || { dailyOrders: {}, weeklyOrders: {}, monthlyOrders: {} },
+      financialMetrics: financialMetrics || {
+        grossRevenue: 0,
+        totalRevenue: 0,
+        totalExpenses: 0,
+        netProfit: 0,
+        profitMargin: 0,
+        expenseRatio: 0,
+        totalPickDropAmount: 0,
+        totalDiscounts: 0,
+        averageOrderValue: 0,
+        customerRetentionRate: 0,
+        repeatCustomers: 0,
+        totalCustomers: 0
+      },
+      mpesaReport: mpesaReport || {
+        totalTransactions: 0,
+        totalAmount: 0,
+        averageTransactionAmount: 0,
+        fullyPaidCount: 0,
+        partialCount: 0,
+        unpaidCount: 0,
+        fullyPaidAmount: 0,
+        partialAmount: 0,
+        unpaidAmount: 0,
+        monthlyTransactions: [],
+        statusDistribution: [],
+        statusAmountDistribution: [],
+        confirmationStatusBreakdown: [],
+        connectedTransactionsRate: 0
+      },
       // Detailed lists for Excel export
       detailedData: {
         expensesList: detailedExpensesList,
@@ -710,12 +764,19 @@ export const GET = requireAdmin(async (request: NextRequest) => {
       }
     };
 
+    console.log(`✅ Reports generated successfully: ${totalOrders} orders, ${totalCustomers} customers, ${mpesaTransactions.length} M-Pesa transactions`);
+    
     return NextResponse.json(reportData);
 
-  } catch (error) {
-    console.error('Reports API error:', error);
+  } catch (error: any) {
+    console.error('❌ Reports API error:', error);
+    console.error('Error stack:', error.stack);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { 
+        error: 'Internal server error',
+        message: error.message || 'Failed to generate reports',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
       { status: 500 }
     );
   }
