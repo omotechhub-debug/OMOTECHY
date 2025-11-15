@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
 import MpesaTransaction from '@/lib/models/MpesaTransaction';
-import { requireAuth } from '@/lib/auth';
+import { requireAuth, getTokenFromRequest, verifyToken } from '@/lib/auth';
 import { smsService } from '@/lib/sms';
 import { applyLockedInPromotion, updatePromotionStatuses } from '@/lib/promotion-utils';
 
@@ -73,8 +73,19 @@ async function recalculateOrderPaymentStatus(orderId: string) {
 }
 
 // PATCH update order
-export const PATCH = requireAuth(async (request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    // Check authentication
+    const token = getTokenFromRequest(request);
+    if (!token) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+    }
+
     await connectDB();
     const { id: orderId } = await params;
     const updateData = await request.json();
@@ -180,11 +191,22 @@ export const PATCH = requireAuth(async (request: NextRequest, { params }: { para
       error: 'Internal server error' 
     }, { status: 500 });
   }
-});
+}
 
 // GET single order
-export const GET = requireAuth(async (request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    // Check authentication
+    const token = getTokenFromRequest(request);
+    if (!token) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+    }
+
     await connectDB();
     const { id: orderId } = await params;
     
@@ -208,11 +230,22 @@ export const GET = requireAuth(async (request: NextRequest, { params }: { params
       error: 'Internal server error' 
     }, { status: 500 });
   }
-});
+}
 
 // DELETE order
-export const DELETE = requireAuth(async (request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    // Check authentication
+    const token = getTokenFromRequest(request);
+    if (!token) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+    }
+
     await connectDB();
     const { id: orderId } = await params;
     
@@ -254,4 +287,4 @@ export const DELETE = requireAuth(async (request: NextRequest, { params }: { par
       error: error.message || 'Internal server error' 
     }, { status: 500 });
   }
-}); 
+} 

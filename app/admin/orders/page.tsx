@@ -378,7 +378,44 @@ function OrdersPageContent() {
         }),
       });
 
-      const data = await response.json();
+      // Check if response has content before parsing JSON
+      const contentType = response.headers.get('content-type');
+      let data;
+      
+      if (contentType && contentType.includes('application/json')) {
+        const text = await response.text();
+        if (text) {
+          try {
+            data = JSON.parse(text);
+          } catch (parseError) {
+            console.error('Failed to parse JSON response:', parseError, 'Response text:', text);
+            toast({
+              title: 'Error',
+              description: 'Invalid response from server',
+              variant: 'destructive',
+            });
+            return;
+          }
+        } else {
+          console.error('Empty response body');
+          toast({
+            title: 'Error',
+            description: 'Empty response from server',
+            variant: 'destructive',
+          });
+          return;
+        }
+      } else {
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        toast({
+          title: 'Error',
+          description: response.status === 401 ? 'Authentication required' : response.status === 403 ? 'Access denied' : 'Unexpected response from server',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       console.log('Accept order response:', data);
 
       if (response.ok && data.success) {
