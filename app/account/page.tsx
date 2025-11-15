@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useClientAuth } from '@/hooks/useClientAuth'
 import { Navbar } from '@/components/navbar'
@@ -65,7 +65,7 @@ interface UserProfile {
   createdAt: string
 }
 
-export default function AccountPage() {
+function AccountPageContent() {
   const { user, isAuthenticated, isLoading, logout } = useClientAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -545,5 +545,20 @@ export default function AccountPage() {
       
       <Footer />
     </div>
+  )
+}
+
+export default function AccountPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <AccountPageContent />
+    </Suspense>
   )
 } 
