@@ -380,14 +380,22 @@ class MpesaService {
 
       console.log('Registering C2B URLs:', JSON.stringify(payload, null, 2));
 
+      const requestPayload = {
+        ShortCode: payload.shortCode,
+        ResponseType: payload.responseType,
+        ConfirmationURL: payload.confirmationURL,
+        ValidationURL: payload.validationURL
+      };
+
+      console.log('M-Pesa C2B Register URL Request:', {
+        url: `${this.getBaseUrl()}/mpesa/c2b/v1/registerurl`,
+        payload: requestPayload,
+        environment: this.config.environment
+      });
+
       const response = await axios.post(
         `${this.getBaseUrl()}/mpesa/c2b/v1/registerurl`,
-        {
-          ShortCode: payload.shortCode,
-          ResponseType: payload.responseType,
-          ConfirmationURL: payload.confirmationURL,
-          ValidationURL: payload.validationURL
-        },
+        requestPayload,
         {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -397,36 +405,62 @@ class MpesaService {
         }
       );
 
-      console.log('C2B URL Registration response:', response.data);
+      console.log('M-Pesa C2B Register URL Response:', {
+        status: response.status,
+        data: response.data
+      });
 
-      if (response.data.ResponseCode === '0') {
+      // M-Pesa returns ResponseCode as string "0" for success
+      if (response.data.ResponseCode === '0' || response.data.ResponseCode === 0) {
         return {
           success: true,
-          originatorCoversationID: response.data.OriginatorCoversationID,
-          responseCode: response.data.ResponseCode,
-          responseDescription: response.data.ResponseDescription
+          originatorCoversationID: response.data.OriginatorCoversationID || response.data.OriginatorConversationID,
+          responseCode: String(response.data.ResponseCode),
+          responseDescription: response.data.ResponseDescription || 'Success'
         };
       } else {
         return {
           success: false,
-          responseCode: response.data.ResponseCode,
-          responseDescription: response.data.ResponseDescription,
-          error: response.data.ResponseDescription || 'C2B URL registration failed'
+          responseCode: String(response.data.ResponseCode || 'Unknown'),
+          responseDescription: response.data.ResponseDescription || 'C2B URL registration failed',
+          error: response.data.ResponseDescription || response.data.errorMessage || 'C2B URL registration failed'
         };
       }
     } catch (error: any) {
-      console.error('C2B URL registration error:', error);
+      console.error('C2B URL registration error:', {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText
+      });
       
       if (error.response) {
-        console.error('Error response data:', JSON.stringify(error.response.data, null, 2));
+        console.error('M-Pesa API Error Response:', JSON.stringify(error.response.data, null, 2));
+        
+        // Return detailed error information
+        return {
+          success: false,
+          responseCode: String(error.response.data?.ResponseCode || error.response.status || 'Unknown'),
+          responseDescription: error.response.data?.ResponseDescription || error.response.data?.errorMessage,
+          error: error.response.data?.errorMessage || 
+                 error.response.data?.ResponseDescription ||
+                 error.response.data?.error ||
+                 `HTTP ${error.response.status}: ${error.response.statusText}` ||
+                 error.message || 
+                 'C2B URL registration failed',
+          details: error.response.data
+        };
       }
       
+      // Network or other errors
       return {
         success: false,
-        error: error.response?.data?.errorMessage || 
-               error.response?.data?.ResponseDescription ||
-               error.message || 
-               'C2B URL registration failed'
+        error: error.message || 'C2B URL registration failed',
+        details: {
+          code: error.code,
+          message: error.message
+        }
       };
     }
   }

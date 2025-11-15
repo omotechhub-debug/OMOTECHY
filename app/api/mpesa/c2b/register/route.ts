@@ -3,7 +3,7 @@ import { mpesaService } from '@/lib/mpesa';
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('Registering C2B URLs...');
+    console.log('Registering C2B URLs with M-Pesa API...');
 
     // Register URLs with M-Pesa
     const result = await mpesaService.registerC2BURLs();
@@ -20,19 +20,23 @@ export async function POST(request: NextRequest) {
         }
       });
     } else {
-      console.error('❌ C2B URL registration failed:', result.error);
+      console.error('❌ C2B URL registration failed:', result);
       return NextResponse.json({
         success: false,
-        error: result.error || 'Failed to register C2B URLs'
+        error: result.error || 'Failed to register C2B URLs',
+        responseCode: result.responseCode,
+        responseDescription: result.responseDescription,
+        details: result
       }, { status: 400 });
     }
 
   } catch (error: any) {
     console.error('Error in C2B URL registration:', error);
-    return NextResponse.json(
-      { error: error.message || 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      success: false,
+      error: error.message || 'Internal server error',
+      details: error.response?.data || error.stack
+    }, { status: 500 });
   }
 }
 
