@@ -281,7 +281,7 @@ class MpesaService {
         }
       );
 
-      console.log('STK Push response:', response.data);
+      console.log('TEST DEV API STK Push response:', response.data);
 
       if (response.data.ResponseCode === '0') {
         return {
