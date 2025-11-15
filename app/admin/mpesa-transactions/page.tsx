@@ -1115,6 +1115,6 @@ export default function MpesaTransactionsPage() {
       </Dialog>
 
       </motion.div>
-    </ProtectedRoute>
+    </AdminProtectedRoute>
   );
 } 
