@@ -3,7 +3,7 @@ import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
 import Customer from '@/lib/models/Customer';
 import Expense from '@/lib/models/Expense';
-import Service from '@/lib/models/Service';
+// Service model not needed - services are embedded in orders
 import Promotion from '@/lib/models/Promotion';
 import MpesaTransaction from '@/lib/models/MpesaTransaction';
 import { requireAdmin } from '@/lib/auth';
@@ -57,23 +57,18 @@ export const GET = requireAdmin(async (request: NextRequest) => {
         startDate.setDate(endDate.getDate() - 30);
     }
 
-    // Fetch orders within date range
+    // Fetch orders within date range (customer is embedded, not a reference)
     const orders = await Order.find({
       createdAt: { $gte: startDate, $lte: endDate }
-    }).populate('customer');
+    }).lean();
 
-    // Fetch customers
-    const customers = await Customer.find({
-      createdAt: { $gte: startDate, $lte: endDate }
-    });
+    // Fetch all customers (for status distribution)
+    const allCustomers = await Customer.find({}).lean();
 
     // Fetch expenses within date range
     const expenses = await Expense.find({
       date: { $gte: startDate, $lte: endDate }
-    });
-
-    // Fetch services
-    const services = await Service.find({});
+    }).lean();
 
     // Fetch promotions within date range
     const promotions = await Promotion.find({
@@ -81,9 +76,18 @@ export const GET = requireAdmin(async (request: NextRequest) => {
     });
 
     // Fetch M-Pesa transactions within date range
+    // Use createdAt if transactionDate doesn't exist or is null
     const mpesaTransactions = await MpesaTransaction.find({
-      transactionDate: { $gte: startDate, $lte: endDate }
-    }).populate('connectedOrderId');
+      $or: [
+        { transactionDate: { $gte: startDate, $lte: endDate } },
+        { 
+          $and: [
+            { $or: [{ transactionDate: { $exists: false } }, { transactionDate: null }] },
+            { createdAt: { $gte: startDate, $lte: endDate } }
+          ]
+        }
+      ]
+    }).lean();
 
     // Calculate sales report
     const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
@@ -142,75 +146,91 @@ export const GET = requireAdmin(async (request: NextRequest) => {
       });
     });
 
-    // Customer report
-    const totalCustomers = customers.length;
-    const newCustomers = customers.filter(customer => {
-      const customerDate = new Date(customer.createdAt);
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      return customerDate >= weekAgo;
-    }).length;
-
-    // Enhanced customer analytics
-    const customerOrderStats = {};
+    // Customer report - calculate from orders
+    // Group orders by customer phone (unique identifier)
+    const customerOrderStats: { [phone: string]: { 
+      totalSpent: number; 
+      orderCount: number; 
+      averageOrderValue: number;
+      name: string;
+      email?: string;
+      firstOrderDate: Date;
+      lastOrderDate: Date;
+    } } = {};
+    
     orders.forEach(order => {
-      const customerId = order.customer?._id?.toString() || order.customer?.toString();
-      if (customerId) {
-        if (!customerOrderStats[customerId]) {
-          customerOrderStats[customerId] = {
+      const phone = order.customer?.phone;
+      if (phone) {
+        if (!customerOrderStats[phone]) {
+          customerOrderStats[phone] = {
             totalSpent: 0,
             orderCount: 0,
             averageOrderValue: 0,
-            lastOrderDate: null,
-            firstOrderDate: null
+            name: order.customer?.name || 'Unknown',
+            email: order.customer?.email,
+            firstOrderDate: new Date(order.createdAt),
+            lastOrderDate: new Date(order.createdAt)
           };
         }
-        customerOrderStats[customerId].totalSpent += order.totalAmount || 0;
-        customerOrderStats[customerId].orderCount += 1;
+        customerOrderStats[phone].totalSpent += order.totalAmount || 0;
+        customerOrderStats[phone].orderCount += 1;
         const orderDate = new Date(order.createdAt);
-        if (!customerOrderStats[customerId].firstOrderDate || orderDate < customerOrderStats[customerId].firstOrderDate) {
-          customerOrderStats[customerId].firstOrderDate = orderDate;
+        if (orderDate < customerOrderStats[phone].firstOrderDate) {
+          customerOrderStats[phone].firstOrderDate = orderDate;
         }
-        if (!customerOrderStats[customerId].lastOrderDate || orderDate > customerOrderStats[customerId].lastOrderDate) {
-          customerOrderStats[customerId].lastOrderDate = orderDate;
+        if (orderDate > customerOrderStats[phone].lastOrderDate) {
+          customerOrderStats[phone].lastOrderDate = orderDate;
         }
       }
     });
 
     // Calculate average order values for customers
-    Object.keys(customerOrderStats).forEach(customerId => {
-      const stats = customerOrderStats[customerId];
+    Object.keys(customerOrderStats).forEach(phone => {
+      const stats = customerOrderStats[phone];
       stats.averageOrderValue = stats.orderCount > 0 ? stats.totalSpent / stats.orderCount : 0;
     });
 
+    // Total unique customers from orders
+    const totalCustomers = Object.keys(customerOrderStats).length;
+    
+    // New customers (first order in the last 7 days)
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const newCustomers = Object.values(customerOrderStats).filter(stats => 
+      stats.firstOrderDate >= weekAgo
+    ).length;
+
     // Top customers by total spent
-    const topCustomers = customers
-      .map(customer => {
-        const stats = customerOrderStats[customer._id.toString()] || {
-          totalSpent: 0,
-          orderCount: 0,
-          averageOrderValue: 0
-        };
-        return {
-          name: customer.name || 'Unknown',
-          email: customer.email || '',
-          phone: customer.phone || '',
-          totalSpent: stats.totalSpent,
-          orderCount: stats.orderCount,
-          averageOrderValue: stats.averageOrderValue,
-          lastOrderDate: stats.lastOrderDate,
-          firstOrderDate: stats.firstOrderDate
-        };
-      })
+    const topCustomers = Object.entries(customerOrderStats)
+      .map(([phone, stats]) => ({
+        name: stats.name,
+        email: stats.email || '',
+        phone: phone,
+        totalSpent: stats.totalSpent,
+        orderCount: stats.orderCount,
+        averageOrderValue: stats.averageOrderValue,
+        lastOrderDate: stats.lastOrderDate,
+        firstOrderDate: stats.firstOrderDate
+      }))
       .sort((a, b) => b.totalSpent - a.totalSpent)
       .slice(0, 10);
 
-    // Customer status distribution
+    // Customer status distribution - match Customer collection by phone
     const customerStatus = [];
     const statusCountsCustomer: { [key: string]: number } = {};
-    customers.forEach(customer => {
-      statusCountsCustomer[customer.status] = (statusCountsCustomer[customer.status] || 0) + 1;
+    
+    // Create a map of phone to customer status from Customer collection
+    const customerStatusMap: { [phone: string]: string } = {};
+    allCustomers.forEach(customer => {
+      customerStatusMap[customer.phone] = customer.status || 'active';
     });
+    
+    // Count statuses from orders (use Customer collection status if available, else default to 'active')
+    Object.keys(customerOrderStats).forEach(phone => {
+      const status = customerStatusMap[phone] || 'active';
+      statusCountsCustomer[status] = (statusCountsCustomer[status] || 0) + 1;
+    });
+    
     Object.entries(statusCountsCustomer).forEach(([status, count]) => {
       customerStatus.push({ status, count });
     });
@@ -439,7 +459,10 @@ export const GET = requireAdmin(async (request: NextRequest) => {
     const monthlyMpesaTransactions = [];
     months.forEach(month => {
       const monthTransactions = mpesaTransactions.filter(transaction => {
-        const transactionDate = new Date(transaction.transactionDate);
+        // Use transactionDate if available, otherwise use createdAt
+        const dateToUse = transaction.transactionDate || transaction.createdAt;
+        if (!dateToUse) return false;
+        const transactionDate = new Date(dateToUse);
         const transactionMonth = transactionDate.toLocaleString('default', { month: 'short', year: 'numeric' });
         return transactionMonth === month;
       });
@@ -491,7 +514,7 @@ export const GET = requireAdmin(async (request: NextRequest) => {
     })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const detailedOrdersList = orders.map(order => ({
-      id: order._id,
+      id: order._id.toString(),
       orderNumber: order.orderNumber || 'N/A',
       customerName: order.customer?.name || 'Unknown Customer',
       customerEmail: order.customer?.email || 'N/A',
@@ -517,7 +540,7 @@ export const GET = requireAdmin(async (request: NextRequest) => {
     const unpaidOrdersList = orders
       .filter(order => order.paymentStatus === 'unpaid' || order.paymentStatus === 'partial')
       .map(order => ({
-        id: order._id,
+        id: order._id.toString(),
         orderNumber: order.orderNumber || 'N/A',
         customerName: order.customer?.name || 'Unknown Customer',
         customerEmail: order.customer?.email || 'N/A',
@@ -586,73 +609,102 @@ export const GET = requireAdmin(async (request: NextRequest) => {
         totalUnpaidAmount: unpaidOrdersList.reduce((sum, order) => sum + order.amountDue, 0),
         unpaidOrdersCount: unpaidOrdersList.length,
         // M-Pesa transaction detailed lists
-        mpesaTransactionsList: mpesaTransactions.map(transaction => ({
-          id: transaction._id,
-          transactionId: transaction.transactionId,
-          mpesaReceiptNumber: transaction.mpesaReceiptNumber,
-          customerName: transaction.customerName,
-          phoneNumber: transaction.phoneNumber,
-          amountPaid: transaction.amountPaid || 0,
-          transactionType: transaction.transactionType,
-          billRefNumber: transaction.billRefNumber || '',
-          isConnectedToOrder: transaction.isConnectedToOrder,
-          connectedOrderId: transaction.connectedOrderId?.toString() || '',
-          confirmationStatus: transaction.confirmationStatus,
-          pendingOrderId: transaction.pendingOrderId?.toString() || '',
-          confirmedCustomerName: transaction.confirmedCustomerName || '',
-          confirmationNotes: transaction.confirmationNotes || '',
-          paymentCompletedAt: transaction.paymentCompletedAt,
-          transactionDate: transaction.transactionDate,
-          createdAt: transaction.createdAt,
-          formattedAmount: (transaction.amountPaid || 0).toLocaleString('en-KE', { style: 'currency', currency: 'KES' }),
-          formattedTransactionDate: new Date(transaction.transactionDate).toLocaleDateString('en-KE'),
-          formattedPaymentCompletedAt: new Date(transaction.paymentCompletedAt).toLocaleDateString('en-KE'),
-          formattedCreatedAt: new Date(transaction.createdAt).toLocaleDateString('en-KE')
-        })).sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime()),
-        fullyPaidMpesaList: fullyPaidMpesa.map(transaction => ({
-          id: transaction._id,
-          transactionId: transaction.transactionId,
-          mpesaReceiptNumber: transaction.mpesaReceiptNumber,
-          customerName: transaction.customerName,
-          phoneNumber: transaction.phoneNumber,
-          amountPaid: transaction.amountPaid || 0,
-          connectedOrderId: transaction.connectedOrderId?.toString() || '',
-          confirmationStatus: transaction.confirmationStatus,
-          confirmedCustomerName: transaction.confirmedCustomerName || '',
-          transactionDate: transaction.transactionDate,
-          formattedAmount: (transaction.amountPaid || 0).toLocaleString('en-KE', { style: 'currency', currency: 'KES' }),
-          formattedTransactionDate: new Date(transaction.transactionDate).toLocaleDateString('en-KE')
-        })).sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime()),
-        partialMpesaList: partialMpesa.map(transaction => ({
-          id: transaction._id,
-          transactionId: transaction.transactionId,
-          mpesaReceiptNumber: transaction.mpesaReceiptNumber,
-          customerName: transaction.customerName,
-          phoneNumber: transaction.phoneNumber,
-          amountPaid: transaction.amountPaid || 0,
-          connectedOrderId: transaction.connectedOrderId?.toString() || '',
-          confirmationStatus: transaction.confirmationStatus,
-          confirmedCustomerName: transaction.confirmedCustomerName || '',
-          transactionDate: transaction.transactionDate,
-          formattedAmount: (transaction.amountPaid || 0).toLocaleString('en-KE', { style: 'currency', currency: 'KES' }),
-          formattedTransactionDate: new Date(transaction.transactionDate).toLocaleDateString('en-KE')
-        })).sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime()),
-        unpaidMpesaList: unpaidMpesa.map(transaction => ({
-          id: transaction._id,
-          transactionId: transaction.transactionId,
-          mpesaReceiptNumber: transaction.mpesaReceiptNumber,
-          customerName: transaction.customerName,
-          phoneNumber: transaction.phoneNumber,
-          amountPaid: transaction.amountPaid || 0,
-          confirmationStatus: transaction.confirmationStatus,
-          pendingOrderId: transaction.pendingOrderId?.toString() || '',
-          billRefNumber: transaction.billRefNumber || '',
-          confirmationNotes: transaction.confirmationNotes || '',
-          transactionDate: transaction.transactionDate,
-          daysPending: Math.floor((new Date().getTime() - new Date(transaction.transactionDate).getTime()) / (1000 * 60 * 60 * 24)),
-          formattedAmount: (transaction.amountPaid || 0).toLocaleString('en-KE', { style: 'currency', currency: 'KES' }),
-          formattedTransactionDate: new Date(transaction.transactionDate).toLocaleDateString('en-KE')
-        })).sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime()),
+        mpesaTransactionsList: mpesaTransactions.map(transaction => {
+          const transactionDate = transaction.transactionDate || transaction.createdAt;
+          const paymentCompletedAt = transaction.paymentCompletedAt || transaction.createdAt;
+          return {
+            id: transaction._id.toString(),
+            transactionId: transaction.transactionId || '',
+            mpesaReceiptNumber: transaction.mpesaReceiptNumber || '',
+            customerName: transaction.customerName || '',
+            phoneNumber: transaction.phoneNumber || '',
+            amountPaid: transaction.amountPaid || 0,
+            transactionType: transaction.transactionType || '',
+            billRefNumber: transaction.billRefNumber || '',
+            isConnectedToOrder: transaction.isConnectedToOrder || false,
+            connectedOrderId: transaction.connectedOrderId?.toString() || (typeof transaction.connectedOrderId === 'string' ? transaction.connectedOrderId : ''),
+            confirmationStatus: transaction.confirmationStatus || 'pending',
+            pendingOrderId: transaction.pendingOrderId?.toString() || (typeof transaction.pendingOrderId === 'string' ? transaction.pendingOrderId : ''),
+            confirmedCustomerName: transaction.confirmedCustomerName || '',
+            confirmationNotes: transaction.confirmationNotes || '',
+            paymentCompletedAt: paymentCompletedAt,
+            transactionDate: transactionDate,
+            createdAt: transaction.createdAt,
+            formattedAmount: (transaction.amountPaid || 0).toLocaleString('en-KE', { style: 'currency', currency: 'KES' }),
+            formattedTransactionDate: transactionDate ? new Date(transactionDate).toLocaleDateString('en-KE') : 'N/A',
+            formattedPaymentCompletedAt: paymentCompletedAt ? new Date(paymentCompletedAt).toLocaleDateString('en-KE') : 'N/A',
+            formattedCreatedAt: new Date(transaction.createdAt).toLocaleDateString('en-KE')
+          };
+        }).sort((a, b) => {
+          const dateA = a.transactionDate ? new Date(a.transactionDate).getTime() : 0;
+          const dateB = b.transactionDate ? new Date(b.transactionDate).getTime() : 0;
+          return dateB - dateA;
+        }),
+        fullyPaidMpesaList: fullyPaidMpesa.map(transaction => {
+          const transactionDate = transaction.transactionDate || transaction.createdAt;
+          return {
+            id: transaction._id.toString(),
+            transactionId: transaction.transactionId || '',
+            mpesaReceiptNumber: transaction.mpesaReceiptNumber || '',
+            customerName: transaction.customerName || '',
+            phoneNumber: transaction.phoneNumber || '',
+            amountPaid: transaction.amountPaid || 0,
+            connectedOrderId: transaction.connectedOrderId?.toString() || (typeof transaction.connectedOrderId === 'string' ? transaction.connectedOrderId : ''),
+            confirmationStatus: transaction.confirmationStatus || 'confirmed',
+            confirmedCustomerName: transaction.confirmedCustomerName || '',
+            transactionDate: transactionDate,
+            formattedAmount: (transaction.amountPaid || 0).toLocaleString('en-KE', { style: 'currency', currency: 'KES' }),
+            formattedTransactionDate: transactionDate ? new Date(transactionDate).toLocaleDateString('en-KE') : 'N/A'
+          };
+        }).sort((a, b) => {
+          const dateA = a.transactionDate ? new Date(a.transactionDate).getTime() : 0;
+          const dateB = b.transactionDate ? new Date(b.transactionDate).getTime() : 0;
+          return dateB - dateA;
+        }),
+        partialMpesaList: partialMpesa.map(transaction => {
+          const transactionDate = transaction.transactionDate || transaction.createdAt;
+          return {
+            id: transaction._id.toString(),
+            transactionId: transaction.transactionId || '',
+            mpesaReceiptNumber: transaction.mpesaReceiptNumber || '',
+            customerName: transaction.customerName || '',
+            phoneNumber: transaction.phoneNumber || '',
+            amountPaid: transaction.amountPaid || 0,
+            connectedOrderId: transaction.connectedOrderId?.toString() || (typeof transaction.connectedOrderId === 'string' ? transaction.connectedOrderId : ''),
+            confirmationStatus: transaction.confirmationStatus || 'confirmed',
+            confirmedCustomerName: transaction.confirmedCustomerName || '',
+            transactionDate: transactionDate,
+            formattedAmount: (transaction.amountPaid || 0).toLocaleString('en-KE', { style: 'currency', currency: 'KES' }),
+            formattedTransactionDate: transactionDate ? new Date(transactionDate).toLocaleDateString('en-KE') : 'N/A'
+          };
+        }).sort((a, b) => {
+          const dateA = a.transactionDate ? new Date(a.transactionDate).getTime() : 0;
+          const dateB = b.transactionDate ? new Date(b.transactionDate).getTime() : 0;
+          return dateB - dateA;
+        }),
+        unpaidMpesaList: unpaidMpesa.map(transaction => {
+          const transactionDate = transaction.transactionDate || transaction.createdAt;
+          return {
+            id: transaction._id.toString(),
+            transactionId: transaction.transactionId || '',
+            mpesaReceiptNumber: transaction.mpesaReceiptNumber || '',
+            customerName: transaction.customerName || '',
+            phoneNumber: transaction.phoneNumber || '',
+            amountPaid: transaction.amountPaid || 0,
+            confirmationStatus: transaction.confirmationStatus || 'pending',
+            pendingOrderId: transaction.pendingOrderId?.toString() || (typeof transaction.pendingOrderId === 'string' ? transaction.pendingOrderId : ''),
+            billRefNumber: transaction.billRefNumber || '',
+            confirmationNotes: transaction.confirmationNotes || '',
+            transactionDate: transactionDate,
+            daysPending: transactionDate ? Math.floor((new Date().getTime() - new Date(transactionDate).getTime()) / (1000 * 60 * 60 * 24)) : 0,
+            formattedAmount: (transaction.amountPaid || 0).toLocaleString('en-KE', { style: 'currency', currency: 'KES' }),
+            formattedTransactionDate: transactionDate ? new Date(transactionDate).toLocaleDateString('en-KE') : 'N/A'
+          };
+        }).sort((a, b) => {
+          const dateA = a.transactionDate ? new Date(a.transactionDate).getTime() : 0;
+          const dateB = b.transactionDate ? new Date(b.transactionDate).getTime() : 0;
+          return dateB - dateA;
+        }),
         totalMpesaAmount: totalMpesaAmount,
         totalMpesaTransactions: totalMpesaTransactions
       }

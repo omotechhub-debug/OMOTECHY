@@ -106,8 +106,8 @@ export default function CheckoutPage() {
           // Payment successful
           setPaymentStatus('success')
           clearCart()
-          // Redirect to success page with order ID
-          router.push(`/order-success?orderId=${orderId}`)
+          // Redirect to account orders page for tracking
+          router.push('/account?tab=orders')
         } else if (data.resultCode && data.resultCode !== '1032') {
           // Payment failed (1032 means still processing)
           setPaymentStatus('failed')
@@ -236,9 +236,9 @@ export default function CheckoutPage() {
           setInitiatingPayment(false)
         }
       } else {
-        // Cash payment - just redirect to success
+        // Cash payment - redirect to account orders page for tracking
         clearCart()
-        router.push(`/order-success?orderId=${createdOrder._id}`)
+        router.push('/account?tab=orders')
       }
     } catch (error: any) {
       console.error('Order failed:', error)

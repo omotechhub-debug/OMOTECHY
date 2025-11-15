@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useClientAuth } from '@/hooks/useClientAuth'
 import { Navbar } from '@/components/navbar'
 import { Footer } from '@/components/footer'
@@ -68,8 +68,11 @@ interface UserProfile {
 export default function AccountPage() {
   const { user, isAuthenticated, isLoading, logout } = useClientAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   
-  const [activeTab, setActiveTab] = useState('profile')
+  // Get initial tab from URL params, default to 'profile'
+  const initialTab = searchParams?.get('tab') || 'profile'
+  const [activeTab, setActiveTab] = useState(initialTab)
   const [orders, setOrders] = useState<Order[]>([])
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [profile, setProfile] = useState<UserProfile | null>(null)
@@ -128,6 +131,14 @@ export default function AccountPage() {
       setOrdersLoading(false)
     }
   }
+
+  // Update tab when URL param changes
+  useEffect(() => {
+    const tabFromUrl = searchParams?.get('tab') || 'profile'
+    if (tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl)
+    }
+  }, [searchParams, activeTab])
 
   // Load orders when orders tab is active
   useEffect(() => {
