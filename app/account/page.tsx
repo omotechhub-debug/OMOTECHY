@@ -306,17 +306,37 @@ function AccountPageContent() {
           </Alert>
         )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <Tabs 
+          value={activeTab} 
+          onValueChange={(value) => {
+            console.log('Tab changed to:', value);
+            setActiveTab(value);
+            // Update URL without page reload
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', value);
+            window.history.pushState({}, '', url);
+          }} 
+          className="space-y-6"
+        >
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="profile" className="flex items-center gap-2">
+            <TabsTrigger 
+              value="profile" 
+              className="flex items-center gap-2 cursor-pointer"
+            >
               <User className="w-4 h-4" />
               Profile
             </TabsTrigger>
-            <TabsTrigger value="orders" className="flex items-center gap-2">
+            <TabsTrigger 
+              value="orders" 
+              className="flex items-center gap-2 cursor-pointer"
+            >
               <Package className="w-4 h-4" />
               Orders
             </TabsTrigger>
-            <TabsTrigger value="settings" className="flex items-center gap-2">
+            <TabsTrigger 
+              value="settings" 
+              className="flex items-center gap-2 cursor-pointer"
+            >
               <Settings className="w-4 h-4" />
               Settings
             </TabsTrigger>
