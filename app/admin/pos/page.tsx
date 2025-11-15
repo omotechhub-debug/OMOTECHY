@@ -1066,6 +1066,47 @@ Need help? Call us at +254 757 883 799`;
         setPromoDiscount(data.order.promoDiscount || 0);
         setPromoCode(data.order.promoCode || "");
         setPromoError("");
+        
+        // Automatically initiate STK push for new unpaid orders
+        if (!isEditing && customerInfo.paymentStatus === 'unpaid' && customerInfo.phone) {
+          try {
+            console.log('💰 Initiating automatic STK push for order:', data.order._id);
+            const stkResponse = await fetch('/api/mpesa/initiate', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                orderId: data.order._id,
+                phoneNumber: customerInfo.phone,
+                amount: calculateFinalTotal(),
+                paymentType: 'full',
+              }),
+            });
+
+            const stkData = await stkResponse.json();
+            
+            if (stkData.success) {
+              console.log('✅ STK Push initiated successfully:', stkData.checkoutRequestId);
+              // Show success message to user
+              if (typeof window !== 'undefined') {
+                alert(`✅ Order created! M-Pesa payment request sent to ${customerInfo.phone}. Please check your phone to complete payment.`);
+              }
+              // Order status will be updated by the callback
+            } else {
+              console.warn('⚠️ STK Push failed, but order was created:', stkData.error);
+              // Show warning but don't fail the order creation
+              if (typeof window !== 'undefined') {
+                alert(`⚠️ Order created successfully, but payment request failed: ${stkData.error || 'Unknown error'}. You can initiate payment manually from the orders page.`);
+              }
+            }
+          } catch (stkError) {
+            console.error('❌ Error initiating STK push:', stkError);
+            // Don't fail the order creation if STK push fails
+          }
+        }
+        
         // Send SMS notifications
         if (sendSMS) {
           try {
