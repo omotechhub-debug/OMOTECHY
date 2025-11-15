@@ -216,6 +216,11 @@ function POSPageContent() {
   const [promoError, setPromoError] = useState("");
   const [lockedPromotion, setLockedPromotion] = useState<any>(null); // Store locked-in promotion details
 
+  // Station Selection for Superadmin
+  const [stations, setStations] = useState<Array<{ _id: string; name: string; location: string }>>([]);
+  const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
+  const [stationsLoading, setStationsLoading] = useState(false);
+
   // Add promo validation state
   const [promoValid, setPromoValid] = useState<boolean | null>(null);
   const [promoMessage, setPromoMessage] = useState("");
@@ -375,8 +380,89 @@ function POSPageContent() {
       fetchServices();
       fetchProducts();
       fetchCategories();
+      // Fetch stations for superadmin
+      if (user.role === 'superadmin') {
+        fetchStations();
+      }
     }
   }, [token, user]);
+
+  // Fetch stations for superadmin
+  const fetchStations = async () => {
+    try {
+      setStationsLoading(true);
+      const response = await fetch('/api/stations?limit=1000&status=active', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const data = await response.json();
+      
+      if (data.success && data.stations) {
+        setStations(data.stations.map((s: any) => ({
+          _id: s._id,
+          name: s.name,
+          location: s.location
+        })));
+      }
+    } catch (error) {
+      console.error('Error fetching stations:', error);
+    } finally {
+      setStationsLoading(false);
+    }
+  };
+
+  // Determine station from cart items (for superadmin)
+  // Use a ref to track if user manually selected a station
+  const userSelectedStationRef = useRef<boolean>(false);
+  
+  useEffect(() => {
+    if (user?.role === 'superadmin' && cart.length > 0 && stations.length > 0) {
+      // Check if cart has products with stations
+      const productItems = cart.filter(item => item.type === 'product' && item.item.stationIds && item.item.stationIds.length > 0);
+      
+      if (productItems.length > 0) {
+        // Get unique stations from products
+        const productStations = new Set<string>();
+        productItems.forEach(item => {
+          item.item.stationIds?.forEach((station: any) => {
+            productStations.add(station._id);
+          });
+        });
+        
+        // If all products are from the same station, auto-select it
+        if (productStations.size === 1) {
+          const stationId = Array.from(productStations)[0];
+          // Auto-select if no station selected, or if products changed to a different single station
+          if (!selectedStationId || (!userSelectedStationRef.current && selectedStationId !== stationId)) {
+            setSelectedStationId(stationId);
+            userSelectedStationRef.current = false; // Reset flag when auto-selecting
+          }
+        } else if (productStations.size > 1) {
+          // Multiple stations in products - default to first if none selected
+          if (!selectedStationId) {
+            const firstStationId = Array.from(productStations)[0];
+            setSelectedStationId(firstStationId);
+            userSelectedStationRef.current = false;
+          }
+        }
+      } else {
+        // Only services in cart - default to first station if none selected
+        // Services don't have stations, so user must choose
+        if (!selectedStationId && stations.length > 0) {
+          setSelectedStationId(stations[0]._id);
+          userSelectedStationRef.current = false;
+        }
+      }
+    }
+  }, [cart, user?.role, stations.length]); // Use stations.length to avoid re-running on array reference changes
+
+  // Track manual station selection
+  const handleStationChange = (stationId: string) => {
+    setSelectedStationId(stationId);
+    userSelectedStationRef.current = true; // Mark as user-selected
+  };
 
   // Filter services based on search and category
   useEffect(() => {
@@ -712,6 +798,12 @@ function POSPageContent() {
     
     // Clear last created order ID
     setLastCreatedOrderId(null);
+    
+    // Reset station selection for superadmin when cart is cleared
+    if (user?.role === 'superadmin') {
+      setSelectedStationId(null);
+      userSelectedStationRef.current = false; // Reset manual selection flag
+    }
   };
 
   // SMS Functions
@@ -1005,10 +1097,18 @@ Need help? Call us at +254 757 883 799`;
       return;
     }
     
-    // Check if user has station assignment
-    if (!user.stationId && (!user.managedStations || user.managedStations.length === 0)) {
-      alert('You must be assigned to a station to create orders. Please contact your administrator.');
-      return;
+    // Check if user has station assignment (skip for superadmin)
+    if (user.role !== 'superadmin') {
+      if (!user.stationId && (!user.managedStations || user.managedStations.length === 0)) {
+        alert('You must be assigned to a station to create orders. Please contact your administrator.');
+        return;
+      }
+    } else {
+      // For superadmin, ensure a station is selected
+      if (!selectedStationId) {
+        alert('Please select a station for this order.');
+        return;
+      }
     }
     
     // User data validation passed
@@ -1041,8 +1141,10 @@ Need help? Call us at +254 757 883 799`;
         status: isEditing ? "confirmed" : "pending",
         promoCode: promoCode.trim() || undefined,
         promotionDetails: lockedPromotion || undefined,
-        // Add current user's station information if available
-        stationId: user?.stationId || user?.managedStations?.[0] || null,
+        // Add station information - for superadmin use selected station, otherwise use user's station
+        stationId: user?.role === 'superadmin' 
+          ? selectedStationId 
+          : (user?.stationId || user?.managedStations?.[0] || null),
       };
       const url = isEditing ? `/api/orders/${editingOrderId}` : '/api/orders';
       const method = isEditing ? 'PATCH' : 'POST';
@@ -1148,14 +1250,16 @@ Need help? Call us at +254 757 883 799`;
         }
 
         // Reduce inventory for products in the cart
-        const currentStationId = user?.stationId || user?.managedStations?.[0];
+        const currentStationId = user?.role === 'superadmin' 
+          ? selectedStationId 
+          : (user?.stationId || user?.managedStations?.[0]);
         if (currentStationId) {
           await reduceInventory(cart, currentStationId);
         }
 
         setOrderSuccess(true);
         if (!isEditing) {
-          clearCart(); // This now also clears promotion data
+          clearCart(); // This now also clears promotion data and resets station selection
         }
         setSuccessDialogOpen(true);
       } else {
@@ -1978,6 +2082,49 @@ Need help? Call us at +254 757 883 799`;
                         Phone numbers are used to identify existing customers
                       </div>
                     </div>
+
+                    {/* Station Selection for Superadmin */}
+                    {user?.role === 'superadmin' && (
+                      <div>
+                        <Label htmlFor="station" className="text-sm font-medium text-gray-600 mb-2 block">
+                          Station <span className="text-red-500">*</span>
+                        </Label>
+                        {stationsLoading ? (
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Loading stations...</span>
+                          </div>
+                        ) : (
+                          <Select 
+                            value={selectedStationId || ''} 
+                            onValueChange={handleStationChange}
+                          >
+                            <SelectTrigger className="h-11 focus:border-blue-500 focus:ring-blue-200">
+                              <SelectValue placeholder="Select a station" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {stations.map((station) => (
+                                <SelectItem key={station._id} value={station._id}>
+                                  <div className="flex items-center gap-2">
+                                    <Building className="w-4 h-4" />
+                                    <div>
+                                      <div className="font-medium">{station.name}</div>
+                                      <div className="text-xs text-gray-500">{station.location}</div>
+                                    </div>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                        <div className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                          <Building className="w-3 h-3" />
+                          {cart.some(item => item.type === 'product' && item.item.stationIds?.length > 0)
+                            ? 'Station auto-selected from products. You can change it if needed.'
+                            : 'Select the station for this order (services are available at all stations)'}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   </div>
 
@@ -2275,7 +2422,7 @@ Need help? Call us at +254 757 883 799`;
                     {canAddOrders(user) ? (
                       <Button
                         onClick={handleCreateOrder}
-                        disabled={isProcessingOrder || !customerInfo.phone}
+                        disabled={isProcessingOrder || !customerInfo.phone || (user?.role === 'superadmin' && !selectedStationId)}
                         className={`flex items-center justify-center gap-2 h-12 text-white ${
                           isProcessingOrder 
                             ? 'bg-gray-400 cursor-not-allowed' 
@@ -2331,7 +2478,9 @@ Need help? Call us at +254 757 883 799`;
                             status: 'pending',
                             promoCode: promoCode.trim() || undefined,
                             promotionDetails: lockedPromotion || undefined,
-                            stationId: user?.stationId || user?.managedStations?.[0] || null,
+                            stationId: user?.role === 'superadmin' 
+                              ? selectedStationId 
+                              : (user?.stationId || user?.managedStations?.[0] || null),
                           };
                           
                           const response = await fetch('/api/orders', {
@@ -2348,7 +2497,9 @@ Need help? Call us at +254 757 883 799`;
                             orderId = data.order._id;
                             setLastCreatedOrderId(orderId);
                             // Reduce inventory
-                            const currentStationId = user?.stationId || user?.managedStations?.[0];
+                            const currentStationId = user?.role === 'superadmin' 
+                              ? selectedStationId 
+                              : (user?.stationId || user?.managedStations?.[0]);
                             if (currentStationId) {
                               await reduceInventory(cart, currentStationId);
                             }

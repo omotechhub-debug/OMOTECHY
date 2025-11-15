@@ -198,9 +198,9 @@ export function canAddOrders(user: IUser | null): boolean {
     return false;
   }
 
-  // Superadmin has view-only access (cannot add orders)
+  // Superadmin can add orders (with station selection)
   if (user.role === 'superadmin') {
-    return false;
+    return true;
   }
 
   // Managers can add orders
