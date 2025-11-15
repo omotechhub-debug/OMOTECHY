@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { mpesaService } from '@/lib/mpesa';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
+import User from '@/lib/models/User';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
 import MpesaTransaction from '@/lib/models/MpesaTransaction';
 
@@ -43,8 +44,21 @@ export async function POST(request: NextRequest) {
 
     // For managers, verify they can only initiate payments for orders in their station
     if (decoded.role === 'manager') {
-      // Get manager's station from token
+      // Get manager's station from token, or fetch from database if not in token
       let managerStationId = decoded.stationId || decoded.managedStations?.[0];
+      
+      // If station ID not in token, fetch from database
+      if (!managerStationId) {
+        try {
+          const manager = await User.findById(decoded.userId).select('stationId managedStations').lean();
+          if (manager) {
+            managerStationId = manager.stationId || manager.managedStations?.[0];
+            console.log('📥 Fetched manager station from database:', managerStationId);
+          }
+        } catch (error) {
+          console.error('Error fetching manager station:', error);
+        }
+      }
       
       console.log('🔍 Manager payment authorization check:', {
         managerRole: decoded.role,
