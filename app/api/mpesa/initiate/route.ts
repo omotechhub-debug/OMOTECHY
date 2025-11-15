@@ -30,8 +30,8 @@ export async function POST(request: NextRequest) {
     // Connect to database
     await connectDB();
 
-    // Find the order
-    const order = await Order.findById(orderId);
+    // Find the order - populate station if needed
+    const order = await Order.findById(orderId).lean();
     if (!order) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
@@ -43,19 +43,53 @@ export async function POST(request: NextRequest) {
 
     // For managers, verify they can only initiate payments for orders in their station
     if (decoded.role === 'manager') {
-      const managerStationId = decoded.stationId || decoded.managedStations?.[0];
-      const orderStationId = order.station?.stationId || order.stationId;
+      // Get manager's station from token
+      let managerStationId = decoded.stationId || decoded.managedStations?.[0];
       
-      if (!managerStationId || !orderStationId) {
-        return NextResponse.json({ 
-          error: 'Station information is missing. Please contact your administrator.' 
-        }, { status: 403 });
+      console.log('🔍 Manager payment authorization check:', {
+        managerRole: decoded.role,
+        managerStationId: managerStationId,
+        orderStation: order.station,
+        orderStationId: order.station?.stationId || order.stationId
+      });
+      
+      // Get order's station ID - handle both populated and unpopulated cases
+      let orderStationId = null;
+      
+      if (order.station?.stationId) {
+        // Handle populated station (ObjectId object)
+        if (typeof order.station.stationId === 'object' && order.station.stationId._id) {
+          orderStationId = order.station.stationId._id.toString();
+        } else if (typeof order.station.stationId === 'string') {
+          orderStationId = order.station.stationId;
+        } else {
+          orderStationId = order.station.stationId.toString();
+        }
+      } else if (order.stationId) {
+        // Fallback to direct stationId field if it exists
+        orderStationId = order.stationId.toString();
       }
       
-      if (managerStationId.toString() !== orderStationId.toString()) {
-        return NextResponse.json({ 
-          error: 'You can only initiate payments for orders in your assigned station' 
-        }, { status: 403 });
+      // Only enforce station check if both IDs are available
+      if (managerStationId && orderStationId) {
+        const managerStationIdStr = managerStationId.toString();
+        
+        if (managerStationIdStr !== orderStationId) {
+          console.log('❌ Station mismatch:', {
+            managerStation: managerStationIdStr,
+            orderStation: orderStationId
+          });
+          return NextResponse.json({ 
+            error: 'You can only initiate payments for orders in your assigned station' 
+          }, { status: 403 });
+        }
+        console.log('✅ Station match confirmed');
+      } else {
+        // Log warning but allow payment if station info is missing
+        console.warn('⚠️ Station information missing, allowing payment:', {
+          hasManagerStation: !!managerStationId,
+          hasOrderStation: !!orderStationId
+        });
       }
     }
     
