@@ -365,6 +365,8 @@ function OrdersPageContent() {
   const handleAcceptOrder = async (order: Order) => {
     try {
       setUpdating(true);
+      console.log('Accepting order:', order._id, order.orderNumber);
+      
       const response = await fetch(`/api/orders/${order._id}`, {
         method: 'PATCH',
         headers: {
@@ -376,22 +378,36 @@ function OrdersPageContent() {
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
+      const data = await response.json();
+      console.log('Accept order response:', data);
+
+      if (response.ok && data.success) {
+        // Update local state
         setOrders(prevOrders => 
           prevOrders.map(o => o._id === order._id ? data.order : o)
         );
+        
+        // Update selected order if it's the one being accepted
         if (selectedOrder?._id === order._id) {
           setSelectedOrder(data.order);
         }
+        
+        // Show success message
+        toast({
+          title: 'Order Accepted',
+          description: `Order ${order.orderNumber} has been confirmed successfully.`,
+        });
+        
+        // Refresh orders list to ensure consistency
+        await fetchOrders();
       } else {
-        const errorData = await response.json();
+        const errorMessage = data?.error || data?.message || 'Unknown error';
         toast({
           title: 'Failed to accept order',
-          description: errorData?.error || 'Unknown error',
+          description: errorMessage,
           variant: 'destructive',
         });
-        console.error('Failed to accept order', errorData);
+        console.error('Failed to accept order:', data);
       }
     } catch (error) {
       toast({
