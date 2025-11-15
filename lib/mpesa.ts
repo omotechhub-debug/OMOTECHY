@@ -50,6 +50,7 @@ export interface C2BRegisterURLResponse {
   responseCode?: string;
   responseDescription?: string;
   error?: string;
+  details?: any;
 }
 
 export interface C2BValidationRequest {
@@ -407,12 +408,30 @@ class MpesaService {
       }
 
       console.log('Generating access token for C2B registration...');
-      const accessToken = await this.generateAccessToken();
+      let accessToken: string;
       
-      if (!accessToken || accessToken.length < 10) {
+      try {
+        accessToken = await this.generateAccessToken();
+      } catch (tokenError: any) {
+        console.error('Failed to generate access token:', tokenError);
         return {
           success: false,
-          error: 'Failed to generate valid access token from M-Pesa API'
+          error: tokenError.message || 'Failed to generate access token from M-Pesa API',
+          responseCode: '401',
+          responseDescription: 'Access token generation failed',
+          details: {
+            message: tokenError.message,
+            code: tokenError.code
+          }
+        };
+      }
+      
+      if (!accessToken || typeof accessToken !== 'string' || accessToken.trim().length === 0) {
+        return {
+          success: false,
+          error: 'Access token is empty or invalid',
+          responseCode: '401',
+          responseDescription: 'Access token validation failed'
         };
       }
       
@@ -455,13 +474,23 @@ class MpesaService {
         accessTokenPrefix: accessToken.substring(0, 20) + '...'
       });
 
-      // Validate access token format (should be a JWT-like string)
-      if (!accessToken || typeof accessToken !== 'string' || accessToken.length < 50) {
+      // Validate access token format (M-Pesa tokens are typically 100+ characters)
+      // But we'll be less strict and just check it's a valid string
+      if (!accessToken || typeof accessToken !== 'string' || accessToken.trim().length < 20) {
+        console.error('Invalid access token:', {
+          type: typeof accessToken,
+          length: accessToken?.length,
+          isEmpty: !accessToken || accessToken.trim().length === 0
+        });
         return {
           success: false,
-          error: 'Invalid access token format received from M-Pesa API',
+          error: `Invalid access token format. Token length: ${accessToken?.length || 0}`,
           responseCode: '401',
-          responseDescription: 'Access token validation failed'
+          responseDescription: 'Access token validation failed',
+          details: {
+            tokenLength: accessToken?.length || 0,
+            tokenType: typeof accessToken
+          }
         };
       }
 
