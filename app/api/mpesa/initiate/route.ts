@@ -14,8 +14,8 @@ export async function POST(request: NextRequest) {
     }
 
     const decoded = verifyToken(token);
-    if (!decoded || (decoded.role !== 'admin' && decoded.role !== 'superadmin')) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    if (!decoded || (decoded.role !== 'admin' && decoded.role !== 'superadmin' && decoded.role !== 'manager')) {
+      return NextResponse.json({ error: 'Admin or Manager access required' }, { status: 403 });
     }
 
     const { orderId, phoneNumber, amount, paymentType = 'full' } = await request.json();
@@ -39,6 +39,24 @@ export async function POST(request: NextRequest) {
     // Check if payment is already completed
     if (order.paymentStatus === 'paid') {
       return NextResponse.json({ error: 'Order is already paid' }, { status: 400 });
+    }
+
+    // For managers, verify they can only initiate payments for orders in their station
+    if (decoded.role === 'manager') {
+      const managerStationId = decoded.stationId || decoded.managedStations?.[0];
+      const orderStationId = order.station?.stationId || order.stationId;
+      
+      if (!managerStationId || !orderStationId) {
+        return NextResponse.json({ 
+          error: 'Station information is missing. Please contact your administrator.' 
+        }, { status: 403 });
+      }
+      
+      if (managerStationId.toString() !== orderStationId.toString()) {
+        return NextResponse.json({ 
+          error: 'You can only initiate payments for orders in your assigned station' 
+        }, { status: 403 });
+      }
     }
     
     // Use callback URL from environment variables (prioritize explicit MPESA_CALLBACK_URL)

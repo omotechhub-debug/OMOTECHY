@@ -20,8 +20,8 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
     }
 
-    if (decoded.role !== 'admin' && decoded.role !== 'superadmin') {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    if (decoded.role !== 'admin' && decoded.role !== 'superadmin' && decoded.role !== 'manager') {
+      return NextResponse.json({ error: 'Admin or Manager access required' }, { status: 403 });
     }
 
     await connectDB();
