@@ -33,6 +33,12 @@ export function canViewPage(user: IUser | null, page: string): boolean {
     return false;
   }
 
+  // Core pages that all admins should have access to by default
+  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations'];
+  if (user.role === 'admin' && coreAdminPages.includes(page)) {
+    return true;
+  }
+
   // Check specific page permissions for admin users
   if (user.pagePermissions && Array.isArray(user.pagePermissions)) {
     const pagePermission = user.pagePermissions.find(p => p.page === page);
@@ -122,14 +128,21 @@ export function getAccessiblePages(user: IUser | null): string[] {
     return [];
   }
 
+  // Core pages that all admins should have access to by default
+  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations'];
+  
   // Return pages that admin user can view
   if (user.pagePermissions && Array.isArray(user.pagePermissions)) {
-    return user.pagePermissions
+    const permissionPages = user.pagePermissions
       .filter(p => p.canView)
       .map(p => p.page);
+    
+    // Merge with core pages and remove duplicates
+    return [...new Set([...coreAdminPages, ...permissionPages])];
   }
 
-  return [];
+  // If no pagePermissions, return core pages
+  return coreAdminPages;
 }
 
 /**

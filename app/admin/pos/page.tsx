@@ -90,6 +90,11 @@ interface Product {
   tags: string[];
   supplier?: string;
   warranty?: string;
+  stationIds?: {
+    _id: string;
+    name: string;
+    location: string;
+  }[];
   dimensions?: {
     length?: number;
     width?: number;
@@ -492,7 +497,11 @@ export default function POSPage() {
     try {
       // Get station ID for filtering
       let stationId = null;
-      if (user?.role === 'manager') {
+      
+      // Superadmins see all products from all stations
+      if (user?.role === 'superadmin') {
+        stationId = null; // Don't filter by station for superadmins
+      } else if (user?.role === 'manager') {
         // For managers, get their assigned station
         const stationRes = await fetch('/api/stations/my-station', {
           headers: {
@@ -507,12 +516,12 @@ export default function POSPage() {
           }
         }
       } else if (user?.stationId || (user?.managedStations && user.managedStations.length > 0)) {
-        // For admins/superadmins, use their station
+        // For admins, use their station
         stationId = user.stationId || user.managedStations?.[0];
       }
 
       // Build URL with station filter
-      let url = '/api/inventory?limit=50';
+      let url = '/api/inventory?limit=1000'; // Increased limit for superadmins to see all products
       if (stationId) {
         url += `&stationId=${stationId}`;
       }
@@ -1596,7 +1605,18 @@ Need help? Call us at +254 757 883 799`;
                               <h3 className="font-semibold text-gray-900 text-base mb-2 line-clamp-2">
                                 {product.name}
                               </h3>
-                              <div className="flex items-center gap-2 mb-3">
+                              {/* Station Names - Show when superadmin or multiple stations */}
+                              {product.stationIds && product.stationIds.length > 0 && (
+                                <div className="mb-2">
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <Building className="w-3 h-3 text-blue-600" />
+                                    <span className="text-xs text-blue-600 font-medium">
+                                      {product.stationIds.map(station => station.name).join(', ')}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                              <div className="flex items-center gap-2 mb-3 flex-wrap">
                                 <Badge 
                                   variant="outline" 
                                   className="text-xs"

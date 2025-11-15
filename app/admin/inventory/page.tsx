@@ -125,6 +125,7 @@ export default function InventoryPage() {
   const [allInventory, setAllInventory] = useState<InventoryItem[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stationsLoading, setStationsLoading] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -319,7 +320,8 @@ export default function InventoryPage() {
 
   const fetchStations = async () => {
     try {
-      const response = await fetch('/api/stations', {
+      setStationsLoading(true);
+      const response = await fetch('/api/stations?limit=1000', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -331,9 +333,13 @@ export default function InventoryPage() {
         setStations(data.stations || []);
       } else {
         console.error('Failed to fetch stations');
+        setStations([]);
       }
     } catch (error) {
       console.error('Error fetching stations:', error);
+      setStations([]);
+    } finally {
+      setStationsLoading(false);
     }
   };
 
@@ -657,6 +663,7 @@ export default function InventoryPage() {
                 onCancel={() => setIsCreateDialogOpen(false)}
                 isLoading={isCreating}
                 stations={stations}
+                stationsLoading={stationsLoading}
               />
             </DialogContent>
           </Dialog>
@@ -1107,6 +1114,7 @@ export default function InventoryPage() {
               }}
               isLoading={isUpdating}
               stations={stations}
+              stationsLoading={stationsLoading}
             />
           </DialogContent>
         </Dialog>
@@ -1122,7 +1130,8 @@ function InventoryForm({
   onSubmit, 
   onCancel,
   isLoading = false,
-  stations = []
+  stations = [],
+  stationsLoading = false
 }: {
   formData: any;
   setFormData: (data: any) => void;
@@ -1130,6 +1139,7 @@ function InventoryForm({
   onCancel: () => void;
   isLoading?: boolean;
   stations?: Station[];
+  stationsLoading?: boolean;
 }) {
   const [tagInput, setTagInput] = useState('');
 
@@ -1357,44 +1367,67 @@ function InventoryForm({
       <div>
         <Label htmlFor="stationIds">Stations *</Label>
         <div className="space-y-2">
-          <div className="flex flex-wrap gap-2">
-            {stations.map((station) => (
-              <div key={station._id} className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id={`station-${station._id}`}
-                  checked={formData.stationIds.includes(station._id)}
-                  onChange={(e) => {
-                    console.log('Station checkbox changed:', station.name, e.target.checked);
-                    if (e.target.checked) {
-                      const newStationIds = [...formData.stationIds, station._id];
-                      console.log('Adding station, new stationIds:', newStationIds);
-                      setFormData({
-                        ...formData,
-                        stationIds: newStationIds
-                      });
-                    } else {
-                      const newStationIds = formData.stationIds.filter(id => id !== station._id);
-                      console.log('Removing station, new stationIds:', newStationIds);
-                      setFormData({
-                        ...formData,
-                        stationIds: newStationIds
-                      });
-                    }
-                  }}
-                  className="rounded border-gray-300 text-primary focus:ring-primary"
-                />
-                <label
-                  htmlFor={`station-${station._id}`}
-                  className="text-sm font-medium text-gray-700 cursor-pointer"
-                >
-                  {station.name} - {station.location}
-                </label>
+          {stationsLoading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Loading stations...</span>
+            </div>
+          ) : stations.length === 0 ? (
+            <div className="p-4 border border-amber-200 bg-amber-50 rounded-lg">
+              <p className="text-sm text-amber-800 mb-2">
+                No stations available. Please create a station first.
+              </p>
+              <a 
+                href="/admin/stations" 
+                className="text-sm text-amber-900 underline hover:text-amber-700 font-medium"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Go to Stations Management →
+              </a>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {stations.map((station) => (
+                  <div key={station._id} className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id={`station-${station._id}`}
+                      checked={formData.stationIds.includes(station._id)}
+                      onChange={(e) => {
+                        console.log('Station checkbox changed:', station.name, e.target.checked);
+                        if (e.target.checked) {
+                          const newStationIds = [...formData.stationIds, station._id];
+                          console.log('Adding station, new stationIds:', newStationIds);
+                          setFormData({
+                            ...formData,
+                            stationIds: newStationIds
+                          });
+                        } else {
+                          const newStationIds = formData.stationIds.filter(id => id !== station._id);
+                          console.log('Removing station, new stationIds:', newStationIds);
+                          setFormData({
+                            ...formData,
+                            stationIds: newStationIds
+                          });
+                        }
+                      }}
+                      className="rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <label
+                      htmlFor={`station-${station._id}`}
+                      className="text-sm font-medium text-gray-700 cursor-pointer"
+                    >
+                      {station.name} - {station.location}
+                    </label>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          {formData.stationIds.length === 0 && (
-            <p className="text-sm text-red-600">Please select at least one station</p>
+              {formData.stationIds.length === 0 && (
+                <p className="text-sm text-red-600">Please select at least one station</p>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -1455,7 +1488,7 @@ function InventoryForm({
         </Button>
         <Button 
           onClick={onSubmit} 
-          disabled={isLoading || formData.stationIds.length === 0}
+          disabled={isLoading || stationsLoading || stations.length === 0 || formData.stationIds.length === 0}
           className="bg-primary hover:bg-primary/90 text-white disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? (
