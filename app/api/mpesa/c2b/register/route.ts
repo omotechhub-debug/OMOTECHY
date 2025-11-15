@@ -1,21 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { mpesaService } from '@/lib/mpesa';
-import { getTokenFromRequest, verifyToken } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify admin authentication
-    const token = getTokenFromRequest(request);
-    if (!token) {
-      return NextResponse.json({ error: 'Authentication !!!!! required' }, { status: 401 });
-    }
-
-    const decoded = verifyToken(token);
-    if (!decoded || (decoded.role !== 'admin' && decoded.role !== 'superadmin')) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-    }
-
-    console.log('Admin attempting to register C2B URLs...');
+    console.log('Registering C2B URLs...');
 
     // Register URLs with M-Pesa
     const result = await mpesaService.registerC2BURLs();
@@ -51,16 +39,6 @@ export async function POST(request: NextRequest) {
 // GET endpoint to check current registration status
 export async function GET(request: NextRequest) {
   try {
-    // Verify admin authentication
-    const token = getTokenFromRequest(request);
-    if (!token) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-    }
-
-    const decoded = verifyToken(token);
-    if (!decoded || (decoded.role !== 'admin' && decoded.role !== 'superadmin')) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-    }
 
     const validationURL = process.env.MPESA_C2B_VALIDATION_URL;
     const confirmationURL = process.env.MPESA_C2B_CONFIRMATION_URL;
