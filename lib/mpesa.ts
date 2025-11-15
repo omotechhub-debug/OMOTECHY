@@ -249,7 +249,7 @@ class MpesaService {
         BusinessShortCode: this.config.shortCode,
         Password: password,
         Timestamp: timestamp,
-        TransactionType: 'CustomerBuyGoodsOnline',
+        TransactionType: 'CustomerPayBillOnline',
         Amount: Math.round(request.amount),
         PartyA: formattedPhone,
         PartyB: this.config.shortCode,
@@ -281,7 +281,7 @@ class MpesaService {
         }
       );
 
-      console.log('TEST DEV API STK Push response:', response.data);
+      console.log('TEST DEV API: STK Push response:', response.data);
 
       if (response.data.ResponseCode === '0') {
         return {
