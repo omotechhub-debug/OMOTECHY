@@ -195,6 +195,8 @@ function POSPageContent() {
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
+  const [lastCreatedOrderId, setLastCreatedOrderId] = useState<string | null>(null);
+  const [initiatingPayment, setInitiatingPayment] = useState(false);
 
   // Order Editing State
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -707,6 +709,9 @@ function POSPageContent() {
     setShowSuggestions(false);
     setIsExistingCustomer(false);
     setSelectedCustomerId(null);
+    
+    // Clear last created order ID
+    setLastCreatedOrderId(null);
   };
 
   // SMS Functions
@@ -1066,6 +1071,11 @@ Need help? Call us at +254 757 883 799`;
         setPromoDiscount(data.order.promoDiscount || 0);
         setPromoCode(data.order.promoCode || "");
         setPromoError("");
+        
+        // Store the created order ID for manual payment initiation
+        if (!isEditing && data.order?._id) {
+          setLastCreatedOrderId(data.order._id);
+        }
         
         // Automatically initiate STK push for new unpaid orders
         if (!isEditing && customerInfo.paymentStatus === 'unpaid' && customerInfo.phone) {
@@ -2287,17 +2297,128 @@ Need help? Call us at +254 757 883 799`;
                     )}
                   </div>
                   
-                  {/* Initiate Payment Button - Will work after M-Pesa integration */}
+                  {/* Initiate Payment Button */}
                   <Button
-                    onClick={() => {
-                      // TODO: Implement M-Pesa payment initiation
-                      alert('M-Pesa payment initiation will be implemented after M-Pesa integration');
+                    onClick={async () => {
+                      if (!customerInfo.phone) {
+                        alert('Please enter customer phone number first');
+                        return;
+                      }
+                      
+                      // If we have a last created order, use it; otherwise, create order first
+                      let orderId = lastCreatedOrderId;
+                      
+                      if (!orderId && cart.length > 0) {
+                        // Create order first
+                        try {
+                          setIsProcessingOrder(true);
+                          const orderData = {
+                            customer: {
+                              name: customerInfo.name,
+                              phone: customerInfo.phone,
+                            },
+                            services: cart.map(item => ({
+                              serviceId: item.item._id,
+                              serviceName: item.item.name,
+                              quantity: item.quantity,
+                              price: item.price,
+                            })),
+                            location: selectedLocation,
+                            totalAmount: calculateFinalTotal(),
+                            paymentStatus: 'unpaid',
+                            partialAmount: 0,
+                            remainingAmount: calculateFinalTotal(),
+                            status: 'pending',
+                            promoCode: promoCode.trim() || undefined,
+                            promotionDetails: lockedPromotion || undefined,
+                            stationId: user?.stationId || user?.managedStations?.[0] || null,
+                          };
+                          
+                          const response = await fetch('/api/orders', {
+                            method: 'POST',
+                            headers: {
+                              'Authorization': `Bearer ${token}`,
+                              'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(orderData),
+                          });
+                          
+                          const data = await response.json();
+                          if (data.success && data.order?._id) {
+                            orderId = data.order._id;
+                            setLastCreatedOrderId(orderId);
+                            // Reduce inventory
+                            const currentStationId = user?.stationId || user?.managedStations?.[0];
+                            if (currentStationId) {
+                              await reduceInventory(cart, currentStationId);
+                            }
+                          } else {
+                            alert(`Failed to create order: ${data.error || 'Unknown error'}`);
+                            setIsProcessingOrder(false);
+                            return;
+                          }
+                        } catch (error) {
+                          console.error('Error creating order:', error);
+                          alert('Failed to create order. Please try again.');
+                          setIsProcessingOrder(false);
+                          return;
+                        } finally {
+                          setIsProcessingOrder(false);
+                        }
+                      }
+                      
+                      if (!orderId) {
+                        alert('No order found. Please create an order first.');
+                        return;
+                      }
+                      
+                      // Initiate STK push
+                      try {
+                        setInitiatingPayment(true);
+                        const stkResponse = await fetch('/api/mpesa/initiate', {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({
+                            orderId: orderId,
+                            phoneNumber: customerInfo.phone,
+                            amount: calculateFinalTotal(),
+                            paymentType: 'full',
+                          }),
+                        });
+                        
+                        const stkData = await stkResponse.json();
+                        
+                        if (stkData.success) {
+                          alert(`✅ M-Pesa payment request sent to ${customerInfo.phone}. Please check your phone to complete payment.`);
+                          // Update payment status in customer info
+                          setCustomerInfo(prev => ({ ...prev, paymentStatus: 'pending' }));
+                        } else {
+                          alert(`⚠️ Payment request failed: ${stkData.error || 'Unknown error'}`);
+                        }
+                      } catch (error) {
+                        console.error('Error initiating payment:', error);
+                        alert('Failed to initiate payment. Please try again.');
+                      } finally {
+                        setInitiatingPayment(false);
+                      }
                     }}
-                    disabled={isProcessingOrder || !customerInfo.phone || customerInfo.paymentStatus === 'paid'}
-                    className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white h-12 flex items-center justify-center gap-2"
+                    disabled={isProcessingOrder || initiatingPayment || !customerInfo.phone || customerInfo.paymentStatus === 'paid' || cart.length === 0}
+                    className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white h-12 flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
                   >
-                    <CreditCard className="w-4 h-4" />
-                    Initiate Payment (M-Pesa)
+                    {initiatingPayment ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Initiating Payment...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="w-4 h-4" />
+                        Initiate Payment (M-Pesa)
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
