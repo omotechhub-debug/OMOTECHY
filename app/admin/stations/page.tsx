@@ -7,8 +7,6 @@ import {
   MapPin, 
   User, 
   Search,
-  Filter,
-  AlertTriangle,
   Loader2,
   ChevronLeft,
   ChevronRight,
@@ -19,7 +17,6 @@ import {
   Edit,
   Trash2,
   Phone,
-  Mail,
   Clock,
   Users
 } from "lucide-react"
@@ -28,7 +25,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -46,13 +43,6 @@ interface Station {
     email: string;
     role: string;
   };
-  // Legacy manager field
-  manager?: {
-    userId: string;
-    name: string;
-    email: string;
-  };
-  // New multiple managers field
   managers?: {
     _id: string;
     name: string;
@@ -60,10 +50,6 @@ interface Station {
     role: string;
   }[];
   isActive: boolean;
-  // Legacy contact fields
-  phone?: string;
-  email?: string;
-  address?: string;
   contactInfo?: {
     phone?: string;
     email?: string;
@@ -76,13 +62,6 @@ interface Station {
     };
     timezone?: string;
   };
-  // Additional fields
-  status?: string;
-  operatingHours?: any;
-  facilities?: any[];
-  notes?: string;
-  staff?: any[];
-  services?: any[];
   createdAt: string;
   updatedAt: string;
 }
@@ -128,12 +107,10 @@ export default function StationManagement() {
   const [isAssignManagerOpen, setIsAssignManagerOpen] = useState(false);
   const [selectedStationForAssignment, setSelectedStationForAssignment] = useState<Station | null>(null);
 
-  // Form states
   const [formData, setFormData] = useState({
     name: '',
     location: '',
     description: '',
-    managerId: '',
     managers: [] as string[],
     phone: '',
     email: '',
@@ -143,7 +120,6 @@ export default function StationManagement() {
     timezone: 'Africa/Nairobi'
   });
 
-  // Fetch stations from API
   const fetchStations = async (page = 1, search = "", status = "all") => {
     try {
       setLoading(true);
@@ -179,7 +155,6 @@ export default function StationManagement() {
     }
   };
 
-  // Fetch available managers
   const fetchAvailableManagers = async () => {
     try {
       const response = await fetch('/api/stations/available-managers', {
@@ -199,7 +174,6 @@ export default function StationManagement() {
     }
   };
 
-  // Initial fetch
   useEffect(() => {
     if (token) {
       fetchStations();
@@ -207,7 +181,6 @@ export default function StationManagement() {
     }
   }, [token]);
 
-  // Handle search and filter changes
   useEffect(() => {
     if (token) {
       const timeoutId = setTimeout(() => {
@@ -218,7 +191,6 @@ export default function StationManagement() {
     }
   }, [searchTerm, filterStatus, token]);
 
-  // Station management functions
   const createStation = async () => {
     try {
       const response = await fetch('/api/stations', {
@@ -231,7 +203,6 @@ export default function StationManagement() {
           name: formData.name,
           location: formData.location,
           description: formData.description,
-          managerId: formData.managerId || null,
           managers: formData.managers,
           contactInfo: {
             phone: formData.phone,
@@ -251,12 +222,12 @@ export default function StationManagement() {
       const data = await response.json();
 
       if (data.success) {
-        setStations(prev => [data.station, ...prev]);
         setMessage(data.message);
         setTimeout(() => setMessage(""), 3000);
         setIsCreateDialogOpen(false);
         resetForm();
-        fetchAvailableManagers(); // Refresh available managers
+        fetchStations(1, searchTerm, filterStatus);
+        fetchAvailableManagers();
       } else {
         setError(data.error || 'Failed to create station');
         setTimeout(() => setError(""), 3000);
@@ -282,7 +253,6 @@ export default function StationManagement() {
           name: formData.name,
           location: formData.location,
           description: formData.description,
-          managerId: formData.managerId || null,
           managers: formData.managers,
           contactInfo: {
             phone: formData.phone,
@@ -302,15 +272,13 @@ export default function StationManagement() {
       const data = await response.json();
 
       if (data.success) {
-        setStations(prev => prev.map(station => 
-          station._id === selectedStation._id ? data.station : station
-        ));
         setMessage(data.message);
         setTimeout(() => setMessage(""), 3000);
         setIsEditDialogOpen(false);
         setSelectedStation(null);
         resetForm();
-        fetchAvailableManagers(); // Refresh available managers
+        fetchStations(pagination.currentPage, searchTerm, filterStatus);
+        fetchAvailableManagers();
       } else {
         setError(data.error || 'Failed to update station');
         setTimeout(() => setError(""), 3000);
@@ -337,12 +305,12 @@ export default function StationManagement() {
       const data = await response.json();
 
       if (data.success) {
-        setStations(prev => prev.filter(station => station._id !== stationToDelete._id));
         setMessage(data.message);
         setTimeout(() => setMessage(""), 3000);
         setIsDeleteDialogOpen(false);
         setStationToDelete(null);
-        fetchAvailableManagers(); // Refresh available managers
+        fetchStations(pagination.currentPage, searchTerm, filterStatus);
+        fetchAvailableManagers();
       } else {
         setError(data.error || 'Failed to delete station');
         setTimeout(() => setError(""), 3000);
@@ -371,11 +339,9 @@ export default function StationManagement() {
       const data = await response.json();
 
       if (data.success) {
-        setStations(prev => prev.map(station => 
-          station._id === stationId ? data.station : station
-        ));
         setMessage(data.message);
         setTimeout(() => setMessage(""), 3000);
+        fetchStations(pagination.currentPage, searchTerm, filterStatus);
       } else {
         setError(data.error || 'Failed to update station status');
         setTimeout(() => setError(""), 3000);
@@ -401,7 +367,6 @@ export default function StationManagement() {
       name: '',
       location: '',
       description: '',
-      managerId: '',
       managers: [],
       phone: '',
       email: '',
@@ -418,11 +383,10 @@ export default function StationManagement() {
       name: station.name,
       location: station.location,
       description: station.description || '',
-      managerId: station.managerId?._id || '',
       managers: station.managers?.map(m => m._id) || [],
-      phone: station.contactInfo?.phone || station.phone || '',
-      email: station.contactInfo?.email || station.email || '',
-      address: station.contactInfo?.address || station.address || '',
+      phone: station.contactInfo?.phone || '',
+      email: station.contactInfo?.email || '',
+      address: station.contactInfo?.address || '',
       workingHoursStart: station.settings?.workingHours?.start || '08:00',
       workingHoursEnd: station.settings?.workingHours?.end || '17:00',
       timezone: station.settings?.timezone || 'Africa/Nairobi'
@@ -454,12 +418,10 @@ export default function StationManagement() {
       const data = await response.json();
 
       if (data.success) {
-        setStations(prev => prev.map(station => 
-          station._id === stationId ? data.station : station
-        ));
         setMessage(data.message);
         setTimeout(() => setMessage(""), 3000);
-        fetchAvailableManagers(); // Refresh available managers
+        fetchStations(pagination.currentPage, searchTerm, filterStatus);
+        fetchAvailableManagers();
       } else {
         setError(data.error || 'Failed to assign manager');
         setTimeout(() => setError(""), 3000);
@@ -485,12 +447,10 @@ export default function StationManagement() {
       const data = await response.json();
 
       if (data.success) {
-        setStations(prev => prev.map(station => 
-          station._id === stationId ? data.station : station
-        ));
         setMessage(data.message);
         setTimeout(() => setMessage(""), 3000);
-        fetchAvailableManagers(); // Refresh available managers
+        fetchStations(pagination.currentPage, searchTerm, filterStatus);
+        fetchAvailableManagers();
       } else {
         setError(data.error || 'Failed to remove manager');
         setTimeout(() => setError(""), 3000);
@@ -518,7 +478,7 @@ export default function StationManagement() {
 
   const activeStations = stations.filter(s => s.isActive).length;
   const inactiveStations = stations.filter(s => !s.isActive).length;
-  const stationsWithManagers = stations.filter(s => s.managerId || s.manager || (s.managers && s.managers.length > 0)).length;
+  const stationsWithManagers = stations.filter(s => s.managerId || (s.managers && s.managers.length > 0)).length;
 
   return (
     <AdminProtectedRoute requireAdmin={true}>
@@ -553,7 +513,7 @@ export default function StationManagement() {
 
         {error && (
           <Alert className="border-red-200 bg-red-50">
-            <AlertTriangle className="h-4 w-4 text-red-600" />
+            <XCircle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-600">
               {error}
             </AlertDescription>
@@ -597,7 +557,6 @@ export default function StationManagement() {
           </Card>
         </div>
 
-
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
           <div className="relative flex-1">
@@ -634,7 +593,7 @@ export default function StationManagement() {
           </div>
         </div>
 
-        {/* Stations Table */}
+        {/* Stations List */}
         <Card>
           <CardHeader>
             <CardTitle>Stations</CardTitle>
@@ -675,28 +634,28 @@ export default function StationManagement() {
                           <Badge variant={station.isActive ? 'default' : 'destructive'}>
                             {station.isActive ? 'Active' : 'Inactive'}
                           </Badge>
-                          {(station.managerId || station.manager || (station.managers && station.managers.length > 0)) && (
+                          {(station.managerId || (station.managers && station.managers.length > 0)) && (
                             <div className="flex items-center text-sm text-gray-600">
                               <Users className="w-4 h-4 mr-1" />
                               <div className="flex flex-wrap gap-1">
                                 {station.managers && station.managers.length > 0 ? (
-                                  station.managers.map((manager, index) => (
+                                  station.managers.map((manager) => (
                                     <span key={manager._id} className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
                                       {manager.name}
                                     </span>
                                   ))
                                 ) : (
                                   <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
-                                    {station.managerId?.name || station.manager?.name}
+                                    {station.managerId?.name}
                                   </span>
                                 )}
                               </div>
                             </div>
                           )}
-                          {(station.contactInfo?.phone || station.phone) && (
+                          {station.contactInfo?.phone && (
                             <div className="flex items-center text-sm text-gray-600">
                               <Phone className="w-4 h-4 mr-1" />
-                              {station.contactInfo?.phone || station.phone}
+                              {station.contactInfo.phone}
                             </div>
                           )}
                           {station.settings?.workingHours && (
@@ -794,7 +753,7 @@ export default function StationManagement() {
             <DialogHeader>
               <DialogTitle>Create New Station</DialogTitle>
               <DialogDescription>
-                Add a new station and optionally assign a manager.
+                Add a new station and optionally assign managers.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -1130,11 +1089,6 @@ export default function StationManagement() {
               <DialogTitle>Delete Station</DialogTitle>
               <DialogDescription>
                 Are you sure you want to delete "{stationToDelete?.name}"? This action cannot be undone.
-                {stationToDelete?.managerId && (
-                  <span className="block mt-2 text-red-600">
-                    The assigned manager will be reverted to admin role.
-                  </span>
-                )}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -1181,9 +1135,8 @@ export default function StationManagement() {
                     <div className="space-y-2">
                       {(() => {
                         const stationManagers = selectedStationForManagerView.managers || (selectedStationForManagerView.managerId ? [selectedStationForManagerView.managerId] : []);
-                        const legacyManager = selectedStationForManagerView.manager;
                         
-                        if (stationManagers.length === 0 && !legacyManager) {
+                        if (stationManagers.length === 0) {
                           return (
                             <div className="text-center py-8 text-gray-500">
                               <Users className="h-12 w-12 mx-auto mb-4 text-gray-400" />
@@ -1195,7 +1148,6 @@ export default function StationManagement() {
                         return (
                           <div className="space-y-2">
                             {stationManagers.map((manager, index) => {
-                              // Handle both populated objects and ObjectId strings
                               const managerId = typeof manager === 'string' ? manager : (manager?._id || `manager-${index}`);
                               const managerName = typeof manager === 'string' ? 'Loading...' : (manager?.name || 'Unknown');
                               const managerEmail = typeof manager === 'string' ? 'Loading...' : (manager?.email || 'Unknown');
@@ -1226,20 +1178,6 @@ export default function StationManagement() {
                                 </div>
                               );
                             })}
-                            {legacyManager && (
-                              <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
-                                <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                                  <User className="w-5 h-5 text-gray-600" />
-                                </div>
-                                <div className="flex-1">
-                                  <p className="text-sm font-medium text-gray-900">{legacyManager.name}</p>
-                                  <p className="text-xs text-gray-600">{legacyManager.email}</p>
-                                </div>
-                                <Badge variant="outline" className="text-xs">
-                                  Legacy
-                                </Badge>
-                              </div>
-                            )}
                           </div>
                         );
                       })()}
@@ -1311,3 +1249,4 @@ export default function StationManagement() {
     </AdminProtectedRoute>
   )
 }
+
