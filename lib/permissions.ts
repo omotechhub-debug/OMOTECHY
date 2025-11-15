@@ -23,9 +23,9 @@ export function canViewPage(user: IUser | null, page: string): boolean {
     return false;
   }
 
-  // Superadmin has limited access - only specific pages
+  // Superadmin has access to all pages
   if (user.role === 'superadmin') {
-    return ['inventory', 'inventory-management', 'stations', 'services'].includes(page);
+    return true;
   }
 
   // Regular users should not access admin pages at all
@@ -110,9 +110,13 @@ export function getAccessiblePages(user: IUser | null): string[] {
     return [];
   }
 
-  // Superadmin has access to only specific pages (Inventory, Inventory Management, Stations, Services)
+  // Superadmin has access to all pages
   if (user.role === 'superadmin') {
-    return ['inventory', 'inventory-management', 'stations', 'services'];
+    return [
+      'dashboard', 'orders', 'pos', 'customers', 'services', 'reports', 
+      'mpesa-transactions', 'users', 'expenses', 'gallery', 'testimonials', 
+      'promotions', 'inventory', 'inventory-management', 'stations', 'settings'
+    ];
   }
 
   // Manager has very limited access - only POS, Orders, and Expenses

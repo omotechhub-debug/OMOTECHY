@@ -232,9 +232,18 @@ export default function AdminProtectedRoute({
     );
   }
 
-  // Superadmin has access to everything
-  if (user?.role === 'superadmin') {
-    console.log('✅ Superadmin access granted');
+  // Superadmin has access to everything - check this first
+  if (user && user.role === 'superadmin') {
+    console.log('✅ Superadmin access granted to:', currentPage || 'all pages');
+    return <>{children}</>;
+  }
+
+  // Core pages that all admins should have access to by default
+  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations'];
+  
+  // For admin users, allow access to core pages even if pagePermissions aren't set
+  if (user?.role === 'admin' && currentPage && coreAdminPages.includes(currentPage)) {
+    console.log('✅ Admin access granted to core page:', currentPage);
     return <>{children}</>;
   }
 
