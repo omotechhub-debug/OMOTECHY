@@ -242,6 +242,9 @@ class MpesaService {
       const formattedPhone = this.formatPhoneNumber(request.phoneNumber);
 
 
+      // For CustomerBuyGoodsOnline, PartyB should typically match BusinessShortCode
+
+
       const payload = {
         BusinessShortCode: this.config.shortCode,
         Password: password,
@@ -249,7 +252,7 @@ class MpesaService {
         TransactionType: 'CustomerBuyGoodsOnline',
         Amount: Math.round(request.amount),
         PartyA: formattedPhone,
-        PartyB: this.config.tillNumber,
+        PartyB: this.config.shortCode,
         PhoneNumber: formattedPhone,
         CallBackURL: request.callbackUrl,
         AccountReference: request.orderId,
@@ -258,6 +261,8 @@ class MpesaService {
 
       console.log('M-Pesa Configuration:', {
         shortCode: this.config.shortCode,
+        tillNumber: this.config.tillNumber || 'Not set (using shortCode)',
+        partyB: this.config.shortCode,
         environment: this.config.environment,
         consumerKey: this.config.consumerKey?.substring(0, 10) + '...',
         baseUrl: this.getBaseUrl()
