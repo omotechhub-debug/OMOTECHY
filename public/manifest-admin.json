@@ -2,6 +2,7 @@
   "name": "OMOTECH Admin Panel",
   "short_name": "OMOTECH Admin",
   "description": "OMOTECH HUB Admin Panel - Manage orders, inventory, users, and business operations",
+  "id": "omotech-admin-panel",
   "start_url": "/admin",
   "display": "standalone",
   "background_color": "#ffffff",
