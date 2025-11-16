@@ -11,7 +11,9 @@ export interface IPagePermission {
 export interface IUser extends mongoose.Document {
   name: string;
   email: string;
-  password: string;
+  password?: string; // Optional for Google users
+  googleId?: string; // Google OAuth ID
+  authProvider: 'email' | 'google'; // Authentication provider
   role: 'superadmin' | 'admin' | 'manager' | 'user';
   isActive: boolean;
   approved: boolean;
@@ -74,8 +76,21 @@ const userSchema = new mongoose.Schema<IUser>({
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
+    required: function() {
+      // Password required only for email-based authentication
+      return !this.googleId;
+    },
     minlength: [6, 'Password must be at least 6 characters'],
+  },
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true, // Allows multiple null values
+  },
+  authProvider: {
+    type: String,
+    enum: ['email', 'google'],
+    default: 'email',
   },
   role: {
     type: String,
@@ -169,9 +184,12 @@ const userSchema = new mongoose.Schema<IUser>({
   timestamps: true,
 });
 
-// Hash password before saving
+// Hash password before saving (only for email-based auth)
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
+  // Skip password hashing if user is using Google auth or password wasn't modified
+  if (!this.isModified('password') || !this.password || this.authProvider === 'google') {
+    return next();
+  }
   
   try {
     const salt = await bcrypt.genSalt(12);
@@ -182,8 +200,11 @@ userSchema.pre('save', async function(next) {
   }
 });
 
-// Compare password method
+// Compare password method (only for email-based auth)
 userSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
+  if (!this.password || this.authProvider === 'google') {
+    return false;
+  }
   return bcrypt.compare(candidatePassword, this.password);
 };
 

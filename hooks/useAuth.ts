@@ -26,6 +26,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; pendingApproval?: boolean; message?: string }>;
+  loginWithGoogle: (idToken: string) => Promise<{ success: boolean; error?: string; pendingApproval?: boolean; message?: string; code?: string; email?: string }>;
   signup: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   refreshUserData: () => Promise<boolean>;
@@ -98,6 +99,112 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       return { success: false, error: 'Network error. Please check your connection.' };
+    }
+  };
+
+  const loginWithGoogle = async (idToken: string) => {
+    try {
+      console.log('Calling Google login API...')
+      
+      const response = await fetch('/api/auth/google-login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ idToken }),
+      });
+
+      console.log('Google login API response status:', response.status)
+      console.log('Response Content-Type:', response.headers.get('content-type'))
+
+      // Check content type first
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        // Response is not JSON, likely an HTML error page
+        const text = await response.text()
+        console.error('Non-JSON response received:', text.substring(0, 200))
+        
+        if (response.status === 404) {
+          return { 
+            success: false, 
+            error: 'API endpoint not found. Please check server configuration.',
+            code: 'ENDPOINT_NOT_FOUND'
+          }
+        }
+        
+        return { 
+          success: false, 
+          error: `Server error (${response.status}). Please check server logs.`,
+          code: 'SERVER_ERROR'
+        }
+      }
+
+      // Parse JSON response
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError: any) {
+        console.error('Failed to parse JSON response:', parseError)
+        return { 
+          success: false, 
+          error: 'Invalid server response format. Please try again.',
+          code: 'PARSE_ERROR'
+        };
+      }
+
+      console.log('Google login API response data:', data)
+
+      if (response.ok && data.success) {
+        // Update state immediately (same as regular login)
+        setUser(data.user);
+        setToken(data.token);
+        localStorage.setItem('authToken', data.token);
+        localStorage.setItem('authUser', JSON.stringify(data.user));
+        
+        // Add a small delay to ensure state is updated
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        return { 
+          success: true, 
+          user: data.user,
+          message: data.message || 'Login successful! Redirecting to admin panel...'
+        };
+      } else {
+        if (data.code === 'PENDING_APPROVAL' || data.error === 'Admin account is pending approval') {
+          return { 
+            success: false, 
+            pendingApproval: true, 
+            error: data.error,
+            email: data.email 
+          };
+        }
+        return { 
+          success: false, 
+          error: data.error || 'Login failed',
+          code: data.code,
+          email: data.email 
+        };
+      }
+    } catch (error: any) {
+      console.error('Google login fetch error:', error)
+      console.error('Error details:', {
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack
+      })
+      
+      // More specific error messages
+      if (error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError')) {
+        return { 
+          success: false, 
+          error: 'Network error. Please check your connection and try again.' 
+        };
+      }
+      
+      return { 
+        success: false, 
+        error: error?.message || 'Network error. Please check your connection.' 
+      };
     }
   };
 
@@ -184,6 +291,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     token,
     login,
+    loginWithGoogle,
     signup,
     logout,
     refreshUserData,

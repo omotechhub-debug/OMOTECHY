@@ -31,6 +31,7 @@ import {
   CreditCard,
   CheckCircle,
   X,
+  XCircle,
   ArrowRight,
   Plus as PlusIcon,
   Package,
@@ -49,6 +50,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/useAuth";
 import UserStationInfo from "@/components/UserStationInfo";
@@ -197,6 +199,12 @@ function POSPageContent() {
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
   const [lastCreatedOrderId, setLastCreatedOrderId] = useState<string | null>(null);
   const [initiatingPayment, setInitiatingPayment] = useState(false);
+  const [checkingPayment, setCheckingPayment] = useState(false);
+  const [paymentStatusDialogOpen, setPaymentStatusDialogOpen] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<'success' | 'failed' | null>(null);
+  const [paymentMessage, setPaymentMessage] = useState('');
+  const [currentCheckoutRequestId, setCurrentCheckoutRequestId] = useState<string | null>(null);
+  const paymentPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Order Editing State
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -1023,7 +1031,100 @@ Need help? Call us at +254 757 883 799`;
     }
   };
 
-  // Inventory reduction function
+  // Payment polling function
+  const startPaymentPolling = (checkoutRequestId: string, orderId: string) => {
+    // Clear any existing polling
+    if (paymentPollIntervalRef.current) {
+      clearInterval(paymentPollIntervalRef.current);
+    }
+
+    setCheckingPayment(true);
+    let attempts = 0;
+    const maxAttempts = 60; // Poll for up to 5 minutes (60 * 5 seconds)
+
+    const poll = async () => {
+      if (attempts >= maxAttempts) {
+        // Timeout - stop polling
+        setCheckingPayment(false);
+        setPaymentStatus('failed');
+        setPaymentMessage('Payment verification timeout. Please check the order manually.');
+        setPaymentStatusDialogOpen(true);
+        if (paymentPollIntervalRef.current) {
+          clearInterval(paymentPollIntervalRef.current);
+          paymentPollIntervalRef.current = null;
+        }
+        return;
+      }
+
+      attempts++;
+
+      try {
+        const response = await fetch(`/api/mpesa/status/${checkoutRequestId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        const data = await response.json();
+
+        if (data.success && data.order) {
+          const order = data.order;
+
+          // Check if payment is completed (success or failure)
+          if (order.paymentStatus === 'paid') {
+            // Payment successful
+            setCheckingPayment(false);
+            setPaymentStatus('success');
+            setPaymentMessage(`Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`);
+            setPaymentStatusDialogOpen(true);
+            setCustomerInfo(prev => ({ ...prev, paymentStatus: 'paid' }));
+            
+            // Clear polling
+            if (paymentPollIntervalRef.current) {
+              clearInterval(paymentPollIntervalRef.current);
+              paymentPollIntervalRef.current = null;
+            }
+            return;
+          } else if (order.paymentStatus === 'failed') {
+            // Payment failed
+            setCheckingPayment(false);
+            setPaymentStatus('failed');
+            setPaymentMessage(order.resultDescription || 'Payment failed. Please try again.');
+            setPaymentStatusDialogOpen(true);
+            setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
+            
+            // Clear polling
+            if (paymentPollIntervalRef.current) {
+              clearInterval(paymentPollIntervalRef.current);
+              paymentPollIntervalRef.current = null;
+            }
+            return;
+          }
+          // If still pending, continue polling
+        }
+      } catch (error) {
+        console.error('Error polling payment status:', error);
+        // Continue polling on error
+      }
+    };
+
+    // Start polling after 3 seconds, then every 5 seconds
+    setTimeout(() => {
+      poll();
+      paymentPollIntervalRef.current = setInterval(poll, 5000);
+    }, 3000);
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (paymentPollIntervalRef.current) {
+        clearInterval(paymentPollIntervalRef.current);
+      }
+    };
+  }, []);
+
   const reduceInventory = async (cartItems: any[], stationId: string) => {
     try {
       console.log('Reducing inventory for station:', stationId);
@@ -2444,6 +2545,16 @@ Need help? Call us at +254 757 883 799`;
                     )}
                   </div>
                   
+                  {/* Payment Status Alert */}
+                  {checkingPayment && (
+                    <Alert className="mb-3 border-blue-200 bg-blue-50">
+                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      <AlertDescription className="text-blue-600">
+                        Waiting for payment confirmation... Please check the customer's phone to complete the M-Pesa payment.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  
                   {/* Initiate Payment Button */}
                   <Button
                     onClick={async () => {
@@ -2542,10 +2653,15 @@ Need help? Call us at +254 757 883 799`;
                         
                         const stkData = await stkResponse.json();
                         
-                        if (stkData.success) {
-                          alert(`✅ M-Pesa payment request sent to ${customerInfo.phone}. Please check your phone to complete payment.`);
+                        if (stkData.success && stkData.checkoutRequestId) {
+                          // Store checkout request ID for polling
+                          setCurrentCheckoutRequestId(stkData.checkoutRequestId);
                           // Update payment status in customer info
                           setCustomerInfo(prev => ({ ...prev, paymentStatus: 'pending' }));
+                          // Start polling for payment status
+                          startPaymentPolling(stkData.checkoutRequestId, orderId);
+                          // Show initial message
+                          console.log(`✅ M-Pesa payment request sent to ${customerInfo.phone}. Waiting for payment confirmation...`);
                         } else {
                           alert(`⚠️ Payment request failed: ${stkData.error || 'Unknown error'}`);
                         }
@@ -2556,13 +2672,18 @@ Need help? Call us at +254 757 883 799`;
                         setInitiatingPayment(false);
                       }
                     }}
-                    disabled={isProcessingOrder || initiatingPayment || !customerInfo.phone || customerInfo.paymentStatus === 'paid' || cart.length === 0}
+                    disabled={isProcessingOrder || initiatingPayment || checkingPayment || !customerInfo.phone || customerInfo.paymentStatus === 'paid' || cart.length === 0}
                     className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white h-12 flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
                   >
                     {initiatingPayment ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
                         Initiating Payment...
+                      </>
+                    ) : checkingPayment ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Checking Payment Status...
                       </>
                     ) : (
                       <>
@@ -2577,6 +2698,65 @@ Need help? Call us at +254 757 883 799`;
           )}
         </div>
       </div>
+
+      {/* Payment Status Dialog */}
+      <Dialog open={paymentStatusDialogOpen} onOpenChange={setPaymentStatusDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className={`flex items-center gap-2 ${
+              paymentStatus === 'success' ? 'text-emerald-600' : 'text-red-600'
+            }`}>
+              {paymentStatus === 'success' ? (
+                <CheckCircle className="w-6 h-6" />
+              ) : (
+                <XCircle className="w-6 h-6" />
+              )}
+              {paymentStatus === 'success' ? 'Payment Successful!' : 'Payment Failed'}
+            </DialogTitle>
+            <DialogDescription>
+              {paymentMessage || (paymentStatus === 'success' 
+                ? 'The payment has been successfully processed.' 
+                : 'The payment could not be completed.')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 pt-4">
+            <Button 
+              onClick={() => {
+                setPaymentStatusDialogOpen(false);
+                setPaymentStatus(null);
+                setPaymentMessage('');
+                setCurrentCheckoutRequestId(null);
+                router.push('/admin/orders');
+              }}
+              className={`w-full ${
+                paymentStatus === 'success' 
+                  ? 'bg-blue-600 hover:bg-blue-700' 
+                  : 'bg-gray-600 hover:bg-gray-700'
+              }`}
+            >
+              <ArrowRight className="w-4 h-4 mr-2" />
+              Proceed to Orders Page
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={() => {
+                setPaymentStatusDialogOpen(false);
+                setPaymentStatus(null);
+                setPaymentMessage('');
+                setCurrentCheckoutRequestId(null);
+                // Reset payment status but keep order
+                if (paymentStatus === 'failed') {
+                  setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
+                }
+              }}
+              className="w-full"
+            >
+              <PlusIcon className="w-4 h-4 mr-2" />
+              Stay on POS
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Success Dialog */}
       <Dialog open={successDialogOpen} onOpenChange={setSuccessDialogOpen}>

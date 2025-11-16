@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, Suspense } from "react"
+import React, { useState, useEffect, Suspense, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { motion } from "framer-motion"
 import { ShirtIcon, Eye, EyeOff, AlertCircle, CheckCircle } from "lucide-react"
@@ -12,16 +12,149 @@ import { useAuth } from "@/hooks/useAuth"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import Link from "next/link"
 
+// Declare Google types
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: any) => void
+          prompt: () => void
+          renderButton: (element: HTMLElement, config: any) => void
+        }
+      }
+    }
+  }
+}
+
 function AdminLoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isAuthenticated, isAdmin, isLoading: authLoading, login } = useAuth()
+  const { isAuthenticated, isAdmin, isLoading: authLoading, login, loginWithGoogle } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
+  const googleButtonRef = useRef<HTMLDivElement>(null)
+
+  const handleGoogleSignIn = async (response: any) => {
+    setIsGoogleLoading(true)
+    setError("")
+    setSuccess("")
+
+    try {
+      // Check if credential exists
+      if (!response || !response.credential) {
+        console.error('Google response missing credential:', response)
+        setError("Invalid Google response. Please try again.")
+        setIsGoogleLoading(false)
+        return
+      }
+
+      console.log('Google sign-in initiated, sending credential to backend...')
+      
+      // Send the Google ID token to our backend
+      const result = await loginWithGoogle(response.credential)
+      
+      console.log('Backend response:', result)
+      
+      if (result.success) {
+        setSuccess(result.message || "Login successful! Redirecting to admin panel...")
+        
+        // Redirect to admin dashboard
+        setTimeout(() => {
+          window.location.href = "/admin"
+        }, 1500)
+      } else {
+        if (result.pendingApproval) {
+          setError(result.error || "Your admin account is pending approval.")
+          setTimeout(() => {
+            router.push(`/admin/pending-approval?email=${encodeURIComponent(result.email || '')}`)
+          }, 2000)
+        } else if (result.code === 'ACCOUNT_NOT_FOUND') {
+          setError(result.error || "Account not found. Please contact administrator.")
+        } else {
+          setError(result.error || "Google sign-in failed. Please try again.")
+        }
+      }
+    } catch (error: any) {
+      console.error('Google sign-in error:', error)
+      console.error('Error details:', {
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name
+      })
+      
+      // More specific error messages
+      if (error?.message?.includes('fetch')) {
+        setError("Network error. Please check your connection and try again.")
+      } else if (error?.message?.includes('JSON')) {
+        setError("Invalid server response. Please try again.")
+      } else {
+        setError(error?.message || "Network error. Please check your connection and try again.")
+      }
+    }
+    
+    setIsGoogleLoading(false)
+  }
+
+  // Load Google Identity Services script
+  useEffect(() => {
+    const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
+    
+    if (!googleClientId) {
+      console.error('NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set in environment variables')
+      setError("Google Sign-In is not configured. Please contact administrator.")
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = 'https://accounts.google.com/gsi/client'
+    script.async = true
+    script.defer = true
+    script.onload = () => {
+      if (window.google && googleButtonRef.current) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: handleGoogleSignIn,
+          })
+          
+          // Render Google Sign-In button
+          window.google.accounts.id.renderButton(googleButtonRef.current, {
+            type: 'standard',
+            theme: 'outline',
+            size: 'large',
+            text: 'signin_with',
+            width: '100%',
+          })
+          console.log('Google Sign-In button rendered successfully')
+        } catch (error) {
+          console.error('Error initializing Google Sign-In:', error)
+          setError("Failed to initialize Google Sign-In. Please refresh the page.")
+        }
+      } else {
+        console.error('Google Identity Services not loaded or button ref not available')
+      }
+    }
+    script.onerror = () => {
+      console.error('Failed to load Google Identity Services script')
+      setError("Failed to load Google Sign-In. Please check your internet connection.")
+    }
+    
+    document.body.appendChild(script)
+
+    return () => {
+      // Cleanup script if component unmounts
+      const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]')
+      if (existingScript && existingScript.parentNode) {
+        existingScript.parentNode.removeChild(existingScript)
+      }
+    }
+  }, [handleGoogleSignIn])
 
   // Check for success message from signup
   useEffect(() => {
@@ -185,11 +318,30 @@ function AdminLoginForm() {
             <Button
               type="submit"
               className="w-full btn-primary rounded-xl h-12"
-              disabled={isLoading}
+              disabled={isLoading || isGoogleLoading}
             >
               {isLoading ? "Logging in..." : "Login"}
             </Button>
           </form>
+
+          {/* Divider */}
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">Or continue with</span>
+            </div>
+          </div>
+
+          {/* Google Sign-In Button */}
+          <div className="w-full">
+            <div 
+              ref={googleButtonRef} 
+              className="w-full flex justify-center"
+              style={{ minHeight: '40px' }}
+            />
+          </div>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600 mb-3">

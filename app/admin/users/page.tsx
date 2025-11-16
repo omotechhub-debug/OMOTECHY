@@ -16,13 +16,15 @@ import {
   CheckCircle,
   XCircle,
   RefreshCw,
-  Shield
+  Shield,
+  Trash2
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { useAuth } from "@/hooks/useAuth"
 import UserPermissionsModal from '@/components/UserPermissionsModal'
 import AdminProtectedRoute from '@/components/AdminProtectedRoute'
@@ -55,7 +57,7 @@ interface Pagination {
 }
 
 export default function UserManagement() {
-  const { token } = useAuth();
+  const { token, user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -72,6 +74,9 @@ export default function UserManagement() {
   });
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch users from API
   const fetchUsers = async (page = 1, search = "", role = "all", status = "all") => {
@@ -385,6 +390,59 @@ export default function UserManagement() {
     }
   };
 
+  const openDeleteDialog = (user: User) => {
+    setUserToDelete(user);
+    setDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    setDeleteDialogOpen(false);
+    setUserToDelete(null);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+
+    try {
+      setIsDeleting(true);
+      setError("");
+
+      const response = await fetch(`/api/users/${userToDelete.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Remove user from list
+        setUsers(prev => prev.filter(user => user.id !== userToDelete.id));
+        setMessage(data.message || `User ${userToDelete.name} deleted successfully`);
+        setTimeout(() => setMessage(""), 3000);
+        closeDeleteDialog();
+        
+        // Refresh pagination if needed
+        if (users.length === 1 && pagination.currentPage > 1) {
+          fetchUsers(pagination.currentPage - 1, searchTerm, filterRole, filterStatus);
+        } else {
+          fetchUsers(pagination.currentPage, searchTerm, filterRole, filterStatus);
+        }
+      } else {
+        setError(data.error || 'Failed to delete user');
+        setTimeout(() => setError(""), 3000);
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      setError('Failed to delete user. Please try again.');
+      setTimeout(() => setError(""), 3000);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
 
   if (loading) {
     return (
@@ -403,7 +461,7 @@ export default function UserManagement() {
   const pendingUsers = users.filter(u => !u.approved).length;
 
   return (
-    <AdminProtectedRoute requireSuperAdmin={true}>
+    <AdminProtectedRoute requireAdmin={true}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -663,6 +721,22 @@ export default function UserManagement() {
                         <Shield className="h-4 w-4 mr-1" />
                         Permissions
                       </Button>
+                      {/* Delete button - show for superadmin, admin, and manager */}
+                      {(currentUser?.role === 'superadmin' || 
+                        currentUser?.role === 'admin' || 
+                        currentUser?.role === 'manager') && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openDeleteDialog(user)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                          disabled={currentUser?.id === user.id} // Can't delete yourself
+                          title={currentUser?.id === user.id ? "You cannot delete your own account" : "Delete user"}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Delete
+                        </Button>
+                      )}
                   </div>
                 </motion.div>
               ))}
@@ -706,6 +780,70 @@ export default function UserManagement() {
           onClose={handleClosePermissions}
           onSave={handleSavePermissions}
         />
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-600">
+                <AlertTriangle className="h-5 w-5" />
+                Delete User
+              </DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete this user? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            {userToDelete && (
+              <div className="py-4">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="font-medium">{userToDelete.name}</p>
+                  <p className="text-sm text-gray-600">{userToDelete.email}</p>
+                  <div className="mt-2 flex gap-2">
+                    <Badge variant={userToDelete.role === 'superadmin' ? 'default' : 'secondary'}>
+                      {userToDelete.role === 'superadmin' ? 'Super Admin' : 
+                       userToDelete.role === 'admin' ? 'Admin' : 
+                       userToDelete.role === 'manager' ? 'Manager' : 'User'}
+                    </Badge>
+                    {userToDelete.station && (
+                      <Badge variant="outline">{userToDelete.station.name}</Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-800">
+                    <strong>Warning:</strong> This will permanently delete the user account and remove them from any assigned stations.
+                  </p>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={closeDeleteDialog}
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteUser}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete User
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
       </div>
     </AdminProtectedRoute>

@@ -58,6 +58,7 @@
     "dotenv": "^16.6.1",
     "embla-carousel-react": "8.5.1",
     "framer-motion": "latest",
+    "google-auth-library": "^10.5.0",
     "html2canvas": "^1.4.1",
     "input-otp": "1.4.1",
     "jsonwebtoken": "^9.0.2",
