@@ -2690,12 +2690,54 @@ Need help? Call us at +254 757 883 799`;
                   
                   {/* Payment Status Alert */}
                   {checkingPayment && (
-                    <Alert className="mb-3 border-blue-200 bg-blue-50">
-                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                      <AlertDescription className="text-blue-600">
-                        Waiting for payment confirmation... Please check the customer's phone to complete the M-Pesa payment.
-                      </AlertDescription>
-                    </Alert>
+                    <div className="mb-3 space-y-2">
+                      <Alert className="border-blue-200 bg-blue-50">
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                        <AlertDescription className="text-blue-600">
+                          Waiting for payment confirmation... Please check the customer's phone to complete the M-Pesa payment.
+                        </AlertDescription>
+                      </Alert>
+                      <Button
+                        onClick={async () => {
+                          // Cancel payment attempt
+                          if (paymentPollIntervalRef.current) {
+                            clearInterval(paymentPollIntervalRef.current);
+                            paymentPollIntervalRef.current = null;
+                          }
+                          
+                          setCheckingPayment(false);
+                          setPaymentStatus(null);
+                          setPaymentMessage('');
+                          setShowCancelOption(false);
+                          setCurrentCheckoutRequestId(null);
+                          setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
+                          
+                          // Reset order payment status to unpaid so admin can try again
+                          if (lastCreatedOrderId) {
+                            try {
+                              await fetch(`/api/orders/${lastCreatedOrderId}`, {
+                                method: 'PATCH',
+                                headers: {
+                                  'Authorization': `Bearer ${token}`,
+                                  'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                  paymentStatus: 'unpaid',
+                                  checkoutRequestId: null,
+                                }),
+                              });
+                            } catch (error) {
+                              console.error('Error resetting order payment status:', error);
+                            }
+                          }
+                        }}
+                        variant="outline"
+                        className="w-full border-orange-300 text-orange-700 hover:bg-orange-50 hover:border-orange-400"
+                      >
+                        <XCircle className="w-4 h-4 mr-2" />
+                        Cancel Payment Check
+                      </Button>
+                    </div>
                   )}
                   
                   {/* Initiate Payment Button */}
