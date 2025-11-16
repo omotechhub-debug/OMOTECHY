@@ -97,6 +97,30 @@ export default function CheckoutPage() {
           clearInterval(paymentPollIntervalRef.current)
           paymentPollIntervalRef.current = null
         }
+        
+        // Delete the order if it was created
+        if (orderId) {
+          try {
+            const token = localStorage.getItem('clientAuthToken')
+            const deleteResponse = await fetch(`/api/orders/${orderId}`, {
+              method: 'DELETE',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            })
+            
+            const deleteData = await deleteResponse.json()
+            if (deleteData.success) {
+              console.log('Order deleted successfully after payment timeout')
+              setOrderId(null)
+            } else {
+              console.error('Failed to delete order:', deleteData.error)
+            }
+          } catch (error) {
+            console.error('Error deleting order after timeout:', error)
+          }
+        }
         return
       }
       
@@ -146,7 +170,7 @@ export default function CheckoutPage() {
                 return
               }
               
-              // If failed, show failed message
+              // If failed, show failed message and delete order
               if (order.paymentStatus === 'failed') {
                 if (paymentPollIntervalRef.current) {
                   clearInterval(paymentPollIntervalRef.current)
@@ -154,6 +178,30 @@ export default function CheckoutPage() {
                 }
                 setPaymentStatus('failed')
                 setErrorMessage(order.resultDescription || 'Payment failed. Please try again.')
+                
+                // Delete the order if payment failed
+                if (orderId) {
+                  try {
+                    const token = localStorage.getItem('clientAuthToken')
+                    const deleteResponse = await fetch(`/api/orders/${orderId}`, {
+                      method: 'DELETE',
+                      headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                      }
+                    })
+                    
+                    const deleteData = await deleteResponse.json()
+                    if (deleteData.success) {
+                      console.log('Order deleted successfully after payment failure')
+                      setOrderId(null)
+                    } else {
+                      console.error('Failed to delete order:', deleteData.error)
+                    }
+                  } catch (error) {
+                    console.error('Error deleting order after payment failure:', error)
+                  }
+                }
                 return
               }
             }
@@ -225,13 +273,37 @@ export default function CheckoutPage() {
               }, 2000)
               return
             } else if (order.paymentStatus === 'failed') {
-              // Payment failed
+              // Payment failed - delete order
               if (paymentPollIntervalRef.current) {
                 clearInterval(paymentPollIntervalRef.current)
                 paymentPollIntervalRef.current = null
               }
               setPaymentStatus('failed')
               setErrorMessage(order.resultDescription || 'Payment failed. Please try again.')
+              
+              // Delete the order if payment failed
+              if (orderId) {
+                try {
+                  const token = localStorage.getItem('clientAuthToken')
+                  const deleteResponse = await fetch(`/api/orders/${orderId}`, {
+                    method: 'DELETE',
+                    headers: {
+                      'Authorization': `Bearer ${token}`,
+                      'Content-Type': 'application/json'
+                    }
+                  })
+                  
+                  const deleteData = await deleteResponse.json()
+                  if (deleteData.success) {
+                    console.log('Order deleted successfully after payment failure')
+                    setOrderId(null)
+                  } else {
+                    console.error('Failed to delete order:', deleteData.error)
+                  }
+                } catch (error) {
+                  console.error('Error deleting order after payment failure:', error)
+                }
+              }
               return
             }
             // If still pending, continue polling
@@ -351,12 +423,60 @@ export default function CheckoutPage() {
             setPaymentStatus('failed')
             setErrorMessage(stkData.error || 'Failed to initiate payment. Please try again.')
             setInitiatingPayment(false)
+            
+            // Delete the order if payment initiation failed
+            if (createdOrder._id) {
+              try {
+                const token = localStorage.getItem('clientAuthToken')
+                const deleteResponse = await fetch(`/api/orders/${createdOrder._id}`, {
+                  method: 'DELETE',
+                  headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                  }
+                })
+                
+                const deleteData = await deleteResponse.json()
+                if (deleteData.success) {
+                  console.log('Order deleted successfully after payment initiation failure')
+                  setOrderId(null)
+                } else {
+                  console.error('Failed to delete order:', deleteData.error)
+                }
+              } catch (error) {
+                console.error('Error deleting order after payment initiation failure:', error)
+              }
+            }
           }
         } catch (paymentError) {
           console.error('Payment initiation error:', paymentError)
           setPaymentStatus('failed')
           setErrorMessage('Failed to initiate payment. Please try again.')
           setInitiatingPayment(false)
+          
+          // Delete the order if payment initiation failed
+          if (createdOrder._id) {
+            try {
+              const token = localStorage.getItem('clientAuthToken')
+              const deleteResponse = await fetch(`/api/orders/${createdOrder._id}`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                }
+              })
+              
+              const deleteData = await deleteResponse.json()
+              if (deleteData.success) {
+                console.log('Order deleted successfully after payment initiation error')
+                setOrderId(null)
+              } else {
+                console.error('Failed to delete order:', deleteData.error)
+              }
+            } catch (error) {
+              console.error('Error deleting order after payment initiation error:', error)
+            }
+          }
         }
       } else {
         // Cash payment - redirect to account orders page for tracking
@@ -367,6 +487,30 @@ export default function CheckoutPage() {
       console.error('Order failed:', error)
       setErrorMessage(error.message || 'Failed to place order. Please try again.')
       setPaymentStatus('failed')
+      
+      // Delete the order if it was created but something went wrong
+      if (orderId) {
+        try {
+          const token = localStorage.getItem('clientAuthToken')
+          const deleteResponse = await fetch(`/api/orders/${orderId}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          })
+          
+          const deleteData = await deleteResponse.json()
+          if (deleteData.success) {
+            console.log('Order deleted successfully after order creation error')
+            setOrderId(null)
+          } else {
+            console.error('Failed to delete order:', deleteData.error)
+          }
+        } catch (deleteError) {
+          console.error('Error deleting order after order creation error:', deleteError)
+        }
+      }
     } finally {
       setIsProcessing(false)
     }
