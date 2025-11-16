@@ -374,7 +374,7 @@ function AdminLayoutContent({
   )
 }
 
-// Service worker registration for admin PWA
+// Service worker registration and manifest injection for admin PWA
 function AdminPWASetup() {
   useEffect(() => {
     // Register service worker for admin pages
@@ -389,6 +389,17 @@ function AdminPWASetup() {
           console.error('PWA: Admin Service Worker registration failed', error)
         })
     }
+
+    // Inject admin-specific manifest link
+    const existingManifest = document.querySelector('link[rel="manifest"]')
+    if (existingManifest) {
+      existingManifest.setAttribute('href', '/manifest-admin.json')
+    } else {
+      const manifestLink = document.createElement('link')
+      manifestLink.rel = 'manifest'
+      manifestLink.href = '/manifest-admin.json'
+      document.head.appendChild(manifestLink)
+    }
   }, [])
   
   return null
@@ -400,9 +411,31 @@ export default function AdminLayout({
   children: React.ReactNode
 }>) {
   return (
-    <AuthProvider>
-      <AdminPWASetup />
-      <AdminLayoutContent>{children}</AdminLayoutContent>
-    </AuthProvider>
+    <>
+      {/* Inject admin manifest immediately before React hydrates */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function() {
+              if (typeof document !== 'undefined') {
+                const existingManifest = document.querySelector('link[rel="manifest"]');
+                if (existingManifest) {
+                  existingManifest.setAttribute('href', '/manifest-admin.json');
+                } else {
+                  const manifestLink = document.createElement('link');
+                  manifestLink.rel = 'manifest';
+                  manifestLink.href = '/manifest-admin.json';
+                  document.head.appendChild(manifestLink);
+                }
+              }
+            })();
+          `,
+        }}
+      />
+      <AuthProvider>
+        <AdminPWASetup />
+        <AdminLayoutContent>{children}</AdminLayoutContent>
+      </AuthProvider>
+    </>
   )
 }
