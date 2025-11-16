@@ -14,7 +14,6 @@ import { useClientAuth } from "@/hooks/useClientAuth"
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [isContactVisible, setIsContactVisible] = useState(false)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
   const [showInstallButton, setShowInstallButton] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
@@ -31,10 +30,9 @@ export function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
-  // Show contact info on larger screens and detect mobile
+  // Detect mobile
   useEffect(() => {
     const handleResize = () => {
-      setIsContactVisible(window.innerWidth >= 768)
       setIsMobile(window.innerWidth < 768)
     }
     
@@ -175,25 +173,6 @@ export function Navbar() {
 
             {/* Desktop Actions */}
             <div className="hidden lg:flex items-center gap-4">
-              {/* Contact Info */}
-              {isContactVisible && (
-                <div className="hidden xl:flex items-center gap-4 text-sm text-gray-600 mr-4">
-                  <div className="flex items-center gap-1">
-                    <Phone className="w-4 h-4" />
-                    <a 
-                      href="tel:+254740802704" 
-                      className="text-gray-600 hover:text-primary hover:underline transition-colors cursor-pointer"
-                    >
-                      +254 740 802 704
-                    </a>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <MapPin className="w-4 h-4" />
-                    <span>OMOTECH HUB</span>
-                  </div>
-                </div>
-              )}
-              
               {/* Authentication Buttons */}
               {isAuthenticated ? (
                 <>
@@ -309,28 +288,6 @@ export function Navbar() {
                   </motion.div>
                 ))}
               </nav>
-
-              {/* Mobile Contact Info */}
-              <motion.div
-                className="mt-8 flex flex-col gap-4 items-center text-center"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.4 }}
-              >
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Phone className="w-4 h-4" />
-                  <a 
-                    href="tel:+254740802704" 
-                    className="text-gray-600 hover:text-primary hover:underline transition-colors cursor-pointer"
-                  >
-                    +254 740 802 704
-                  </a>
-                </div>
-                <div className="flex items-center gap-2 text-gray-600">
-                  <MapPin className="w-4 h-4" />
-                  <span>OMOTECH HUB</span>
-                </div>
-              </motion.div>
 
               {/* Mobile Actions */}
               <motion.div

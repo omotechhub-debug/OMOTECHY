@@ -151,7 +151,7 @@ export default function ServiceDetailPage() {
       <Navbar />
       
       {/* Breadcrumb */}
-      <div className="bg-white border-b mt-20">
+      <div className="bg-white border-b pt-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <Link href="/shop" className="hover:text-primary">Shop</Link>
@@ -239,8 +239,14 @@ export default function ServiceDetailPage() {
             {/* Action Buttons */}
             <div className="flex gap-4">
               <Button 
-                className="flex-1 bg-primary hover:bg-primary/90 text-white"
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
                 size="lg"
+                onClick={() => {
+                  const phoneNumber = '254740802704';
+                  const message = `Hello! I'm interested in booking your *${service.name}* service.\n\nService Details:\n- Service: ${service.name}\n- Category: ${service.category}\n- Price: ${service.price}\n- Turnaround: ${service.turnaround}\n\nPlease let me know about availability and next steps. Thank you!`;
+                  const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+                  window.open(whatsappUrl, '_blank');
+                }}
               >
                 <Phone className="w-5 h-5 mr-2" />
                 Book This Service
@@ -249,9 +255,12 @@ export default function ServiceDetailPage() {
                 variant="outline" 
                 size="lg"
                 className="px-8"
+                asChild
               >
-                <Phone className="w-5 h-5 mr-2" />
-                Call Now
+                <a href="tel:+254740802704">
+                  <Phone className="w-5 h-5 mr-2" />
+                  Call Now
+                </a>
               </Button>
             </div>
 
@@ -265,7 +274,7 @@ export default function ServiceDetailPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4" />
-                  <span>Nairobi, Kenya</span>
+                  <span>Kutus, Kenya</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4" />

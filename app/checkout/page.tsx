@@ -61,7 +61,7 @@ export default function CheckoutPage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />
-        <div className="max-w-2xl mx-auto px-4 py-16 mt-20 text-center">
+        <div className="max-w-2xl mx-auto px-4 py-16 pt-24 text-center">
           <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Your cart is empty</h1>
           <p className="text-gray-600 mb-6">Add some items to your cart before checking out</p>
@@ -253,7 +253,7 @@ export default function CheckoutPage() {
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       
-      <div className="max-w-6xl mx-auto px-4 py-8 mt-20">
+      <div className="max-w-6xl mx-auto px-4 py-8 pt-24">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
           <Link href="/shop">

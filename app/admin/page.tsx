@@ -243,6 +243,16 @@ export default function AdminPage() {
       bgColor: "bg-rose-50",
       textColor: "text-rose-700",
       roles: ['admin', 'superadmin']
+    },
+    {
+      title: "Social Media",
+      description: "Manage social media links for website footer",
+      href: "/admin/social-media",
+      icon: MessageSquare,
+      color: "bg-gradient-to-br from-indigo-500 to-indigo-600",
+      bgColor: "bg-indigo-50",
+      textColor: "text-indigo-700",
+      roles: ['admin', 'superadmin']
     }
   ]
 

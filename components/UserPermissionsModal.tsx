@@ -44,7 +44,8 @@ const PAGE_LABELS: { [key: string]: string } = {
   testimonials: 'Testimonials',
   promotions: 'Promotions',
   'mpesa-transactions': 'M-Pesa Transactions',
-  settings: 'Settings'
+  settings: 'Settings',
+  'social-media': 'Social Media'
 };
 
 const PAGE_DESCRIPTIONS: { [key: string]: string } = {
@@ -61,7 +62,8 @@ const PAGE_DESCRIPTIONS: { [key: string]: string } = {
   testimonials: 'Manage customer testimonials',
   promotions: 'Configure promotional offers',
   'mpesa-transactions': 'Manage M-Pesa payment transactions',
-  settings: 'System configuration and settings'
+  settings: 'System configuration and settings',
+  'social-media': 'Manage social media links for website footer'
 };
 
 // Default permissions for all pages
@@ -79,7 +81,8 @@ const DEFAULT_PERMISSIONS: PagePermission[] = [
   { page: 'testimonials', canView: true, canEdit: false, canDelete: false },
   { page: 'promotions', canView: true, canEdit: false, canDelete: false },
   { page: 'mpesa-transactions', canView: true, canEdit: true, canDelete: false },
-  { page: 'settings', canView: false, canEdit: false, canDelete: false }
+  { page: 'settings', canView: false, canEdit: false, canDelete: false },
+  { page: 'social-media', canView: true, canEdit: true, canDelete: false }
 ];
 
 export default function UserPermissionsModal({ user, isOpen, onClose, onSave }: UserPermissionsModalProps) {

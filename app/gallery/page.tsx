@@ -59,7 +59,7 @@ export default function PublicGalleryPage() {
     <div className="min-h-screen bg-gradient-to-b from-[#F0F2FE] to-white flex flex-col">
       <Navbar />
       {/* Hero Section */}
-      <section className="relative py-12 md:py-20 bg-white border-b border-gray-100 mt-6 md:mt-10">
+      <section className="relative py-12 md:py-20 bg-white border-b border-gray-100 pt-24 md:pt-28">
         <div className="flex justify-center w-full px-2">
           <div
             className="w-full max-w-3xl mx-auto px-4 py-8 md:py-12 rounded-2xl md:rounded-3xl shadow-sm"

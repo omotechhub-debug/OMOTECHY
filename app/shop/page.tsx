@@ -102,11 +102,15 @@ export default function ShopPage() {
   const [activeTab, setActiveTab] = useState<'products' | 'services'>('products');
   const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   
-  // Filters
-  const [searchTerm, setSearchTerm] = useState('');
+  // Filters - separate search terms for products and services
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [serviceSearchTerm, setServiceSearchTerm] = useState('');
+  const [debouncedProductSearchTerm, setDebouncedProductSearchTerm] = useState('');
+  const [debouncedServiceSearchTerm, setDebouncedServiceSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   
@@ -118,6 +122,32 @@ export default function ShopPage() {
   // Cart and Auth
   const { addItem } = useCart();
   const { isAuthenticated } = useClientAuth();
+
+  // Debounce product search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedProductSearchTerm(productSearchTerm);
+      // Reset to first page when search changes
+      if (activeTab === 'products') {
+        setCurrentPage(1);
+      }
+    }, 500); // Wait 500ms after user stops typing
+
+    return () => clearTimeout(timer);
+  }, [productSearchTerm, activeTab]);
+
+  // Debounce service search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedServiceSearchTerm(serviceSearchTerm);
+      // Reset to first page when search changes
+      if (activeTab === 'services') {
+        setCurrentPage(1);
+      }
+    }, 500); // Wait 500ms after user stops typing
+
+    return () => clearTimeout(timer);
+  }, [serviceSearchTerm, activeTab]);
 
   const handleAddToCart = (item: any, type: 'product' | 'service') => {
     if (!isAuthenticated) {
@@ -145,23 +175,41 @@ export default function ShopPage() {
     window.open(whatsappUrl, '_blank');
   };
 
+  // Set mounted flag to prevent hydration mismatch
   useEffect(() => {
-    if (activeTab === 'products') {
-      fetchProducts();
-    } else {
-      fetchServices();
+    setMounted(true);
+  }, []);
+
+  // Reset filters (but not search terms) when switching tabs
+  useEffect(() => {
+    setCategoryFilter('all');
+    setStatusFilter('all');
+    setCurrentPage(1);
+    // Don't reset search terms - they should be preserved separately for each tab
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (mounted) {
+      if (activeTab === 'products') {
+        fetchProducts();
+      } else {
+        fetchServices();
+      }
     }
-  }, [activeTab, currentPage, searchTerm, categoryFilter, statusFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, activeTab, currentPage, debouncedProductSearchTerm, debouncedServiceSearchTerm, categoryFilter, statusFilter]);
 
   const fetchProducts = async () => {
     try {
       setLoading(true);
+      // Fetch more items to account for filtering and deduplication
+      // We'll handle pagination client-side after filtering
       const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: '12'
+        page: '1',
+        limit: '1000' // Fetch more items to filter and paginate client-side
       });
       
-      if (searchTerm) params.append('search', searchTerm);
+      if (debouncedProductSearchTerm) params.append('search', debouncedProductSearchTerm);
       if (categoryFilter !== 'all') params.append('category', categoryFilter);
       if (statusFilter !== 'all') params.append('status', statusFilter);
 
@@ -169,9 +217,32 @@ export default function ShopPage() {
 
       if (response.ok) {
         const data = await response.json();
-        setProducts(data.data);
-        setTotalPages(data.pagination.pages);
-        setTotalItems(data.pagination.total);
+        
+        // Filter out out-of-stock products
+        let filteredProducts = data.data.filter((product: Product) => {
+          // Exclude if stock is 0 or stockStatus is 'out_of_stock'
+          return product.stock > 0 && product.stockStatus !== 'out_of_stock';
+        });
+        
+        // Deduplicate products by SKU (show only one even if different stations have them)
+        const seenSKUs = new Set<string>();
+        const uniqueProducts = filteredProducts.filter((product: Product) => {
+          if (seenSKUs.has(product.sku)) {
+            return false; // Skip duplicate
+          }
+          seenSKUs.add(product.sku);
+          return true; // Keep first occurrence
+        });
+        
+        // Client-side pagination
+        const itemsPerPage = 12;
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        const paginatedProducts = uniqueProducts.slice(startIndex, endIndex);
+        
+        setProducts(paginatedProducts);
+        setTotalPages(Math.ceil(uniqueProducts.length / itemsPerPage));
+        setTotalItems(uniqueProducts.length);
       } else {
         setError('Failed to fetch products');
       }
@@ -191,7 +262,7 @@ export default function ShopPage() {
         limit: '20'
       });
       
-      if (searchTerm) params.append('search', searchTerm);
+      if (debouncedServiceSearchTerm) params.append('search', debouncedServiceSearchTerm);
       if (categoryFilter !== 'all') params.append('category', categoryFilter);
       if (statusFilter !== 'all') params.append('status', statusFilter);
 
@@ -249,23 +320,12 @@ export default function ShopPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-lg font-medium">Loading shop...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       
       {/* Hero Section */}
-      <div className="bg-gradient-to-r from-primary to-accent text-white py-12 sm:py-16 mt-16 sm:mt-20">
+      <div className="bg-gradient-to-r from-primary to-accent text-white py-12 sm:py-16 pt-24 sm:pt-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
             <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-3 sm:mb-4 leading-tight">
@@ -281,7 +341,7 @@ export default function ShopPage() {
               </div>
               <div className="flex items-center justify-center gap-2">
                 <MapPin className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span>Nairobi, Kenya</span>
+                <span>Kutus, Kenya</span>
               </div>
               <div className="flex items-center justify-center gap-2">
                 <Clock className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -324,9 +384,24 @@ export default function ShopPage() {
               <div className="relative sm:col-span-2 lg:col-span-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
+                  type="text"
+                  autoComplete="off"
                   placeholder={`Search ${activeTab}...`}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  value={activeTab === 'products' ? productSearchTerm : serviceSearchTerm}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (activeTab === 'products') {
+                      setProductSearchTerm(value);
+                    } else {
+                      setServiceSearchTerm(value);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }
+                  }}
                   className="pl-10 border-gray-300 focus:border-primary focus:ring-primary text-sm sm:text-base"
                 />
               </div>
@@ -337,11 +412,13 @@ export default function ShopPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
-                  {(activeTab === 'products' ? PRODUCT_CATEGORIES : SERVICE_CATEGORIES).map((category) => (
-                    <SelectItem key={category.value} value={category.value}>
-                      {category.label}
-                    </SelectItem>
-                  ))}
+                  {(activeTab === 'products' ? PRODUCT_CATEGORIES : SERVICE_CATEGORIES)
+                    .filter((category) => category.value !== 'all')
+                    .map((category) => (
+                      <SelectItem key={category.value} value={category.value}>
+                        {category.label}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
 
@@ -367,8 +444,18 @@ export default function ShopPage() {
           </div>
         )}
 
+        {/* Loading State */}
+        {loading && (
+          <div className="flex items-center justify-center py-16">
+            <div className="text-center">
+              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
+              <p className="text-lg font-medium">Loading {activeTab}...</p>
+            </div>
+          </div>
+        )}
+
         {/* Products Grid */}
-        {activeTab === 'products' && (
+        {activeTab === 'products' && !loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
             {products.map((product) => {
               const CategoryIcon = getCategoryIcon(product.category);
@@ -494,7 +581,7 @@ export default function ShopPage() {
         )}
 
         {/* Services Grid */}
-        {activeTab === 'services' && (
+        {activeTab === 'services' && !loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
             {services.map((service) => {
               const CategoryIcon = getServiceCategoryIcon(service.category);
@@ -582,8 +669,20 @@ export default function ShopPage() {
                         size="sm"
                       >
                         <Phone className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2 flex-shrink-0" />
-                        <span className="hidden sm:inline truncate">Book via WhatsApp</span>
-                        <span className="sm:hidden truncate">WhatsApp</span>
+                        <span className="hidden sm:inline truncate">Book This Service</span>
+                        <span className="sm:hidden truncate">Book</span>
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="text-xs sm:text-sm px-2 sm:px-3 flex-shrink-0"
+                        asChild
+                      >
+                        <a href="tel:+254740802704">
+                          <Phone className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2 flex-shrink-0" />
+                          <span className="hidden sm:inline">Call Now</span>
+                          <span className="sm:hidden">Call</span>
+                        </a>
                       </Button>
                       <Button 
                         variant="outline" 
@@ -618,7 +717,7 @@ export default function ShopPage() {
               No {activeTab} found
             </h3>
             <p className="text-gray-600 text-lg max-w-md mx-auto mb-6">
-              {searchTerm || categoryFilter !== 'all' || statusFilter !== 'all'
+              {(activeTab === 'products' ? productSearchTerm : serviceSearchTerm) || categoryFilter !== 'all' || statusFilter !== 'all'
                 ? 'Try adjusting your filters to see more results.'
                 : `No ${activeTab} available at the moment.`}
             </p>

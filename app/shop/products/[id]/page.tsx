@@ -222,7 +222,7 @@ export default function ProductDetailPage() {
       <Navbar />
       
       {/* Breadcrumb */}
-      <div className="bg-white border-b mt-20">
+      <div className="bg-white border-b pt-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <Link href="/shop" className="hover:text-primary">Shop</Link>
@@ -426,7 +426,7 @@ export default function ProductDetailPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4" />
-                  <span>Nairobi, Kenya</span>
+                  <span>Kutus, Kenya</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4" />

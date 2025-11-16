@@ -115,7 +115,7 @@ export function getAccessiblePages(user: IUser | null): string[] {
     return [
       'dashboard', 'orders', 'pos', 'customers', 'services', 'reports', 
       'mpesa-transactions', 'users', 'expenses', 'gallery', 'testimonials', 
-      'promotions', 'inventory', 'inventory-management', 'stations', 'settings'
+      'promotions', 'inventory', 'inventory-management', 'stations', 'settings', 'social-media'
     ];
   }
 
@@ -333,6 +333,7 @@ export const ADMIN_PAGES = {
   inventory: { label: 'Inventory', icon: 'Package', path: '/admin/inventory' },
   'inventory-management': { label: 'Inventory Management', icon: 'BarChart3', path: '/admin/inventory-management' },
   stations: { label: 'Stations', icon: 'Building', path: '/admin/stations' },
+  'social-media': { label: 'Social Media', icon: 'MessageSquare', path: '/admin/social-media' },
 } as const;
 
 /**

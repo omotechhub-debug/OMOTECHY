@@ -1,11 +1,54 @@
+"use client"
+
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { ShirtIcon, Mail, Phone, MapPin, Instagram, Facebook, Twitter } from "lucide-react"
+import { ShirtIcon, Mail, Phone, MapPin, Instagram, Facebook, Twitter, Music } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
+interface SocialMediaLink {
+  platform: 'instagram' | 'facebook' | 'twitter' | 'tiktok'
+  url: string
+  isActive: boolean
+}
+
 export function Footer() {
+  const [socialLinks, setSocialLinks] = useState<SocialMediaLink[]>([])
+
+  useEffect(() => {
+    fetchSocialMediaLinks()
+  }, [])
+
+  const fetchSocialMediaLinks = async () => {
+    try {
+      const response = await fetch('/api/social-media')
+      const data = await response.json()
+      
+      if (data.success && data.data) {
+        setSocialLinks(data.data.filter((link: SocialMediaLink) => link.isActive && link.url))
+      }
+    } catch (error) {
+      console.error('Error fetching social media links:', error)
+    }
+  }
+
+  const getSocialIcon = (platform: string) => {
+    switch (platform) {
+      case 'instagram':
+        return <Instagram className="w-5 h-5 text-[#263C7C]" />
+      case 'facebook':
+        return <Facebook className="w-5 h-5 text-[#263C7C]" />
+      case 'twitter':
+        return <Twitter className="w-5 h-5 text-[#263C7C]" />
+      case 'tiktok':
+        return <Music className="w-5 h-5 text-[#263C7C]" />
+      default:
+        return null
+    }
+  }
+
   return (
     <footer className="bg-secondary pt-16 pb-8">
       <div className="container px-4 md:px-6">
@@ -28,17 +71,21 @@ export function Footer() {
             <p className="text-[#263C7C] font-semibold text-sm mb-6">
               "Technology, Service, and Quality - All in One Place"
             </p>
-            <div className="flex gap-4">
-              <Link href="#" className="p-2 rounded-full bg-white hover:bg-white/80 transition-colors luxury-shadow">
-                <Instagram className="w-5 h-5 text-[#263C7C]" />
-              </Link>
-              <Link href="#" className="p-2 rounded-full bg-white hover:bg-white/80 transition-colors luxury-shadow">
-                <Facebook className="w-5 h-5 text-[#263C7C]" />
-              </Link>
-              <Link href="#" className="p-2 rounded-full bg-white hover:bg-white/80 transition-colors luxury-shadow">
-                <Twitter className="w-5 h-5 text-[#263C7C]" />
-              </Link>
-            </div>
+            {socialLinks.length > 0 && (
+              <div className="flex gap-4">
+                {socialLinks.map((link) => (
+                  <Link
+                    key={link.platform}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-full bg-white hover:bg-white/80 transition-colors luxury-shadow"
+                  >
+                    {getSocialIcon(link.platform)}
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
@@ -73,9 +120,7 @@ export function Footer() {
               <li className="flex items-start gap-3">
                 <MapPin className="w-5 h-5 text-[#263C7C] mt-0.5" />
                 <span className="text-text-light">
-                  Westlands, Nairobi
-                  <br />
-                  Kenya
+                  Kutus, Kenya
                 </span>
               </li>
               <li className="flex items-center gap-3">

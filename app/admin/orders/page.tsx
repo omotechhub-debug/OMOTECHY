@@ -1333,9 +1333,12 @@ function OrdersPageContent() {
       <body>
         <div class="receipt">
           <div class="header">
-            <div class="business-name">ECONURU LAUNDRY</div>
-            <div class="business-tagline">Professional Laundry Services</div>
-            <div style="font-size: 12px;">Quality Care for Your Garments</div>
+            <div class="business-name">OMOTECH-HUB COMPUTERS</div>
+            <div class="business-tagline">Professional Computer Services</div>
+            <div style="font-size: 12px;">Quality Care for Your Devices</div>
+            ${order.station?.name ? `
+            <div style="font-size: 18px; font-weight: bold; margin-top: 10px; text-transform: uppercase;">${order.station.name}</div>
+            ` : ''}
           </div>
 
           <div class="order-info">
@@ -1364,6 +1367,12 @@ function OrdersPageContent() {
               <span><strong>Customer:</strong></span>
               <span>${order.customer.name}</span>
             </div>
+            ${order.createdBy?.name ? `
+            <div class="order-row">
+              <span><strong>Processed by:</strong></span>
+              <span>${order.createdBy.name} (${order.createdBy.role})</span>
+            </div>
+            ` : ''}
             <div class="order-row">
               <span><strong>Phone:</strong></span>
               <span>${order.customer.phone}</span>
@@ -1458,9 +1467,9 @@ function OrdersPageContent() {
           ` : ''}
 
           <div class="footer">
-            <div class="thank-you">Thank You for Choosing Econuru!</div>
-            <div style="font-size: 13px; margin-bottom: 2px;">For inquiries: <span style="white-space: nowrap;">+254757883799</span></div>
-            <div style="font-size: 13px; margin-bottom: 16px; word-break: break-all;"><span style="font-weight: bold;">Email:</span> econuruservices@gmail.com</div>
+            <div class="thank-you">Thank You for Choosing OMOTECH-HUB COMPUTERS!</div>
+            <div style="font-size: 13px; margin-bottom: 2px;">For inquiries: <span style="white-space: nowrap;">+254 740 802 704</span> / <span style="white-space: nowrap;">+254 745 755 707</span></div>
+            <div style="font-size: 13px; margin-bottom: 16px; word-break: break-all;"><span style="font-weight: bold;">Email:</span> omotechhub@gmail.com</div>
             <div style="margin-top: 0; font-size: 10px;">
               This receipt serves as proof of order placement.<br>
               Please keep it safe for order tracking.

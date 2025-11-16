@@ -51,7 +51,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       
-      <div className="max-w-md mx-auto px-4 py-16 mt-20">
+      <div className="max-w-md mx-auto px-4 py-16 pt-24">
         <Card>
           <CardHeader className="text-center">
             <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">

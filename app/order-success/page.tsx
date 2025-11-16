@@ -13,7 +13,7 @@ export default function OrderSuccessPage() {
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       
-      <div className="max-w-2xl mx-auto px-4 py-16 mt-20 text-center">
+      <div className="max-w-2xl mx-auto px-4 py-16 pt-24 text-center">
         <Card>
           <CardHeader>
             <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
