@@ -19,6 +19,7 @@ interface AuthContextType {
   isSuperAdmin: boolean
   login: (email: string, password: string) => Promise<boolean>
   signup: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>
+  loginWithGoogle: (idToken: string) => Promise<{ success: boolean; error?: string; message?: string }>
   logout: () => void
   checkAuth: () => Promise<void>
 }
@@ -210,6 +211,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const loginWithGoogle = async (idToken: string): Promise<{ success: boolean; error?: string; message?: string }> => {
+    try {
+      console.log('Calling client Google login API...')
+      const response = await fetch('/api/auth/client-google-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+
+      console.log('Client Google login API response status:', response.status)
+      const contentType = response.headers.get('content-type')
+      
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text()
+        console.error('Non-JSON response received:', text.substring(0, 200))
+        if (response.status === 404) {
+          return { success: false, error: 'API endpoint not found. Please check server configuration.' }
+        }
+        return { success: false, error: `Server error (${response.status}). Please check server logs.` }
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError: any) {
+        console.error('Failed to parse JSON response:', parseError)
+        return { success: false, error: 'Invalid server response format. Please try again.' };
+      }
+
+      console.log('Client Google login API response data:', data)
+
+      if (response.ok && data.success) {
+        setUser(data.user);
+        localStorage.setItem('clientAuthToken', data.token);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return { success: true, message: data.message || 'Login successful! Redirecting...' };
+      } else {
+        if (data.code === 'ADMIN_ACCOUNT') {
+          return { success: false, error: data.error || 'This is an admin account. Please use the admin login page.' };
+        }
+        return { success: false, error: data.error || 'Google sign-in failed. Please try again.' };
+      }
+    } catch (error: any) {
+      console.error('Client Google login fetch error:', error)
+      if (error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError')) {
+        return { success: false, error: 'Network error. Please check your connection and try again.' };
+      }
+      return { success: false, error: error?.message || 'Network error. Please check your connection.' };
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('clientAuthToken')
     setUser(null)
@@ -224,6 +276,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isSuperAdmin,
       login,
       signup,
+      loginWithGoogle,
       logout,
       checkAuth
     }}>

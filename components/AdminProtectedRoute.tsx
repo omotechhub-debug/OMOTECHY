@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, AlertTriangle, Lock, Shield, Clock } from 'lucide-react';
+import { Loader2, AlertTriangle, Lock, Shield, Clock, LogOut } from 'lucide-react';
 import { canViewPage, isAdminUser, isSuperAdminUser, isManagerUser, isAdminOrManagerUser } from '@/lib/permissions';
 
 interface AdminProtectedRouteProps {
@@ -21,7 +21,7 @@ export default function AdminProtectedRoute({
   requireManager = false,
   requiredPage 
 }: AdminProtectedRouteProps) {
-  const { isAuthenticated, isAdmin, isManager, isLoading, user } = useAuth();
+  const { isAuthenticated, isAdmin, isManager, isLoading, user, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
@@ -279,5 +279,50 @@ export default function AdminProtectedRoute({
   }
 
   console.log('✅ Access granted based on permissions');
+  
+  // Check if manager has no station assigned
+  const managerHasNoStation = user?.role === 'manager' && !user?.stationId && (!user?.managedStations || user.managedStations.length === 0);
+  
+  // If manager has no station, show only the message and block all content
+  if (managerHasNoStation) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="max-w-md w-full">
+          <div className="bg-amber-50 border-l-4 border-amber-400 p-6 rounded-lg shadow-sm">
+            <div className="flex items-start">
+              <AlertTriangle className="h-6 w-6 text-amber-600 mr-4 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-lg font-semibold text-amber-800 mb-2">
+                  No Station Assigned
+                </h3>
+                <p className="text-sm text-amber-700 mb-4">
+                  You are not currently assigned to any station. Please contact your administrator to get station access.
+                </p>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => router.push('/admin')}
+                    className="text-sm text-amber-800 hover:text-amber-900 underline"
+                  >
+                    Back to Dashboard
+                  </button>
+                  <button 
+                    onClick={() => {
+                      logout();
+                      router.push('/admin/login');
+                    }}
+                    className="text-sm text-amber-800 hover:text-amber-900 underline flex items-center gap-1"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Logout
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return <>{children}</>;
 }

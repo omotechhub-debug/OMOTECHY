@@ -359,6 +359,8 @@ function AdminDashboardContent() {
               <>Managing <span className="font-semibold text-primary">{stationInfo.name}</span> - {stationInfo.location}</>
             ) : user?.role === 'superadmin' ? (
               "Full system access - Manage all stations and business operations"
+            ) : user?.role === 'manager' ? (
+              "" // Show nothing for managers without station
             ) : (
               "You are not currently assigned to any station. Contact your administrator for station access."
             )}
@@ -373,8 +375,8 @@ function AdminDashboardContent() {
         </div>
       </div>
 
-      {/* Station Information Card */}
-      {stationInfo ? (
+      {/* Station Information Card - Only show if manager has a station */}
+      {stationInfo && (
         <Card className="luxury-card bg-gradient-to-r from-primary/5 to-accent/5 border-primary/20">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -396,33 +398,6 @@ function AdminDashboardContent() {
                 </Badge>
                 <p className="text-sm text-text-light mt-1">
                   {stationInfo.isActive ? 'Active' : 'Inactive'}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="luxury-card bg-gradient-to-r from-gray-50 to-gray-100 border-gray-200">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-full bg-gray-100">
-                  <Building className="w-6 h-6 text-gray-500" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-600">No Station Assigned</h3>
-                  <p className="text-text-light">You are not currently assigned to any station</p>
-                  <p className="text-sm text-text-light">
-                    Contact your administrator to get station access
-                  </p>
-                </div>
-              </div>
-              <div className="text-right">
-                <Badge variant="outline" className="text-gray-500 border-gray-300 bg-gray-100">
-                  No Station
-                </Badge>
-                <p className="text-sm text-text-light mt-1">
-                  Unassigned
                 </p>
               </div>
             </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import { ShirtIcon, Eye, EyeOff, AlertCircle, UserPlus, Shield, Clock } from "lucide-react"
@@ -9,7 +9,24 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import Link from "next/link"
+
+// Declare Google types
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: any) => void
+          prompt: () => void
+          renderButton: (element: HTMLElement, config: any) => void
+        }
+      }
+    }
+  }
+}
 
 export default function AdminSignup() {
   const router = useRouter()
@@ -23,9 +40,157 @@ export default function AdminSignup() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [agreeToTerms, setAgreeToTerms] = useState(false)
+  const googleButtonRefCallback = useRef<HTMLDivElement | null>(null)
+  const [showReasonDialog, setShowReasonDialog] = useState(false)
+  const [googleIdToken, setGoogleIdToken] = useState<string | null>(null)
+  const [googleUserInfo, setGoogleUserInfo] = useState<{ name: string; email: string } | null>(null)
+  const [reasonForGoogle, setReasonForGoogle] = useState("")
+
+  const handleGoogleSignIn = useCallback(async (response: any) => {
+    setIsGoogleLoading(true)
+    setError("")
+    setSuccess("")
+    
+    try {
+      if (!response || !response.credential) {
+        console.error('Google response missing credential:', response)
+        setError("Invalid Google response. Please try again.")
+        setIsGoogleLoading(false)
+        return
+      }
+
+      // Decode the Google ID token to get user info (client-side only for display)
+      try {
+        const payload = JSON.parse(atob(response.credential.split('.')[1]))
+        setGoogleUserInfo({
+          name: payload.name || payload.email?.split('@')[0] || 'User',
+          email: payload.email || ''
+        })
+      } catch (e) {
+        console.error('Error decoding token:', e)
+      }
+
+      // Store the ID token and show reason dialog
+      setGoogleIdToken(response.credential)
+      setShowReasonDialog(true)
+      setIsGoogleLoading(false)
+    } catch (error: any) {
+      console.error('Google sign-in error:', error)
+      setError(error?.message || "Network error. Please check your connection and try again.")
+      setIsGoogleLoading(false)
+    }
+  }, [])
+
+  const handleGoogleSignupSubmit = async () => {
+    if (!googleIdToken) {
+      setError("Google authentication token is missing. Please try again.")
+      return
+    }
+
+    if (!reasonForGoogle.trim()) {
+      setError("Please provide a reason for requesting admin access")
+      return
+    }
+
+    setIsGoogleLoading(true)
+    setError("")
+    setSuccess("")
+
+    try {
+      const response = await fetch('/api/auth/admin-google-signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          idToken: googleIdToken,
+          reason: reasonForGoogle.trim()
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setSuccess(data.message || "Admin account request submitted successfully! You will be notified when approved.")
+        setShowReasonDialog(false)
+        setGoogleIdToken(null)
+        setReasonForGoogle("")
+        setGoogleUserInfo(null)
+        
+        // Redirect to pending approval page after 2 seconds
+        setTimeout(() => {
+          router.push(`/admin/pending-approval?email=${encodeURIComponent(data.user?.email || '')}`)
+        }, 2000)
+      } else {
+        if (data.code === 'EXISTING_ADMIN_ACCOUNT') {
+          setError(data.error || "An admin account with this email already exists. Please use the login page instead.")
+          setShowReasonDialog(false)
+          setTimeout(() => {
+            router.push('/admin/login')
+          }, 2000)
+        } else {
+          setError(data.error || data.message || "Failed to submit admin request")
+        }
+      }
+    } catch (error) {
+      setError("Network error. Please check your connection and try again.")
+    } finally {
+      setIsGoogleLoading(false)
+    }
+  }
+
+  // Load Google Identity Services script
+  useEffect(() => {
+    const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
+    
+    if (!googleClientId) {
+      console.error('NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set in environment variables')
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = 'https://accounts.google.com/gsi/client'
+    script.async = true
+    script.defer = true
+    script.onload = () => {
+      if (window.google && googleButtonRefCallback.current) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: handleGoogleSignIn,
+          })
+          
+          // Render Google Sign-In button
+          window.google.accounts.id.renderButton(googleButtonRefCallback.current, {
+            type: 'standard',
+            theme: 'outline',
+            size: 'large',
+            text: 'signup_with',
+            width: '100%',
+          })
+          console.log('Google Sign-In button rendered successfully')
+        } catch (error) {
+          console.error('Error initializing Google Sign-In:', error)
+        }
+      }
+    }
+    script.onerror = () => {
+      console.error('Failed to load Google Identity Services script')
+    }
+    
+    document.body.appendChild(script)
+
+    return () => {
+      const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]')
+      if (existingScript && existingScript.parentNode) {
+        existingScript.parentNode.removeChild(existingScript)
+      }
+    }
+  }, [handleGoogleSignIn])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -267,11 +432,30 @@ export default function AdminSignup() {
             <Button
               type="submit"
               className="w-full bg-[#263C7C] hover:bg-[#1e2f5f] text-white rounded-xl h-12"
-              disabled={isLoading}
+              disabled={isLoading || isGoogleLoading}
             >
               {isLoading ? "Submitting Request..." : "Submit Admin Request"}
             </Button>
           </form>
+
+          <div className="mt-6">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white px-2 text-gray-500">Or continue with</span>
+              </div>
+            </div>
+            
+            <div className="mt-4 w-full">
+              <div
+                ref={(el) => { googleButtonRefCallback.current = el }}
+                className="w-full flex justify-center"
+                style={{ minHeight: '40px' }}
+              />
+            </div>
+          </div>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
@@ -292,6 +476,73 @@ export default function AdminSignup() {
           </p>
         </div>
       </motion.div>
+
+      {/* Reason Dialog for Google Sign-In */}
+      <Dialog open={showReasonDialog} onOpenChange={setShowReasonDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#263C7C]">
+              <Shield className="w-5 h-5" />
+              Complete Admin Request
+            </DialogTitle>
+            <DialogDescription>
+              {googleUserInfo && (
+                <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+                  <p className="font-medium">{googleUserInfo.name}</p>
+                  <p className="text-sm text-gray-600">{googleUserInfo.email}</p>
+                </div>
+              )}
+              Please provide a reason for requesting admin access to complete your registration.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="space-y-2">
+              <Label htmlFor="googleReason" className="text-sm font-medium">
+                Reason for Admin Access *
+              </Label>
+              <Textarea
+                id="googleReason"
+                value={reasonForGoogle}
+                onChange={(e) => setReasonForGoogle(e.target.value)}
+                placeholder="Please explain why you need admin access..."
+                className="w-full min-h-[100px]"
+                required
+                disabled={isGoogleLoading}
+              />
+            </div>
+            {error && (
+              <Alert className="mt-4 border-red-200 bg-red-50">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-600">
+                  {error}
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowReasonDialog(false)
+                setGoogleIdToken(null)
+                setReasonForGoogle("")
+                setGoogleUserInfo(null)
+                setError("")
+              }}
+              disabled={isGoogleLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleGoogleSignupSubmit}
+              disabled={isGoogleLoading || !reasonForGoogle.trim()}
+              className="bg-[#263C7C] hover:bg-[#1e2f5f]"
+            >
+              {isGoogleLoading ? "Submitting..." : "Submit Request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

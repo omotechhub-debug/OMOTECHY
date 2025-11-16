@@ -26,10 +26,14 @@ This guide will help you set up Google Sign-In for the admin panel, which works 
    - Name: "OMOTECH HUB Admin Web Client"
    - Authorized JavaScript origins:
      - `http://localhost:3000` (for development)
-     - `https://omotech.co.ke` (for production)
+     - `https://omotech.co.ke` (for production - without www)
+     - `https://www.omotech.co.ke` (for production - with www)
    - Authorized redirect URIs:
      - `http://localhost:3000` (for development)
-     - `https://omotech.co.ke` (for production)
+     - `https://omotech.co.ke` (for production - without www)
+     - `https://www.omotech.co.ke` (for production - with www)
+   
+   **Important**: Google OAuth treats `www` and non-`www` as different origins. Add both versions if your site can be accessed with or without `www`.
 7. Click **Create**
 8. Copy the **Client ID** (you'll need this)
 

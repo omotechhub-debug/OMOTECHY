@@ -32,6 +32,9 @@ NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 4. Check **Authorized JavaScript origins** includes:
    - `http://localhost:3000` (for development)
    - Your production domain (for production)
+   - **Both `www` and non-`www` versions** if applicable (e.g., `https://omotech.co.ke` AND `https://www.omotech.co.ke`)
+   
+   **Note**: Google OAuth treats `www` and non-`www` as different origins. If your site can be accessed with or without `www`, you must add both versions.
 
 **To fix:**
 - Add your domain to authorized origins
@@ -51,7 +54,27 @@ NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
    - `404` = Account not found
    - `500` = Server error (check server logs)
 
-### 4. Check Server Logs
+### 4. Error 400: origin_mismatch
+
+**This error means the domain you're accessing doesn't match what's configured in Google Cloud Console.**
+
+**Common causes:**
+- Accessing `https://www.omotech.co.ke` but only `https://omotech.co.ke` is configured (or vice versa)
+- Missing `www` or non-`www` version in authorized origins
+
+**To fix:**
+1. Check which domain you're actually accessing (with or without `www`)
+2. Go to Google Cloud Console > APIs & Services > Credentials
+3. Edit your OAuth 2.0 Client ID
+4. Add **both** versions to Authorized JavaScript origins:
+   - `https://omotech.co.ke`
+   - `https://www.omotech.co.ke`
+5. Add **both** versions to Authorized redirect URIs:
+   - `https://omotech.co.ke`
+   - `https://www.omotech.co.ke`
+6. Save and wait 5 minutes to a few hours for changes to propagate
+
+### 5. Check Server Logs
 
 **Look in your terminal/console where you ran `npm run dev`:**
 
@@ -60,7 +83,7 @@ NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 3. **"✅ Admin Google login successful"** - Success!
 4. **Error messages** - Will show what went wrong
 
-### 5. Network Connectivity Issues
+### 6. Network Connectivity Issues
 
 **Check:**
 - Internet connection is working
@@ -68,7 +91,7 @@ NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 - No firewall blocking Google services
 - No VPN interfering with Google services
 
-### 6. CORS Issues
+### 7. CORS Issues
 
 **If you see CORS errors in console:**
 - Check that your domain is in Google OAuth authorized origins

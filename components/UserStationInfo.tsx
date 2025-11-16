@@ -93,6 +93,11 @@ export default function UserStationInfo({
     return null;
   }
 
+  // For managers without station, show nothing
+  if (user.role === 'manager' && !stationInfo) {
+    return null;
+  }
+
   const userDisplay = (
     <div className="flex items-center gap-2">
       <User className="h-4 w-4 text-gray-600" />
@@ -118,12 +123,7 @@ export default function UserStationInfo({
       <Building className="h-4 w-4 text-gray-600" />
       <span className="text-sm text-gray-600">Full system access</span>
     </div>
-  ) : (
-    <div className="flex items-center gap-2">
-      <AlertCircle className="h-4 w-4 text-amber-500" />
-      <span className="text-sm text-amber-600">No station assigned</span>
-    </div>
-  );
+  ) : null;
 
   if (showInHeader) {
     return (
@@ -208,17 +208,7 @@ export default function UserStationInfo({
                 <p className="text-sm text-gray-600">Manage all stations and business operations</p>
               </div>
             </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-full bg-amber-100">
-                <AlertCircle className="w-5 h-5 text-amber-600" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-amber-700">No Station Assigned</h3>
-                <p className="text-sm text-gray-600">Contact administrator for station access</p>
-              </div>
-            </div>
-          )}
+          ) : null}
         </div>
       </CardContent>
     </Card>

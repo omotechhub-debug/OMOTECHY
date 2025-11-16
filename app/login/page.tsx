@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -12,16 +12,123 @@ import { Navbar } from '@/components/navbar'
 import { Footer } from '@/components/footer'
 import Link from 'next/link'
 
+// Declare Google types
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: any) => void
+          prompt: () => void
+          renderButton: (element: HTMLElement, config: any) => void
+        }
+      }
+    }
+  }
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   
-  const { login } = useAuth()
+  const { login, loginWithGoogle } = useAuth()
   const router = useRouter()
+  const googleButtonRef = useRef<HTMLDivElement>(null)
+
+  const handleGoogleSignIn = async (response: any) => {
+    setIsGoogleLoading(true)
+    setError("")
+    setSuccess("")
+    
+    try {
+      if (!response || !response.credential) {
+        console.error('Google response missing credential:', response)
+        setError("Invalid Google response. Please try again.")
+        setIsGoogleLoading(false)
+        return
+      }
+
+      console.log('Google sign-in initiated, sending credential to backend...')
+      const result = await loginWithGoogle(response.credential)
+      console.log('Backend response:', result)
+      
+      if (result.success) {
+        setSuccess(result.message || "Login successful! Redirecting...")
+        setTimeout(() => {
+          router.push('/shop')
+        }, 1500)
+      } else {
+        if (result.error?.includes('admin')) {
+          setError(result.error || "This is an admin account. Please use the admin login page.")
+        } else {
+          setError(result.error || "Google sign-in failed. Please try again.")
+        }
+      }
+    } catch (error: any) {
+      console.error('Google sign-in error:', error)
+      if (error?.message?.includes('fetch')) {
+        setError("Network error. Please check your connection and try again.")
+      } else {
+        setError(error?.message || "Network error. Please check your connection and try again.")
+      }
+    } finally {
+      setIsGoogleLoading(false)
+    }
+  }
+
+  // Load Google Identity Services script
+  useEffect(() => {
+    const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
+    
+    if (!googleClientId) {
+      console.error('NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set in environment variables')
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = 'https://accounts.google.com/gsi/client'
+    script.async = true
+    script.defer = true
+    script.onload = () => {
+      if (window.google && googleButtonRef.current) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: handleGoogleSignIn,
+          })
+          
+          // Render Google Sign-In button
+          window.google.accounts.id.renderButton(googleButtonRef.current, {
+            type: 'standard',
+            theme: 'outline',
+            size: 'large',
+            text: 'signin_with',
+            width: '100%',
+          })
+          console.log('Google Sign-In button rendered successfully')
+        } catch (error) {
+          console.error('Error initializing Google Sign-In:', error)
+        }
+      }
+    }
+    script.onerror = () => {
+      console.error('Failed to load Google Identity Services script')
+    }
+    
+    document.body.appendChild(script)
+
+    return () => {
+      const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]')
+      if (existingScript && existingScript.parentNode) {
+        existingScript.parentNode.removeChild(existingScript)
+      }
+    }
+  }, [handleGoogleSignIn])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -125,7 +232,7 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 className="w-full bg-primary hover:bg-primary/90"
-                disabled={isLoading}
+                disabled={isLoading || isGoogleLoading}
               >
                 {isLoading ? (
                   <>
@@ -140,6 +247,25 @@ export default function LoginPage() {
                 )}
               </Button>
             </form>
+
+            <div className="mt-4">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white px-2 text-gray-500">Or continue with</span>
+                </div>
+              </div>
+              
+              <div className="mt-4 w-full">
+                <div
+                  ref={googleButtonRef}
+                  className="w-full flex justify-center"
+                  style={{ minHeight: '40px' }}
+                />
+              </div>
+            </div>
 
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600">
