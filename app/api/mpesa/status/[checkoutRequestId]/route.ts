@@ -64,6 +64,15 @@ export async function GET(
       });
     }
 
+    // Calculate time since payment was initiated
+    const paymentInitiatedAt = order.paymentInitiatedAt || order.createdAt || new Date();
+    const timeSinceInitiation = Date.now() - new Date(paymentInitiatedAt).getTime();
+    const minutesSinceInitiation = timeSinceInitiation / (1000 * 60);
+    
+    // If payment was initiated less than 3 minutes ago, always treat as pending
+    // This prevents premature "failed" status when M-Pesa hasn't processed the request yet
+    const isVeryRecent = minutesSinceInitiation < 3;
+    
     // If payment is still pending, query M-Pesa for current status
     const statusResponse = await mpesaService.querySTKStatus(checkoutRequestId);
     
@@ -71,13 +80,37 @@ export async function GET(
     if (statusResponse.success === false) {
       console.error('M-Pesa status query failed:', statusResponse.error);
       
-      // Return current order status with error info
+      // If payment was initiated very recently, keep it as pending even if query fails
+      // M-Pesa might not have the transaction in their system yet
+      if (isVeryRecent) {
+        console.log(`Payment initiated ${minutesSinceInitiation.toFixed(1)} minutes ago - keeping as pending despite query error`);
+        return NextResponse.json({
+          success: true,
+          order: {
+            _id: order._id,
+            orderNumber: order.orderNumber,
+            paymentStatus: 'pending',
+            checkoutRequestId: order.checkoutRequestId,
+            phoneNumber: order.phoneNumber,
+            mpesaReceiptNumber: order.mpesaReceiptNumber,
+            amountPaid: order.amountPaid,
+            resultCode: order.resultCode,
+            resultDescription: order.resultDescription,
+            paymentInitiatedAt: order.paymentInitiatedAt,
+            paymentCompletedAt: order.paymentCompletedAt
+          },
+          message: 'Transaction is still being processed. Please wait...',
+          isPending: true
+        });
+      }
+      
+      // Return current order status with error info (but don't update to failed if it's still pending)
       return NextResponse.json({
         success: true,
         order: {
           _id: order._id,
           orderNumber: order.orderNumber,
-          paymentStatus: order.paymentStatus,
+          paymentStatus: order.paymentStatus, // Keep existing status
           checkoutRequestId: order.checkoutRequestId,
           phoneNumber: order.phoneNumber,
           mpesaReceiptNumber: order.mpesaReceiptNumber,
@@ -125,13 +158,28 @@ export async function GET(
         paymentCompletedAt: new Date()
       });
     } else if (statusResponse.ResultCode && statusResponse.ResultCode !== '1032') {
-      // Payment failed (1032 means still pending)
-      await Order.findByIdAndUpdate(order._id, {
-        paymentStatus: 'failed',
-        resultCode: parseInt(statusResponse.ResultCode),
-        resultDescription: statusResponse.ResultDesc,
-        paymentCompletedAt: new Date()
-      });
+      // Only mark as failed if:
+      // 1. Payment was initiated more than 3 minutes ago (not too recent)
+      // 2. We have a definitive failure code (not just an error querying)
+      // 3. The result code is a known failure code (not an unknown/query error)
+      
+      const definitiveFailureCodes = ['1037', '1034', '1035', '1036', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010'];
+      const isDefinitiveFailure = definitiveFailureCodes.includes(statusResponse.ResultCode);
+      
+      if (isDefinitiveFailure && !isVeryRecent) {
+        // Payment failed with a definitive failure code
+        console.log(`Payment failed with code ${statusResponse.ResultCode}: ${statusResponse.ResultDesc}`);
+        await Order.findByIdAndUpdate(order._id, {
+          paymentStatus: 'failed',
+          resultCode: parseInt(statusResponse.ResultCode),
+          resultDescription: statusResponse.ResultDesc,
+          paymentCompletedAt: new Date()
+        });
+      } else {
+        // Unknown result code or too recent - keep as pending
+        console.log(`Unknown result code ${statusResponse.ResultCode} or payment too recent - keeping as pending`);
+        // Don't update the order status, keep it as pending
+      }
     }
 
     // Fetch updated order

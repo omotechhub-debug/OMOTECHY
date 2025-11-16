@@ -39,6 +39,8 @@ import {
   UserPlus,
   UserCheck,
   Gift,
+  RefreshCw,
+  Clock,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -205,6 +207,7 @@ function POSPageContent() {
   const [paymentMessage, setPaymentMessage] = useState('');
   const [currentCheckoutRequestId, setCurrentCheckoutRequestId] = useState<string | null>(null);
   const paymentPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [showCancelOption, setShowCancelOption] = useState(false);
 
   // Order Editing State
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -1031,7 +1034,7 @@ Need help? Call us at +254 757 883 799`;
     }
   };
 
-  // Payment polling function
+  // Payment polling function - checks database first, then M-Pesa if needed
   const startPaymentPolling = (checkoutRequestId: string, orderId: string) => {
     // Clear any existing polling
     if (paymentPollIntervalRef.current) {
@@ -1039,10 +1042,11 @@ Need help? Call us at +254 757 883 799`;
     }
 
     setCheckingPayment(true);
+    setShowCancelOption(false); // Reset cancel option when starting new polling
     let attempts = 0;
-    const maxAttempts = 120; // Poll for up to 10 minutes (120 * 5 seconds) - give more time for customer to complete payment
-    let consecutivePendingCount = 0;
-    const maxPendingAttempts = 60; // If pending for 5 minutes, consider it cancelled
+    const maxAttempts = 120; // Poll for up to 10 minutes (120 * 5 seconds)
+    const dbOnlyPeriod = 24; // Check database only for first 2 minutes (24 * 5 seconds = 2 minutes)
+    const startTime = Date.now();
 
     const poll = async () => {
       if (attempts >= maxAttempts) {
@@ -1059,52 +1063,174 @@ Need help? Call us at +254 757 883 799`;
       }
 
       attempts++;
+      const elapsedMinutes = (Date.now() - startTime) / (1000 * 60);
 
       try {
-        const response = await fetch(`/api/mpesa/status/${checkoutRequestId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
+        // For first 2 minutes, check database only (faster, no M-Pesa API calls)
+        // After 2 minutes, also check M-Pesa status
+        if (attempts <= dbOnlyPeriod) {
+          // Check database only
+          const orderResponse = await fetch(`/api/orders/${orderId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
 
-        const data = await response.json();
-
-        if (data.success && data.order) {
-          const order = data.order;
-          const resultCode = order.resultCode?.toString() || data.mpesaResponse?.ResultCode?.toString() || '';
-          const isPending = data.isPending || resultCode === '1032' || order.paymentStatus === 'pending';
-
-          // Check if payment is completed (success)
-          if (order.paymentStatus === 'paid') {
-            // Payment successful
-            setCheckingPayment(false);
-            setPaymentStatus('success');
-            setPaymentMessage(`Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`);
-            setPaymentStatusDialogOpen(true);
-            setCustomerInfo(prev => ({ ...prev, paymentStatus: 'paid' }));
+          if (orderResponse.ok) {
+            const orderData = await orderResponse.json();
             
-            // Clear polling
-            if (paymentPollIntervalRef.current) {
-              clearInterval(paymentPollIntervalRef.current);
-              paymentPollIntervalRef.current = null;
+            if (orderData.success && orderData.order) {
+              const order = orderData.order;
+              
+              // Check if payment is completed (success)
+              if (order.paymentStatus === 'paid') {
+                // Payment successful
+                setCheckingPayment(false);
+                setPaymentStatus('success');
+                setPaymentMessage(`Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`);
+                setPaymentStatusDialogOpen(true);
+                setCustomerInfo(prev => ({ ...prev, paymentStatus: 'paid' }));
+                
+                // Clear polling
+                if (paymentPollIntervalRef.current) {
+                  clearInterval(paymentPollIntervalRef.current);
+                  paymentPollIntervalRef.current = null;
+                }
+                return;
+              }
+              
+              // If still pending, continue polling
+              if (order.paymentStatus === 'pending') {
+                console.log(`⏳ Payment still pending in database... (attempt ${attempts}/${dbOnlyPeriod}, ${elapsedMinutes.toFixed(1)} min)`);
+                return;
+              }
+              
+              // If failed, show failed dialog
+              if (order.paymentStatus === 'failed') {
+                setCheckingPayment(false);
+                setPaymentStatus('failed');
+                setPaymentMessage(order.resultDescription || 'Payment failed. Please try again.');
+                setPaymentStatusDialogOpen(true);
+                setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
+                
+                // Clear polling
+                if (paymentPollIntervalRef.current) {
+                  clearInterval(paymentPollIntervalRef.current);
+                  paymentPollIntervalRef.current = null;
+                }
+                return;
+              }
             }
-            return;
-          } 
-          
-          // Check if still pending/processing - keep waiting, don't show dialog
-          if (isPending || order.paymentStatus === 'pending') {
-            consecutivePendingCount++;
-            console.log(`⏳ Payment still processing... (attempt ${attempts}/${maxAttempts}, pending count: ${consecutivePendingCount})`);
+          }
+        } else {
+          // After 2 minutes, check both database and M-Pesa status
+          // First check database
+          const orderResponse = await fetch(`/api/orders/${orderId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (orderResponse.ok) {
+            const orderData = await orderResponse.json();
             
-            // Reset pending count if we get a different status (might be intermittent)
-            // Only increment if consistently pending
+            if (orderData.success && orderData.order) {
+              const order = orderData.order;
+              
+              // Check if payment is completed (success)
+              if (order.paymentStatus === 'paid') {
+                // Payment successful
+                setCheckingPayment(false);
+                setPaymentStatus('success');
+                setPaymentMessage(`Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`);
+                setPaymentStatusDialogOpen(true);
+                setCustomerInfo(prev => ({ ...prev, paymentStatus: 'paid' }));
+                
+                // Clear polling
+                if (paymentPollIntervalRef.current) {
+                  clearInterval(paymentPollIntervalRef.current);
+                  paymentPollIntervalRef.current = null;
+                }
+                return;
+              }
+              
+              // If still pending after 2 minutes, show cancel option (only once)
+              if (order.paymentStatus === 'pending' && !showCancelOption && attempts > dbOnlyPeriod) {
+                setShowCancelOption(true);
+                setCheckingPayment(false);
+                setPaymentStatus('failed');
+                setPaymentMessage('Payment is still pending after 2 minutes. You can cancel and try again, or continue waiting.');
+                setPaymentStatusDialogOpen(true);
+                // Don't clear polling yet - admin can choose to continue waiting
+                return;
+              }
+              
+              // If still pending but cancel option already shown, continue polling silently
+              if (order.paymentStatus === 'pending') {
+                console.log(`⏳ Payment still pending... (attempt ${attempts}/${maxAttempts}, ${elapsedMinutes.toFixed(1)} min)`);
+                return;
+              }
+            }
+          }
+
+          // Also check M-Pesa status API (for more detailed status)
+          const response = await fetch(`/api/mpesa/status/${checkoutRequestId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          const data = await response.json();
+
+          if (data.success && data.order) {
+            const order = data.order;
+            const resultCode = order.resultCode?.toString() || data.mpesaResponse?.ResultCode?.toString() || '';
+            const isPending = data.isPending || resultCode === '1032' || order.paymentStatus === 'pending';
+
+            // Check if payment is completed (success)
+            if (order.paymentStatus === 'paid') {
+              // Payment successful
+              setCheckingPayment(false);
+              setPaymentStatus('success');
+              setPaymentMessage(`Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`);
+              setPaymentStatusDialogOpen(true);
+              setCustomerInfo(prev => ({ ...prev, paymentStatus: 'paid' }));
+              
+              // Clear polling
+              if (paymentPollIntervalRef.current) {
+                clearInterval(paymentPollIntervalRef.current);
+                paymentPollIntervalRef.current = null;
+              }
+              return;
+            } 
             
-            // If pending for too long (5 minutes), consider it cancelled
-            if (consecutivePendingCount >= maxPendingAttempts) {
+            // If still pending, continue polling
+            if (isPending || order.paymentStatus === 'pending') {
+              console.log(`⏳ Payment still processing... (attempt ${attempts}/${maxAttempts}, ${elapsedMinutes.toFixed(1)} min)`);
+              return;
+            }
+            
+            // Payment failed (not pending, not paid) - only show if truly failed
+            if (order.paymentStatus === 'failed' && !data.error) {
+              const cancellationCodes = ['1037', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010'];
+              const isCancelled = cancellationCodes.includes(resultCode) || 
+                                 order.resultDescription?.toLowerCase().includes('cancelled') ||
+                                 order.resultDescription?.toLowerCase().includes('timeout') ||
+                                 order.resultDescription?.toLowerCase().includes('expired') ||
+                                 order.resultDescription?.toLowerCase().includes('user cancelled');
+              
               setCheckingPayment(false);
               setPaymentStatus('failed');
-              setPaymentMessage('Transaction cancelled. The payment request timed out. Please try again.');
+              
+              if (isCancelled) {
+                setPaymentMessage('Transaction cancelled. The customer cancelled the payment or the request expired. Please try again.');
+              } else {
+                setPaymentMessage(order.resultDescription || 'Payment failed. Please try again.');
+              }
+              
               setPaymentStatusDialogOpen(true);
               setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
               
@@ -1115,43 +1241,10 @@ Need help? Call us at +254 757 883 799`;
               }
               return;
             }
-            
-            // Continue polling - don't show dialog yet, keep waiting
-            return;
+          } else if (data.error) {
+            // API returned an error, but continue polling
+            console.log(`M-Pesa status query error: ${data.error} - continuing to poll... (attempt ${attempts})`);
           }
-          
-          // Payment failed (not pending, not paid) - only show if truly failed
-          if (order.paymentStatus === 'failed') {
-            // Check if it's a cancellation code (customer cancelled or request expired)
-            const cancellationCodes = ['1037', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010'];
-            const isCancelled = cancellationCodes.includes(resultCode) || 
-                               order.resultDescription?.toLowerCase().includes('cancelled') ||
-                               order.resultDescription?.toLowerCase().includes('timeout') ||
-                               order.resultDescription?.toLowerCase().includes('expired') ||
-                               order.resultDescription?.toLowerCase().includes('user cancelled');
-            
-            setCheckingPayment(false);
-            setPaymentStatus('failed');
-            
-            if (isCancelled) {
-              setPaymentMessage('Transaction cancelled. The customer cancelled the payment or the request expired. Please try again.');
-            } else {
-              setPaymentMessage(order.resultDescription || 'Payment failed. Please try again.');
-            }
-            
-            setPaymentStatusDialogOpen(true);
-            setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
-            
-            // Clear polling
-            if (paymentPollIntervalRef.current) {
-              clearInterval(paymentPollIntervalRef.current);
-              paymentPollIntervalRef.current = null;
-            }
-            return;
-          }
-          
-          // If status is unknown, continue polling
-          console.log(`Unknown payment status: ${order.paymentStatus}, continuing to poll...`);
         }
       } catch (error) {
         console.error('Error polling payment status:', error);
@@ -2800,6 +2893,99 @@ Need help? Call us at +254 757 883 799`;
               </Button>
             ) : (
               <>
+                {/* Show "Cancel and Try Again" and "Continue Waiting" if payment is still pending after 2 minutes */}
+                {paymentMessage?.includes('still pending') && (
+                  <>
+                    <Button 
+                      onClick={async () => {
+                        // Cancel current payment attempt and allow retry
+                        if (paymentPollIntervalRef.current) {
+                          clearInterval(paymentPollIntervalRef.current);
+                          paymentPollIntervalRef.current = null;
+                        }
+                        
+                        setPaymentStatusDialogOpen(false);
+                        setPaymentStatus(null);
+                        setPaymentMessage('');
+                        setCurrentCheckoutRequestId(null);
+                        setCheckingPayment(false);
+                        setShowCancelOption(false);
+                        setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
+                        
+                        // Reset order payment status to unpaid so admin can try again
+                        if (lastCreatedOrderId) {
+                          try {
+                            await fetch(`/api/orders/${lastCreatedOrderId}`, {
+                              method: 'PATCH',
+                              headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json',
+                              },
+                              body: JSON.stringify({
+                                paymentStatus: 'unpaid',
+                                checkoutRequestId: null,
+                              }),
+                            });
+                          } catch (error) {
+                            console.error('Error resetting order payment status:', error);
+                          }
+                        }
+                      }}
+                      className="w-full bg-orange-600 hover:bg-orange-700"
+                    >
+                      <XCircle className="w-4 h-4 mr-2" />
+                      Cancel and Try Again
+                    </Button>
+                    <Button 
+                      onClick={() => {
+                        // Continue waiting - close dialog and resume polling
+                        setPaymentStatusDialogOpen(false);
+                        setPaymentStatus(null);
+                        setPaymentMessage('');
+                        setCheckingPayment(true);
+                        // Polling will continue automatically
+                      }}
+                      className="w-full bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Clock className="w-4 h-4 mr-2" />
+                      Continue Waiting
+                    </Button>
+                  </>
+                )}
+                
+                <Button 
+                  onClick={async () => {
+                    // Retry checking payment status
+                    const checkoutId = currentCheckoutRequestId;
+                    const orderId = lastCreatedOrderId;
+                    
+                    if (checkoutId && orderId) {
+                      // Close dialog and restart polling
+                      setPaymentStatusDialogOpen(false);
+                      setPaymentStatus(null);
+                      setPaymentMessage('');
+                      setCheckingPayment(true);
+                      // Restart polling for the same checkout request
+                      startPaymentPolling(checkoutId, orderId);
+                    } else {
+                      alert('Unable to retry. Payment information not available.');
+                    }
+                  }}
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                  disabled={!currentCheckoutRequestId || !lastCreatedOrderId || checkingPayment}
+                >
+                  {checkingPayment ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Checking Payment...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Retry Payment Check
+                    </>
+                  )}
+                </Button>
                 <Button 
                   onClick={() => {
                     setPaymentStatusDialogOpen(false);
