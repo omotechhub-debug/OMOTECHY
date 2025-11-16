@@ -36,6 +36,7 @@ import { useAuth, AuthProvider } from "@/hooks/useAuth"
 import AdminProtectedRoute from "@/components/AdminProtectedRoute"
 import { getAccessibleNavigation } from "@/lib/permissions"
 import UserStationInfo from "@/components/UserStationInfo"
+import { AdminPWAInstall } from "@/components/admin-pwa-install"
 
 function AdminLayoutContent({
   children,
@@ -365,9 +366,32 @@ function AdminLayoutContent({
             </div>
           </main>
         </div>
+        
+        {/* Admin PWA Install Button */}
+        <AdminPWAInstall />
       </div>
     </AdminProtectedRoute>
   )
+}
+
+// Service worker registration for admin PWA
+function AdminPWASetup() {
+  useEffect(() => {
+    // Register service worker for admin pages
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/sw.js', { updateViaCache: 'none' })
+        .then((registration) => {
+          console.log('PWA: Admin Service Worker registered successfully')
+          registration.update()
+        })
+        .catch((error) => {
+          console.error('PWA: Admin Service Worker registration failed', error)
+        })
+    }
+  }, [])
+  
+  return null
 }
 
 export default function AdminLayout({
@@ -377,6 +401,7 @@ export default function AdminLayout({
 }>) {
   return (
     <AuthProvider>
+      <AdminPWASetup />
       <AdminLayoutContent>{children}</AdminLayoutContent>
     </AuthProvider>
   )
