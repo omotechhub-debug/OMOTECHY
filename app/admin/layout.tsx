@@ -3,6 +3,7 @@
 import type React from "react"
 import { useState, useEffect } from "react"
 import { usePathname } from "next/navigation"
+import Script from "next/script"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   LayoutDashboard,
@@ -412,22 +413,45 @@ export default function AdminLayout({
 }>) {
   return (
     <>
-      {/* Inject admin manifest immediately before React hydrates */}
-      <script
+      {/* Inject admin manifest immediately - multiple strategies for reliability */}
+      <Script
+        id="admin-manifest-injector"
+        strategy="afterInteractive"
         dangerouslySetInnerHTML={{
           __html: `
             (function() {
-              if (typeof document !== 'undefined') {
-                const existingManifest = document.querySelector('link[rel="manifest"]');
-                if (existingManifest) {
-                  existingManifest.setAttribute('href', '/manifest-admin.json');
-                } else {
-                  const manifestLink = document.createElement('link');
-                  manifestLink.rel = 'manifest';
-                  manifestLink.href = '/manifest-admin.json';
-                  document.head.appendChild(manifestLink);
+              const updateManifest = () => {
+                try {
+                  const existingManifest = document.querySelector('link[rel="manifest"]');
+                  if (existingManifest) {
+                    existingManifest.setAttribute('href', '/manifest-admin.json');
+                    console.log('PWA: Admin manifest link updated to /manifest-admin.json');
+                  } else {
+                    const manifestLink = document.createElement('link');
+                    manifestLink.rel = 'manifest';
+                    manifestLink.href = '/manifest-admin.json';
+                    document.head.appendChild(manifestLink);
+                    console.log('PWA: Admin manifest link added to /manifest-admin.json');
+                  }
+                } catch (e) {
+                  console.error('PWA: Error updating manifest', e);
                 }
+              };
+              
+              // Try immediately if head exists
+              if (document.head) {
+                updateManifest();
               }
+              
+              // Also try on DOMContentLoaded as fallback
+              if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', updateManifest);
+              } else {
+                updateManifest();
+              }
+              
+              // Also try on window load as final fallback
+              window.addEventListener('load', updateManifest);
             })();
           `,
         }}

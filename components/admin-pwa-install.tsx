@@ -57,6 +57,27 @@ export function AdminPWAInstall() {
   }, [])
 
   const handleInstallClick = async () => {
+    // Ensure manifest is set before prompting
+    const existingManifest = document.querySelector('link[rel="manifest"]')
+    if (existingManifest) {
+      existingManifest.setAttribute('href', '/manifest-admin.json')
+    } else {
+      const manifestLink = document.createElement('link')
+      manifestLink.rel = 'manifest'
+      manifestLink.href = '/manifest-admin.json'
+      document.head.appendChild(manifestLink)
+    }
+    
+    // Verify manifest is accessible
+    try {
+      const response = await fetch('/manifest-admin.json')
+      if (!response.ok) {
+        console.error('PWA: Admin manifest not accessible:', response.status)
+      }
+    } catch (error) {
+      console.error('PWA: Error verifying admin manifest:', error)
+    }
+    
     if (deferredPrompt) {
       deferredPrompt.prompt()
       const choiceResult = await deferredPrompt.userChoice
