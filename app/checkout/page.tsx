@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCart } from '@/contexts/CartContext'
 import { useClientAuth } from '@/hooks/useClientAuth'
@@ -31,6 +31,7 @@ export default function CheckoutPage() {
   const [selectedShop, setSelectedShop] = useState('kutus')
   const [notes, setNotes] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const paymentPollIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // Shop options
   const shopOptions = [
@@ -76,9 +77,15 @@ export default function CheckoutPage() {
     )
   }
 
-  // Poll payment status
+  // Poll payment status - checks database first, then M-Pesa if needed
   const pollPaymentStatus = async (checkoutRequestId: string, orderId: string) => {
-    const maxAttempts = 30 // Poll for up to 5 minutes (30 * 10 seconds)
+    // Clear any existing polling
+    if (paymentPollIntervalRef.current) {
+      clearInterval(paymentPollIntervalRef.current)
+    }
+    
+    const maxAttempts = 18 // Poll for up to 1.5 minutes (18 * 5 seconds = 90 seconds)
+    const dbOnlyPeriod = 12 // Check database only for first 1 minute (12 * 5 seconds = 60 seconds)
     let attempts = 0
     
     const poll = async () => {
@@ -86,6 +93,10 @@ export default function CheckoutPage() {
         console.log('Payment polling timeout')
         setPaymentStatus('failed')
         setErrorMessage('Payment verification timeout. Please contact support if payment was successful.')
+        if (paymentPollIntervalRef.current) {
+          clearInterval(paymentPollIntervalRef.current)
+          paymentPollIntervalRef.current = null
+        }
         return
       }
       
@@ -93,38 +104,150 @@ export default function CheckoutPage() {
       
       try {
         const token = localStorage.getItem('clientAuthToken')
-        const response = await fetch(`/api/mpesa/status/${checkoutRequestId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+        
+        // For first 2 minutes, check database only (faster, no M-Pesa API calls)
+        if (attempts <= dbOnlyPeriod) {
+          // Check database only
+          const orderResponse = await fetch(`/api/orders/${orderId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          })
+          
+          if (orderResponse.ok) {
+            const orderData = await orderResponse.json()
+            
+            if (orderData.success && orderData.order) {
+              const order = orderData.order
+              
+              // Check if payment is completed (success)
+              if (order.paymentStatus === 'paid') {
+                // Payment successful - stop polling
+                if (paymentPollIntervalRef.current) {
+                  clearInterval(paymentPollIntervalRef.current)
+                  paymentPollIntervalRef.current = null
+                }
+                
+                // Show success message
+                setPaymentStatus('success')
+                clearCart()
+                
+                // Show success message for 2 seconds, then redirect
+                setTimeout(() => {
+                  router.push('/account?tab=orders')
+                }, 2000)
+                return
+              }
+              
+              // If still pending, continue polling
+              if (order.paymentStatus === 'pending') {
+                console.log(`⏳ Payment still pending in database... (attempt ${attempts}/${dbOnlyPeriod})`)
+                return
+              }
+              
+              // If failed, show failed message
+              if (order.paymentStatus === 'failed') {
+                if (paymentPollIntervalRef.current) {
+                  clearInterval(paymentPollIntervalRef.current)
+                  paymentPollIntervalRef.current = null
+                }
+                setPaymentStatus('failed')
+                setErrorMessage(order.resultDescription || 'Payment failed. Please try again.')
+                return
+              }
+            }
           }
-        })
-        
-        const data = await response.json()
-        
-        if (data.success && data.resultCode === '0') {
-          // Payment successful
-          setPaymentStatus('success')
-          clearCart()
-          // Redirect to account orders page for tracking
-          router.push('/account?tab=orders')
-        } else if (data.resultCode && data.resultCode !== '1032') {
-          // Payment failed (1032 means still processing)
-          setPaymentStatus('failed')
-          setErrorMessage(data.resultDesc || 'Payment failed. Please try again.')
         } else {
-          // Still processing, poll again
-          setTimeout(poll, 10000) // Poll every 10 seconds
+          // After 2 minutes, check both database and M-Pesa status
+          // First check database
+          const orderResponse = await fetch(`/api/orders/${orderId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          })
+          
+          if (orderResponse.ok) {
+            const orderData = await orderResponse.json()
+            
+            if (orderData.success && orderData.order) {
+              const order = orderData.order
+              
+              // Check if payment is completed (success)
+              if (order.paymentStatus === 'paid') {
+                // Payment successful - stop polling
+                if (paymentPollIntervalRef.current) {
+                  clearInterval(paymentPollIntervalRef.current)
+                  paymentPollIntervalRef.current = null
+                }
+                
+                // Show success message
+                setPaymentStatus('success')
+                clearCart()
+                
+                // Show success message for 2 seconds, then redirect
+                setTimeout(() => {
+                  router.push('/account?tab=orders')
+                }, 2000)
+                return
+              }
+            }
+          }
+          
+          // Also check M-Pesa status API (for more detailed status)
+          const response = await fetch(`/api/mpesa/status/${checkoutRequestId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          })
+          
+          const data = await response.json()
+          
+          if (data.success && data.order) {
+            const order = data.order
+            
+            if (order.paymentStatus === 'paid') {
+              // Payment successful - stop polling
+              if (paymentPollIntervalRef.current) {
+                clearInterval(paymentPollIntervalRef.current)
+                paymentPollIntervalRef.current = null
+              }
+              
+              // Show success message
+              setPaymentStatus('success')
+              clearCart()
+              
+              // Show success message for 2 seconds, then redirect
+              setTimeout(() => {
+                router.push('/account?tab=orders')
+              }, 2000)
+              return
+            } else if (order.paymentStatus === 'failed') {
+              // Payment failed
+              if (paymentPollIntervalRef.current) {
+                clearInterval(paymentPollIntervalRef.current)
+                paymentPollIntervalRef.current = null
+              }
+              setPaymentStatus('failed')
+              setErrorMessage(order.resultDescription || 'Payment failed. Please try again.')
+              return
+            }
+            // If still pending, continue polling
+          }
         }
       } catch (error) {
         console.error('Error polling payment status:', error)
-        // Continue polling on error
-        setTimeout(poll, 10000)
+        // Continue polling on error - don't give up immediately
       }
     }
     
-    // Start polling after 5 seconds
-    setTimeout(poll, 5000)
+    // Start polling after 3 seconds, then every 5 seconds
+    setTimeout(() => {
+      poll()
+      paymentPollIntervalRef.current = setInterval(poll, 5000)
+    }, 3000)
   }
 
   const handlePlaceOrder = async () => {
@@ -486,7 +609,8 @@ export default function CheckoutPage() {
                 {paymentStatus === 'success' && (
                   <Alert className="mt-4 border-green-200 bg-green-50">
                     <AlertDescription className="flex items-center gap-2">
-                      <span>✅ Payment successful! Redirecting...</span>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>✅ Payment successful! Redirecting to your orders...</span>
                     </AlertDescription>
                   </Alert>
                 )}

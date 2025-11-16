@@ -2712,22 +2712,26 @@ Need help? Call us at +254 757 883 799`;
                           setCurrentCheckoutRequestId(null);
                           setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
                           
-                          // Reset order payment status to unpaid so admin can try again
+                          // Delete the order if it was created
                           if (lastCreatedOrderId) {
                             try {
-                              await fetch(`/api/orders/${lastCreatedOrderId}`, {
-                                method: 'PATCH',
+                              const deleteResponse = await fetch(`/api/orders/${lastCreatedOrderId}`, {
+                                method: 'DELETE',
                                 headers: {
                                   'Authorization': `Bearer ${token}`,
                                   'Content-Type': 'application/json',
                                 },
-                                body: JSON.stringify({
-                                  paymentStatus: 'unpaid',
-                                  checkoutRequestId: null,
-                                }),
                               });
+                              
+                              const deleteData = await deleteResponse.json();
+                              if (deleteData.success) {
+                                console.log('Order deleted successfully after payment cancellation');
+                                setLastCreatedOrderId(null);
+                              } else {
+                                console.error('Failed to delete order:', deleteData.error);
+                              }
                             } catch (error) {
-                              console.error('Error resetting order payment status:', error);
+                              console.error('Error deleting order:', error);
                             }
                           }
                         }}
@@ -2954,22 +2958,26 @@ Need help? Call us at +254 757 883 799`;
                         setShowCancelOption(false);
                         setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
                         
-                        // Reset order payment status to unpaid so admin can try again
+                        // Delete the order if it was created
                         if (lastCreatedOrderId) {
                           try {
-                            await fetch(`/api/orders/${lastCreatedOrderId}`, {
-                              method: 'PATCH',
+                            const deleteResponse = await fetch(`/api/orders/${lastCreatedOrderId}`, {
+                              method: 'DELETE',
                               headers: {
                                 'Authorization': `Bearer ${token}`,
                                 'Content-Type': 'application/json',
                               },
-                              body: JSON.stringify({
-                                paymentStatus: 'unpaid',
-                                checkoutRequestId: null,
-                              }),
                             });
+                            
+                            const deleteData = await deleteResponse.json();
+                            if (deleteData.success) {
+                              console.log('Order deleted successfully after payment cancellation');
+                              setLastCreatedOrderId(null);
+                            } else {
+                              console.error('Failed to delete order:', deleteData.error);
+                            }
                           } catch (error) {
-                            console.error('Error resetting order payment status:', error);
+                            console.error('Error deleting order:', error);
                           }
                         }
                       }}
