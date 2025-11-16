@@ -1040,14 +1040,16 @@ Need help? Call us at +254 757 883 799`;
 
     setCheckingPayment(true);
     let attempts = 0;
-    const maxAttempts = 60; // Poll for up to 5 minutes (60 * 5 seconds)
+    const maxAttempts = 120; // Poll for up to 10 minutes (120 * 5 seconds) - give more time for customer to complete payment
+    let consecutivePendingCount = 0;
+    const maxPendingAttempts = 60; // If pending for 5 minutes, consider it cancelled
 
     const poll = async () => {
       if (attempts >= maxAttempts) {
         // Timeout - stop polling
         setCheckingPayment(false);
         setPaymentStatus('failed');
-        setPaymentMessage('Payment verification timeout. Please check the order manually.');
+        setPaymentMessage('Payment verification timeout. The transaction may have been cancelled or is still processing. Please check the order manually.');
         setPaymentStatusDialogOpen(true);
         if (paymentPollIntervalRef.current) {
           clearInterval(paymentPollIntervalRef.current);
@@ -1070,8 +1072,10 @@ Need help? Call us at +254 757 883 799`;
 
         if (data.success && data.order) {
           const order = data.order;
+          const resultCode = order.resultCode?.toString() || data.mpesaResponse?.ResultCode?.toString() || '';
+          const isPending = data.isPending || resultCode === '1032' || order.paymentStatus === 'pending';
 
-          // Check if payment is completed (success or failure)
+          // Check if payment is completed (success)
           if (order.paymentStatus === 'paid') {
             // Payment successful
             setCheckingPayment(false);
@@ -1086,11 +1090,55 @@ Need help? Call us at +254 757 883 799`;
               paymentPollIntervalRef.current = null;
             }
             return;
-          } else if (order.paymentStatus === 'failed') {
-            // Payment failed
+          } 
+          
+          // Check if still pending/processing - keep waiting, don't show dialog
+          if (isPending || order.paymentStatus === 'pending') {
+            consecutivePendingCount++;
+            console.log(`⏳ Payment still processing... (attempt ${attempts}/${maxAttempts}, pending count: ${consecutivePendingCount})`);
+            
+            // Reset pending count if we get a different status (might be intermittent)
+            // Only increment if consistently pending
+            
+            // If pending for too long (5 minutes), consider it cancelled
+            if (consecutivePendingCount >= maxPendingAttempts) {
+              setCheckingPayment(false);
+              setPaymentStatus('failed');
+              setPaymentMessage('Transaction cancelled. The payment request timed out. Please try again.');
+              setPaymentStatusDialogOpen(true);
+              setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
+              
+              // Clear polling
+              if (paymentPollIntervalRef.current) {
+                clearInterval(paymentPollIntervalRef.current);
+                paymentPollIntervalRef.current = null;
+              }
+              return;
+            }
+            
+            // Continue polling - don't show dialog yet, keep waiting
+            return;
+          }
+          
+          // Payment failed (not pending, not paid) - only show if truly failed
+          if (order.paymentStatus === 'failed') {
+            // Check if it's a cancellation code (customer cancelled or request expired)
+            const cancellationCodes = ['1037', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010'];
+            const isCancelled = cancellationCodes.includes(resultCode) || 
+                               order.resultDescription?.toLowerCase().includes('cancelled') ||
+                               order.resultDescription?.toLowerCase().includes('timeout') ||
+                               order.resultDescription?.toLowerCase().includes('expired') ||
+                               order.resultDescription?.toLowerCase().includes('user cancelled');
+            
             setCheckingPayment(false);
             setPaymentStatus('failed');
-            setPaymentMessage(order.resultDescription || 'Payment failed. Please try again.');
+            
+            if (isCancelled) {
+              setPaymentMessage('Transaction cancelled. The customer cancelled the payment or the request expired. Please try again.');
+            } else {
+              setPaymentMessage(order.resultDescription || 'Payment failed. Please try again.');
+            }
+            
             setPaymentStatusDialogOpen(true);
             setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
             
@@ -1101,11 +1149,13 @@ Need help? Call us at +254 757 883 799`;
             }
             return;
           }
-          // If still pending, continue polling
+          
+          // If status is unknown, continue polling
+          console.log(`Unknown payment status: ${order.paymentStatus}, continuing to poll...`);
         }
       } catch (error) {
         console.error('Error polling payment status:', error);
-        // Continue polling on error
+        // Continue polling on error - don't give up immediately
       }
     };
 
@@ -2700,7 +2750,17 @@ Need help? Call us at +254 757 883 799`;
       </div>
 
       {/* Payment Status Dialog */}
-      <Dialog open={paymentStatusDialogOpen} onOpenChange={setPaymentStatusDialogOpen}>
+      <Dialog open={paymentStatusDialogOpen} onOpenChange={(open) => {
+        // Only allow closing if payment is not successful (user can close failed/cancelled dialogs)
+        if (!open && paymentStatus === 'success') {
+          // Auto-redirect on success after a moment
+          setTimeout(() => {
+            router.push('/admin/orders');
+          }, 500);
+        } else {
+          setPaymentStatusDialogOpen(open);
+        }
+      }}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle className={`flex items-center gap-2 ${
@@ -2711,7 +2771,11 @@ Need help? Call us at +254 757 883 799`;
               ) : (
                 <XCircle className="w-6 h-6" />
               )}
-              {paymentStatus === 'success' ? 'Payment Successful!' : 'Payment Failed'}
+              {paymentStatus === 'success' 
+                ? 'Payment Successful!' 
+                : paymentMessage?.toLowerCase().includes('cancelled') 
+                  ? 'Transaction Cancelled' 
+                  : 'Payment Failed'}
             </DialogTitle>
             <DialogDescription>
               {paymentMessage || (paymentStatus === 'success' 
@@ -2720,40 +2784,51 @@ Need help? Call us at +254 757 883 799`;
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3 pt-4">
-            <Button 
-              onClick={() => {
-                setPaymentStatusDialogOpen(false);
-                setPaymentStatus(null);
-                setPaymentMessage('');
-                setCurrentCheckoutRequestId(null);
-                router.push('/admin/orders');
-              }}
-              className={`w-full ${
-                paymentStatus === 'success' 
-                  ? 'bg-blue-600 hover:bg-blue-700' 
-                  : 'bg-gray-600 hover:bg-gray-700'
-              }`}
-            >
-              <ArrowRight className="w-4 h-4 mr-2" />
-              Proceed to Orders Page
-            </Button>
-            <Button 
-              variant="outline"
-              onClick={() => {
-                setPaymentStatusDialogOpen(false);
-                setPaymentStatus(null);
-                setPaymentMessage('');
-                setCurrentCheckoutRequestId(null);
-                // Reset payment status but keep order
-                if (paymentStatus === 'failed') {
-                  setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
-                }
-              }}
-              className="w-full"
-            >
-              <PlusIcon className="w-4 h-4 mr-2" />
-              Stay on POS
-            </Button>
+            {paymentStatus === 'success' ? (
+              <Button 
+                onClick={() => {
+                  setPaymentStatusDialogOpen(false);
+                  setPaymentStatus(null);
+                  setPaymentMessage('');
+                  setCurrentCheckoutRequestId(null);
+                  router.push('/admin/orders');
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700"
+              >
+                <ArrowRight className="w-4 h-4 mr-2" />
+                Proceed to Orders Page
+              </Button>
+            ) : (
+              <>
+                <Button 
+                  onClick={() => {
+                    setPaymentStatusDialogOpen(false);
+                    setPaymentStatus(null);
+                    setPaymentMessage('');
+                    setCurrentCheckoutRequestId(null);
+                    router.push('/admin/orders');
+                  }}
+                  className="w-full bg-gray-600 hover:bg-gray-700"
+                >
+                  <ArrowRight className="w-4 h-4 mr-2" />
+                  Proceed to Orders Page
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setPaymentStatusDialogOpen(false);
+                    setPaymentStatus(null);
+                    setPaymentMessage('');
+                    setCurrentCheckoutRequestId(null);
+                    setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
+                  }}
+                  className="w-full"
+                >
+                  <PlusIcon className="w-4 h-4 mr-2" />
+                  Stay on POS
+                </Button>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>
