@@ -1046,13 +1046,21 @@ export default function InventoryPage() {
                 : 'Get started by adding your first inventory item.'}
             </p>
             {(!searchTerm && categoryFilter === 'all' && statusFilter === 'all' && stockFilter === 'all' && stationFilter === 'all') && (
-              <Button 
-                className="bg-primary hover:bg-primary/90 text-white"
-                onClick={() => setIsCreateDialogOpen(true)}
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Add First Item
-              </Button>
+              canAddInventory(user) ? (
+                <Button 
+                  className="bg-primary hover:bg-primary/90 text-white"
+                  onClick={() => setIsCreateDialogOpen(true)}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add First Item
+                </Button>
+              ) : (
+                <div className="text-center">
+                  <p className="text-gray-500 text-sm">
+                    You don't have permission to add inventory items. Please contact your administrator.
+                  </p>
+                </div>
+              )
             )}
           </div>
         )}

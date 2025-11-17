@@ -141,7 +141,10 @@ export async function POST(request: NextRequest) {
     const currentUser = await User.findById(decoded.userId);
     
     // Check if user has permission to add inventory
-    if (currentUser?.role === 'admin') {
+    // Superadmins can always add inventory
+    if (currentUser?.role === 'superadmin') {
+      // Allow superadmin to proceed
+    } else if (currentUser?.role === 'admin') {
       // Check if admin has inventory edit permission
       const inventoryPermission = currentUser.pagePermissions?.find(p => p.page === 'inventory');
       if (!inventoryPermission?.canEdit) {

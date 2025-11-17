@@ -250,9 +250,9 @@ export function canAddInventory(user: IUser | null): boolean {
     return false;
   }
 
-  // Superadmin has view-only access (cannot add inventory)
+  // Superadmin can add inventory
   if (user.role === 'superadmin') {
-    return false;
+    return true;
   }
 
   // Check if admin has inventory add permission
