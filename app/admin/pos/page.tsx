@@ -832,6 +832,12 @@ function POSPageContent() {
         const servicesList = cart.map(item => 
           `${item.item.name} (${item.quantity}x)`
         ).join(', ');
+        
+        const partialAmount = customerInfo.paymentStatus === 'partial' ? (parseInt(customerInfo.partialAmount) || 0) : 0;
+        const remainingBalance = customerInfo.paymentStatus === 'partial' ? Math.max(0, calculateFinalTotal() - partialAmount) : 0;
+        const paymentStatusText = customerInfo.paymentStatus === 'partial' 
+          ? `PARTIAL PAYMENT\nPartial Payment Required: Ksh ${partialAmount.toLocaleString()}\nRemaining Balance: Ksh ${remainingBalance.toLocaleString()}`
+          : customerInfo.paymentStatus.toUpperCase();
 
         message = `*** Order Update - Econuru Services ***
 
@@ -844,7 +850,7 @@ Order #${orderData.orderNumber || 'N/A'}
 Services: ${servicesList}
 Total Amount: Ksh ${calculateFinalTotal().toLocaleString()}
 
-Payment Status: ${customerInfo.paymentStatus.toUpperCase()}
+Payment Status: ${paymentStatusText}
 
 Thank you for choosing Econuru Services!
 
@@ -854,6 +860,12 @@ Need help? Call us at +254 757 883 799`;
         const servicesList = cart.map(item => 
           `${item.item.name} (${item.quantity}x @ Ksh${item.price})`
         ).join('\n');
+        
+        const partialAmount = customerInfo.paymentStatus === 'partial' ? (parseInt(customerInfo.partialAmount) || 0) : 0;
+        const remainingBalance = customerInfo.paymentStatus === 'partial' ? Math.max(0, calculateFinalTotal() - partialAmount) : 0;
+        const paymentStatusText = customerInfo.paymentStatus === 'partial' 
+          ? `PARTIAL PAYMENT\nPartial Payment Required: Ksh ${partialAmount.toLocaleString()}\nRemaining Balance: Ksh ${remainingBalance.toLocaleString()}`
+          : customerInfo.paymentStatus.toUpperCase();
 
         message = `*** Order Update - Econuru Services ***
 
@@ -869,7 +881,7 @@ ${servicesList}
 Subtotal: Ksh ${getCartTotal().toLocaleString()}
 ${promoDiscount > 0 ? `Promo Discount: -Ksh ${promoDiscount.toLocaleString()}\n` : ''}Total: Ksh ${calculateFinalTotal().toLocaleString()}
 
-Payment Status: ${customerInfo.paymentStatus.toUpperCase()}
+Payment Status: ${paymentStatusText}
 
 Thank you for choosing Econuru Services!
 
@@ -970,7 +982,9 @@ Thank you for choosing Econuru Services!
 
 Need help? Call us at +254 757 883 799`;
         } else if (newStatus === 'partial') {
-          message = `*** Payment Status Update - Econuru Services ***
+          const partialAmount = parseInt(customerInfo.partialAmount) || 0;
+          const remainingBalance = Math.max(0, calculateFinalTotal() - partialAmount);
+          message = `*** Payment Request - Econuru Services ***
 
 Dear ${customerInfo.name || 'Valued Customer'},
 
@@ -978,9 +992,11 @@ Order #${editingOrderId || 'N/A'}
 
 Payment Status: PARTIAL PAYMENT
 
-Partial payment received. Please complete the remaining balance.
+Please pay Ksh ${partialAmount.toLocaleString()} as partial payment.
 
-Total Amount: Ksh ${calculateFinalTotal().toLocaleString()}
+Total Order Amount: Ksh ${calculateFinalTotal().toLocaleString()}
+Partial Payment Required: Ksh ${partialAmount.toLocaleString()}
+Remaining Balance: Ksh ${remainingBalance.toLocaleString()}
 
 Thank you for choosing Econuru Services!
 
@@ -1460,6 +1476,49 @@ Need help? Call us at +254 757 883 799`;
           } catch (stkError) {
             console.error('❌ Error initiating STK push:', stkError);
             // Don't fail the order creation if STK push fails
+          }
+        }
+        
+        // Automatically initiate STK push for new partial payment orders
+        if (!isEditing && customerInfo.paymentStatus === 'partial' && customerInfo.phone && customerInfo.partialAmount) {
+          const partialAmount = parseInt(customerInfo.partialAmount) || 0;
+          if (partialAmount > 0 && partialAmount < calculateFinalTotal()) {
+            try {
+              console.log('💰 Initiating automatic STK push for partial payment:', data.order._id, 'Amount:', partialAmount);
+              const stkResponse = await fetch('/api/mpesa/initiate', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  orderId: data.order._id,
+                  phoneNumber: customerInfo.phone,
+                  amount: partialAmount,
+                  paymentType: 'partial',
+                }),
+              });
+
+              const stkData = await stkResponse.json();
+              
+              if (stkData.success) {
+                console.log('✅ Partial Payment STK Push initiated successfully:', stkData.checkoutRequestId);
+                // Show success message to user
+                if (typeof window !== 'undefined') {
+                  alert(`✅ Order created! M-Pesa payment request for Ksh ${partialAmount.toLocaleString()} sent to ${customerInfo.phone}. Please check your phone to complete the partial payment.`);
+                }
+                // Order status will be updated by the callback
+              } else {
+                console.warn('⚠️ Partial Payment STK Push failed, but order was created:', stkData.error);
+                // Show warning but don't fail the order creation
+                if (typeof window !== 'undefined') {
+                  alert(`⚠️ Order created successfully, but partial payment request failed: ${stkData.error || 'Unknown error'}. You can initiate payment manually from the orders page.`);
+                }
+              }
+            } catch (stkError) {
+              console.error('❌ Error initiating partial payment STK push:', stkError);
+              // Don't fail the order creation if STK push fails
+            }
           }
         }
         

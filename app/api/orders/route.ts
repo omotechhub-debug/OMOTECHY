@@ -451,6 +451,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Calculate remaining balance for partial payments
+    const totalAmount = orderData.totalAmount || 0;
+    const partialAmount = orderData.partialAmount || 0;
+    const remainingBalance = orderData.paymentStatus === 'partial' 
+      ? Math.max(0, totalAmount - partialAmount)
+      : totalAmount;
+
     // Create new order
     const order = new Order({
       customer: {
@@ -466,10 +473,11 @@ export async function POST(request: NextRequest) {
         price: service.price,
       })),
       location: orderData.location || 'main-branch',
-      totalAmount: orderData.totalAmount || 0,
+      totalAmount: totalAmount,
       paymentStatus: orderData.paymentStatus || 'unpaid',
-      partialAmount: orderData.partialAmount || 0,
+      partialAmount: partialAmount,
       remainingAmount: orderData.remainingAmount || 0,
+      remainingBalance: remainingBalance,
       status: orderData.status || 'pending',
       orderNumber: generateOrderNumber(),
       promoCode: promoCode || '',
