@@ -1099,14 +1099,28 @@ Need help? Call us at +254 757 883 799`;
             if (orderData.success && orderData.order) {
               const order = orderData.order;
               
-              // Check if payment is completed (success)
-              if (order.paymentStatus === 'paid') {
-                // Payment successful
+              // Check if payment is completed (success) - includes both paid and partial
+              if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
+                // Payment successful (full or partial)
                 setCheckingPayment(false);
                 setPaymentStatus('success');
-                setPaymentMessage(`Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`);
+                const isPartial = order.paymentStatus === 'partial';
+                const amountPaid = order.partialPayments && order.partialPayments.length > 0 
+                  ? order.partialPayments[order.partialPayments.length - 1].amount 
+                  : (order.amountPaid || 0);
+                const remainingBalance = order.remainingBalance || 0;
+                
+                const successMessage = isPartial
+                  ? `Partial payment successful! Amount paid: Ksh ${amountPaid.toLocaleString()}, Remaining: Ksh ${remainingBalance.toLocaleString()}. Receipt: ${order.mpesaReceiptNumber || order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber || 'N/A'}`
+                  : `Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`;
+                
+                setPaymentMessage(successMessage);
                 setPaymentStatusDialogOpen(true);
-                setCustomerInfo(prev => ({ ...prev, paymentStatus: 'paid' }));
+                setCustomerInfo(prev => ({ 
+                  ...prev, 
+                  paymentStatus: order.paymentStatus as 'paid' | 'partial',
+                  partialAmount: isPartial ? amountPaid.toString() : prev.partialAmount
+                }));
                 
                 // Clear polling
                 if (paymentPollIntervalRef.current) {
@@ -1155,14 +1169,28 @@ Need help? Call us at +254 757 883 799`;
             if (orderData.success && orderData.order) {
               const order = orderData.order;
               
-              // Check if payment is completed (success)
-              if (order.paymentStatus === 'paid') {
-                // Payment successful
+              // Check if payment is completed (success) - includes both paid and partial
+              if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
+                // Payment successful (full or partial)
                 setCheckingPayment(false);
                 setPaymentStatus('success');
-                setPaymentMessage(`Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`);
+                const isPartial = order.paymentStatus === 'partial';
+                const amountPaid = order.partialPayments && order.partialPayments.length > 0 
+                  ? order.partialPayments[order.partialPayments.length - 1].amount 
+                  : (order.amountPaid || 0);
+                const remainingBalance = order.remainingBalance || 0;
+                
+                const successMessage = isPartial
+                  ? `Partial payment successful! Amount paid: Ksh ${amountPaid.toLocaleString()}, Remaining: Ksh ${remainingBalance.toLocaleString()}. Receipt: ${order.mpesaReceiptNumber || order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber || 'N/A'}`
+                  : `Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`;
+                
+                setPaymentMessage(successMessage);
                 setPaymentStatusDialogOpen(true);
-                setCustomerInfo(prev => ({ ...prev, paymentStatus: 'paid' }));
+                setCustomerInfo(prev => ({ 
+                  ...prev, 
+                  paymentStatus: order.paymentStatus as 'paid' | 'partial',
+                  partialAmount: isPartial ? amountPaid.toString() : prev.partialAmount
+                }));
                 
                 // Clear polling
                 if (paymentPollIntervalRef.current) {
@@ -1206,14 +1234,28 @@ Need help? Call us at +254 757 883 799`;
             const resultCode = order.resultCode?.toString() || data.mpesaResponse?.ResultCode?.toString() || '';
             const isPending = data.isPending || resultCode === '1032' || order.paymentStatus === 'pending';
 
-            // Check if payment is completed (success)
-            if (order.paymentStatus === 'paid') {
-              // Payment successful
+            // Check if payment is completed (success) - includes both paid and partial
+            if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
+              // Payment successful (full or partial)
               setCheckingPayment(false);
               setPaymentStatus('success');
-              setPaymentMessage(`Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`);
+              const isPartial = order.paymentStatus === 'partial';
+              const amountPaid = order.partialPayments && order.partialPayments.length > 0 
+                ? order.partialPayments[order.partialPayments.length - 1].amount 
+                : (order.amountPaid || 0);
+              const remainingBalance = order.remainingBalance || 0;
+              
+              const successMessage = isPartial
+                ? `Partial payment successful! Amount paid: Ksh ${amountPaid.toLocaleString()}, Remaining: Ksh ${remainingBalance.toLocaleString()}. Receipt: ${order.mpesaReceiptNumber || order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber || 'N/A'}`
+                : `Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`;
+              
+              setPaymentMessage(successMessage);
               setPaymentStatusDialogOpen(true);
-              setCustomerInfo(prev => ({ ...prev, paymentStatus: 'paid' }));
+              setCustomerInfo(prev => ({ 
+                ...prev, 
+                paymentStatus: order.paymentStatus as 'paid' | 'partial',
+                partialAmount: isPartial ? amountPaid.toString() : prev.partialAmount
+              }));
               
               // Clear polling
               if (paymentPollIntervalRef.current) {
@@ -1439,96 +1481,7 @@ Need help? Call us at +254 757 883 799`;
           setLastCreatedOrderId(data.order._id);
         }
         
-        // Automatically initiate STK push for new unpaid orders
-        if (!isEditing && customerInfo.paymentStatus === 'unpaid' && customerInfo.phone) {
-          try {
-            console.log('💰 Initiating automatic STK push for order:', data.order._id);
-            const stkResponse = await fetch('/api/mpesa/initiate', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                orderId: data.order._id,
-                phoneNumber: customerInfo.phone,
-                amount: calculateFinalTotal(),
-                paymentType: 'full',
-              }),
-            });
-
-            const stkData = await stkResponse.json();
-            
-            if (stkData.success) {
-              console.log('✅ STK Push initiated successfully:', stkData.checkoutRequestId);
-              // Show success message to user
-              if (typeof window !== 'undefined') {
-                alert(`✅ Order created! M-Pesa payment request sent to ${customerInfo.phone}. Please check your phone to complete payment.`);
-              }
-              // Order status will be updated by the callback
-            } else {
-              console.warn('⚠️ STK Push failed, but order was created:', stkData.error);
-              // Show warning but don't fail the order creation
-              if (typeof window !== 'undefined') {
-                alert(`⚠️ Order created successfully, but payment request failed: ${stkData.error || 'Unknown error'}. You can initiate payment manually from the orders page.`);
-              }
-            }
-          } catch (stkError) {
-            console.error('❌ Error initiating STK push:', stkError);
-            // Don't fail the order creation if STK push fails
-          }
-        }
-        
-        // Automatically initiate STK push for new partial payment orders
-        if (!isEditing && customerInfo.paymentStatus === 'partial' && customerInfo.phone) {
-          const partialAmount = parseInt(customerInfo.partialAmount) || 0;
-          const totalAmount = calculateFinalTotal();
-          
-          // Validate partial amount: must be greater than 0 and less than total
-          if (partialAmount > 0 && partialAmount < totalAmount) {
-            try {
-              console.log('💰 Initiating automatic STK push for partial payment:', {
-                orderId: data.order._id,
-                partialAmount: partialAmount,
-                totalAmount: totalAmount,
-                remainingBalance: totalAmount - partialAmount
-              });
-              const stkResponse = await fetch('/api/mpesa/initiate', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                  orderId: data.order._id,
-                  phoneNumber: customerInfo.phone,
-                  amount: partialAmount,
-                  paymentType: 'partial',
-                }),
-              });
-
-              const stkData = await stkResponse.json();
-              
-              if (stkData.success) {
-                console.log('✅ Partial Payment STK Push initiated successfully:', stkData.checkoutRequestId);
-                // Show success message to user
-                if (typeof window !== 'undefined') {
-                  alert(`✅ Order created! M-Pesa payment request for Ksh ${partialAmount.toLocaleString()} sent to ${customerInfo.phone}. Please check your phone to complete the partial payment.`);
-                }
-                // Order status will be updated by the callback
-              } else {
-                console.warn('⚠️ Partial Payment STK Push failed, but order was created:', stkData.error);
-                // Show warning but don't fail the order creation
-                if (typeof window !== 'undefined') {
-                  alert(`⚠️ Order created successfully, but partial payment request failed: ${stkData.error || 'Unknown error'}. You can initiate payment manually from the orders page.`);
-                }
-              }
-            } catch (stkError) {
-              console.error('❌ Error initiating partial payment STK push:', stkError);
-              // Don't fail the order creation if STK push fails
-            }
-          }
-        }
+        // Note: Payment initiation is now manual only - use the "Initiate Payment" button when ready
         
         // Send SMS notifications
         if (sendSMS) {
