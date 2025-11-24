@@ -1480,11 +1480,19 @@ Need help? Call us at +254 757 883 799`;
         }
         
         // Automatically initiate STK push for new partial payment orders
-        if (!isEditing && customerInfo.paymentStatus === 'partial' && customerInfo.phone && customerInfo.partialAmount) {
+        if (!isEditing && customerInfo.paymentStatus === 'partial' && customerInfo.phone) {
           const partialAmount = parseInt(customerInfo.partialAmount) || 0;
-          if (partialAmount > 0 && partialAmount < calculateFinalTotal()) {
+          const totalAmount = calculateFinalTotal();
+          
+          // Validate partial amount: must be greater than 0 and less than total
+          if (partialAmount > 0 && partialAmount < totalAmount) {
             try {
-              console.log('💰 Initiating automatic STK push for partial payment:', data.order._id, 'Amount:', partialAmount);
+              console.log('💰 Initiating automatic STK push for partial payment:', {
+                orderId: data.order._id,
+                partialAmount: partialAmount,
+                totalAmount: totalAmount,
+                remainingBalance: totalAmount - partialAmount
+              });
               const stkResponse = await fetch('/api/mpesa/initiate', {
                 method: 'POST',
                 headers: {
@@ -2831,9 +2839,9 @@ Need help? Call us at +254 757 883 799`;
                             })),
                             location: selectedLocation,
                             totalAmount: calculateFinalTotal(),
-                            paymentStatus: 'unpaid',
-                            partialAmount: 0,
-                            remainingAmount: calculateFinalTotal(),
+                            paymentStatus: customerInfo.paymentStatus || 'unpaid',
+                            partialAmount: customerInfo.paymentStatus === 'partial' ? (parseInt(customerInfo.partialAmount) || 0) : 0,
+                            remainingAmount: customerInfo.paymentStatus === 'partial' ? Math.max(0, calculateFinalTotal() - (parseInt(customerInfo.partialAmount) || 0)) : calculateFinalTotal(),
                             status: 'pending',
                             promoCode: promoCode.trim() || undefined,
                             promotionDetails: lockedPromotion || undefined,
@@ -2882,6 +2890,18 @@ Need help? Call us at +254 757 883 799`;
                         return;
                       }
                       
+                      // Determine payment amount and type based on payment status
+                      let paymentAmount = calculateFinalTotal();
+                      let paymentType = 'full';
+                      
+                      if (customerInfo.paymentStatus === 'partial' && customerInfo.partialAmount) {
+                        const partialAmount = parseInt(customerInfo.partialAmount) || 0;
+                        if (partialAmount > 0 && partialAmount < calculateFinalTotal()) {
+                          paymentAmount = partialAmount;
+                          paymentType = 'partial';
+                        }
+                      }
+                      
                       // Initiate STK push
                       try {
                         setInitiatingPayment(true);
@@ -2894,8 +2914,8 @@ Need help? Call us at +254 757 883 799`;
                           body: JSON.stringify({
                             orderId: orderId,
                             phoneNumber: customerInfo.phone,
-                            amount: calculateFinalTotal(),
-                            paymentType: 'full',
+                            amount: paymentAmount,
+                            paymentType: paymentType,
                           }),
                         });
                         
