@@ -1329,6 +1329,7 @@ Need help? Call us at +254 757 883 799`;
   const reduceInventory = async (cartItems: any[], stationId: string) => {
     try {
       console.log('Reducing inventory for station:', stationId);
+      console.log('Cart items:', cartItems);
       
       // Filter cart items to only include products (not services)
       const productItems = cartItems.filter(item => item.type === 'product');
@@ -1338,31 +1339,59 @@ Need help? Call us at +254 757 883 799`;
         return;
       }
 
-      // Reduce inventory for each product
-      for (const item of productItems) {
-        const productId = item.item._id;
-        const quantity = item.quantity;
-        
-        console.log(`Reducing inventory for product ${productId} by ${quantity}`);
-        
-        const response = await fetch(`/api/inventory/${productId}/reduce-stock`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            quantity: quantity,
-            stationId: stationId
-          }),
-        });
+      console.log(`Found ${productItems.length} product(s) to reduce inventory for`);
 
-        if (response.ok) {
-          const data = await response.json();
-          console.log(`✅ Inventory reduced for ${item.item.name}:`, data);
-        } else {
-          console.error(`❌ Failed to reduce inventory for ${item.item.name}`);
+      // Process all inventory reductions in parallel, but track each one
+      const reductionPromises = productItems.map(async (item) => {
+        try {
+          const productId = item.item._id;
+          const quantity = item.quantity;
+          
+          if (!productId || !quantity || quantity <= 0) {
+            console.warn(`⚠️ Invalid product data:`, { productId, quantity, itemName: item.item.name });
+            return { success: false, item: item.item.name, error: 'Invalid product data' };
+          }
+          
+          console.log(`Reducing inventory for product ${productId} (${item.item.name}) by ${quantity}`);
+          
+          const response = await fetch(`/api/inventory/${productId}/reduce-stock`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              quantity: quantity,
+              stationId: stationId
+            }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`✅ Inventory reduced for ${item.item.name}:`, data);
+            return { success: true, item: item.item.name, data };
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            console.error(`❌ Failed to reduce inventory for ${item.item.name}:`, errorData);
+            return { success: false, item: item.item.name, error: errorData.error || 'Unknown error' };
+          }
+        } catch (error: any) {
+          console.error(`❌ Error reducing inventory for ${item.item.name}:`, error);
+          return { success: false, item: item.item.name, error: error.message || 'Unknown error' };
         }
+      });
+
+      // Wait for all reductions to complete
+      const results = await Promise.all(reductionPromises);
+      
+      // Log summary
+      const successful = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      console.log(`📊 Inventory reduction summary: ${successful} successful, ${failed} failed`);
+      
+      if (failed > 0) {
+        const failedItems = results.filter(r => !r.success).map(r => `${r.item} (${r.error})`);
+        console.error(`Failed items:`, failedItems);
       }
     } catch (error) {
       console.error('Error reducing inventory:', error);

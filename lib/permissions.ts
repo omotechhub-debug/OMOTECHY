@@ -208,9 +208,9 @@ export function canAddOrders(user: IUser | null): boolean {
     return true;
   }
 
-  // Regular admins cannot add orders (view only)
+  // Regular admins can add orders
   if (user.role === 'admin') {
-    return false;
+    return true;
   }
 
   return false;
