@@ -1345,14 +1345,30 @@ Need help? Call us at +254 757 883 799`;
       const reductionPromises = productItems.map(async (item) => {
         try {
           const productId = item.item._id;
-          const quantity = item.quantity;
+          // Ensure quantity is a number (parse if string, round if decimal)
+          const quantity = typeof item.quantity === 'string' 
+            ? parseInt(item.quantity, 10) 
+            : Math.round(Number(item.quantity));
           
-          if (!productId || !quantity || quantity <= 0) {
-            console.warn(`⚠️ Invalid product data:`, { productId, quantity, itemName: item.item.name });
+          console.log(`📦 Processing inventory reduction:`, {
+            productName: item.item.name,
+            productId: productId,
+            quantity: quantity,
+            quantityType: typeof item.quantity,
+            originalQuantity: item.quantity
+          });
+          
+          if (!productId || !quantity || quantity <= 0 || isNaN(quantity)) {
+            console.warn(`⚠️ Invalid product data:`, { 
+              productId, 
+              quantity, 
+              originalQuantity: item.quantity,
+              itemName: item.item.name 
+            });
             return { success: false, item: item.item.name, error: 'Invalid product data' };
           }
           
-          console.log(`Reducing inventory for product ${productId} (${item.item.name}) by ${quantity}`);
+          console.log(`🔄 Reducing inventory for "${item.item.name}" (ID: ${productId}) by ${quantity} units`);
           
           const response = await fetch(`/api/inventory/${productId}/reduce-stock`, {
             method: 'POST',
@@ -1547,7 +1563,15 @@ Need help? Call us at +254 757 883 799`;
           ? selectedStationId 
           : (user?.stationId || user?.managedStations?.[0]);
         if (currentStationId) {
+          console.log('📦 About to reduce inventory. Cart contents:', cart.map(item => ({
+            name: item.item.name,
+            type: item.type,
+            quantity: item.quantity,
+            productId: item.item._id
+          })));
           await reduceInventory(cart, currentStationId);
+        } else {
+          console.warn('⚠️ No station ID available, skipping inventory reduction');
         }
 
         setOrderSuccess(true);
