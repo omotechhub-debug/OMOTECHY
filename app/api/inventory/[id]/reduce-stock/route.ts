@@ -20,16 +20,30 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { quantity, stationId } = body;
+    let { quantity, stationId } = body;
+    
+    // Ensure quantity is a number
+    quantity = typeof quantity === 'string' ? parseInt(quantity, 10) : Number(quantity);
+    quantity = Math.round(quantity);
+    
+    console.log(`📦 Reduce Stock API called:`, {
+      inventoryId: params.id,
+      quantity: quantity,
+      quantityType: typeof body.quantity,
+      originalQuantity: body.quantity,
+      stationId: stationId
+    });
 
-    if (!quantity || quantity <= 0) {
+    if (!quantity || quantity <= 0 || isNaN(quantity)) {
+      console.error(`❌ Invalid quantity received:`, { quantity, original: body.quantity });
       return NextResponse.json(
-        { success: false, error: 'Invalid quantity' },
+        { success: false, error: `Invalid quantity: ${body.quantity}` },
         { status: 400 }
       );
     }
 
     if (!stationId || !mongoose.Types.ObjectId.isValid(stationId)) {
+      console.error(`❌ Invalid station ID:`, stationId);
       return NextResponse.json(
         { success: false, error: 'Invalid station ID' },
         { status: 400 }
@@ -39,11 +53,19 @@ export async function POST(
     // Find the inventory item
     const inventoryItem = await Inventory.findById(params.id);
     if (!inventoryItem) {
+      console.error(`❌ Inventory item not found:`, params.id);
       return NextResponse.json(
         { success: false, error: 'Inventory item not found' },
         { status: 404 }
       );
     }
+
+    console.log(`📋 Inventory item found:`, {
+      name: inventoryItem.name,
+      currentStock: inventoryItem.stock,
+      requestedReduction: quantity,
+      stationIds: inventoryItem.stationIds.map(id => id.toString())
+    });
 
     // Check if the item is assigned to the station
     const isAssignedToStation = inventoryItem.stationIds.some(
@@ -51,6 +73,7 @@ export async function POST(
     );
 
     if (!isAssignedToStation) {
+      console.error(`❌ Item "${inventoryItem.name}" not assigned to station ${stationId}`);
       return NextResponse.json(
         { success: false, error: 'Item not assigned to this station' },
         { status: 403 }
@@ -59,6 +82,7 @@ export async function POST(
 
     // Check if there's enough stock
     if (inventoryItem.stock < quantity) {
+      console.error(`❌ Insufficient stock for "${inventoryItem.name}": Available: ${inventoryItem.stock}, Requested: ${quantity}`);
       return NextResponse.json(
         { 
           success: false, 
@@ -69,10 +93,11 @@ export async function POST(
     }
 
     // Reduce the stock
+    const previousStock = inventoryItem.stock;
     inventoryItem.stock -= quantity;
     await inventoryItem.save();
 
-    console.log(`Inventory reduced for ${inventoryItem.name}: ${quantity} units. New stock: ${inventoryItem.stock}`);
+    console.log(`✅ Inventory reduced for "${inventoryItem.name}": ${quantity} units. Stock: ${previousStock} → ${inventoryItem.stock}`);
 
     return NextResponse.json({
       success: true,

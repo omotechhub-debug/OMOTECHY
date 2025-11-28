@@ -1369,6 +1369,12 @@ Need help? Call us at +254 757 883 799`;
           }
           
           console.log(`🔄 Reducing inventory for "${item.item.name}" (ID: ${productId}) by ${quantity} units`);
+          console.log(`📤 Sending request:`, {
+            url: `/api/inventory/${productId}/reduce-stock`,
+            quantity: quantity,
+            stationId: stationId,
+            quantityType: typeof quantity
+          });
           
           const response = await fetch(`/api/inventory/${productId}/reduce-stock`, {
             method: 'POST',
