@@ -1326,7 +1326,7 @@ Need help? Call us at +254 757 883 799`;
     };
   }, []);
 
-  const reduceInventory = async (cartItems: any[], stationId: string) => {
+  const reduceInventory = async (cartItems: any[], stationId: string, orderNumber?: string) => {
     try {
       console.log('Reducing inventory for station:', stationId);
       console.log('Cart items:', cartItems);
@@ -1384,7 +1384,8 @@ Need help? Call us at +254 757 883 799`;
             },
             body: JSON.stringify({
               quantity: quantity,
-              stationId: stationId
+              stationId: stationId,
+              orderNumber: orderNumber || undefined
             }),
           });
 
@@ -1575,7 +1576,7 @@ Need help? Call us at +254 757 883 799`;
             quantity: item.quantity,
             productId: item.item._id
           })));
-          await reduceInventory(cart, currentStationId);
+          await reduceInventory(cart, currentStationId, data.order?.orderNumber);
         } else {
           console.warn('⚠️ No station ID available, skipping inventory reduction');
         }
@@ -2880,7 +2881,7 @@ Need help? Call us at +254 757 883 799`;
                               ? selectedStationId 
                               : (user?.stationId || user?.managedStations?.[0]);
                             if (currentStationId) {
-                              await reduceInventory(cart, currentStationId);
+                              await reduceInventory(cart, currentStationId, data.order?.orderNumber);
                             }
                           } else {
                             alert(`Failed to create order: ${data.error || 'Unknown error'}`);

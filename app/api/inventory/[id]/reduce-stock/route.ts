@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Inventory from '@/lib/models/Inventory';
-import { requireAdmin } from '@/lib/auth';
+import InventoryMovement from '@/lib/models/InventoryMovement';
+import { requireAdmin, getTokenFromRequest, verifyToken } from '@/lib/auth';
 import mongoose from 'mongoose';
 
 export async function POST(
@@ -20,7 +21,7 @@ export async function POST(
     }
 
     const body = await request.json();
-    let { quantity, stationId } = body;
+    let { quantity, stationId, orderNumber } = body;
     
     // Ensure quantity is a number
     quantity = typeof quantity === 'string' ? parseInt(quantity, 10) : Number(quantity);
@@ -92,10 +93,50 @@ export async function POST(
       );
     }
 
+    // Get user ID from token for movement record
+    let userId: mongoose.Types.ObjectId | null = null;
+    try {
+      const token = getTokenFromRequest(request);
+      if (token) {
+        const decoded = verifyToken(token);
+        if (decoded && decoded.userId) {
+          userId = new mongoose.Types.ObjectId(decoded.userId);
+        }
+      }
+    } catch (authError) {
+      console.warn('Could not get user ID from token, using system user');
+    }
+    
+    // Use system user if no user ID found
+    if (!userId) {
+      userId = new mongoose.Types.ObjectId('000000000000000000000000'); // System user
+    }
+
     // Reduce the stock
     const previousStock = inventoryItem.stock;
     inventoryItem.stock -= quantity;
     await inventoryItem.save();
+
+    // Create inventory movement record
+    try {
+      const movement = new InventoryMovement({
+        inventoryItem: inventoryItem._id,
+        movementType: 'sale',
+        quantity: -quantity, // Negative for deduction
+        previousStock: previousStock,
+        newStock: inventoryItem.stock,
+        reason: orderNumber ? `Sold via order ${orderNumber}` : `Sold via POS order`,
+        reference: orderNumber || `POS-${Date.now()}`,
+        referenceType: 'order',
+        performedBy: userId,
+        notes: `POS sale: ${quantity} units of ${inventoryItem.name} from station ${stationId}${orderNumber ? ` (Order: ${orderNumber})` : ''}`
+      });
+      await movement.save();
+      console.log(`📝 Inventory movement record created: ${movement._id}`);
+    } catch (movementError) {
+      console.error('Error creating inventory movement record:', movementError);
+      // Don't fail the stock reduction if movement record creation fails
+    }
 
     console.log(`✅ Inventory reduced for "${inventoryItem.name}": ${quantity} units. Stock: ${previousStock} → ${inventoryItem.stock}`);
 
@@ -104,7 +145,7 @@ export async function POST(
       data: {
         _id: inventoryItem._id,
         name: inventoryItem.name,
-        previousStock: inventoryItem.stock + quantity,
+        previousStock: previousStock,
         newStock: inventoryItem.stock,
         quantityReduced: quantity
       },
