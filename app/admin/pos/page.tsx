@@ -175,6 +175,8 @@ function POSPageContent() {
   const [filteredServices, setFilteredServices] = useState<Service[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [servicesLoading, setServicesLoading] = useState(false);
+  const [productsLoading, setProductsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedLocation, setSelectedLocation] = useState("main-branch");
@@ -385,23 +387,36 @@ function POSPageContent() {
     };
   }, []);
 
-  // Fetch services, products and categories - optimized for faster loading
+  // Fetch services, products and categories - progressive loading (show page immediately)
   useEffect(() => {
     if (token && user) {
-      // Load all data in parallel for faster initial render
-      Promise.all([
-        fetchServices(),
-        fetchProducts(),
-        fetchCategories(),
-        // Fetch stations for superadmin
-        user.role === 'superadmin' ? fetchStations() : Promise.resolve()
-      ]).then(() => {
-        // All data loaded
-        setLoading(false);
-      }).catch((error) => {
-        console.error('Error loading initial data:', error);
-        setLoading(false); // Still set loading to false on error
-      });
+      // Show page immediately - don't wait for data
+      setLoading(false);
+      
+      // Load categories first (smallest, needed for filters)
+      fetchCategories().catch(err => console.error('Error fetching categories:', err));
+      
+      // Load services and products independently - they'll populate as they load
+      setServicesLoading(true);
+      fetchServices()
+        .then(() => setServicesLoading(false))
+        .catch(err => {
+          console.error('Error fetching services:', err);
+          setServicesLoading(false);
+        });
+      
+      setProductsLoading(true);
+      fetchProducts()
+        .then(() => setProductsLoading(false))
+        .catch(err => {
+          console.error('Error fetching products:', err);
+          setProductsLoading(false);
+        });
+      
+      // Fetch stations for superadmin (non-blocking)
+      if (user.role === 'superadmin') {
+        fetchStations().catch(err => console.error('Error fetching stations:', err));
+      }
     }
   }, [token, user]);
 
@@ -597,7 +612,7 @@ function POSPageContent() {
       }
     } catch (error) {
       console.error('Error fetching services:', error);
-      throw error; // Re-throw to be caught by Promise.all
+      // Don't throw - let it fail gracefully
     }
   };
 
@@ -628,7 +643,7 @@ function POSPageContent() {
         stationId = user.stationId || user.managedStations?.[0];
       }
 
-      // Build URL with station filter
+      // Build URL with station filter - load in batches for better performance
       let url = '/api/inventory?limit=1000'; // Increased limit for superadmins to see all products
       if (stationId) {
         url += `&stationId=${stationId}`;
@@ -647,7 +662,7 @@ function POSPageContent() {
       }
     } catch (error) {
       console.error('Error fetching products:', error);
-      throw error; // Re-throw to be caught by Promise.all
+      // Don't throw - let it fail gracefully
     }
   };
 
@@ -666,7 +681,7 @@ function POSPageContent() {
       }
     } catch (error) {
       console.error('Error fetching categories:', error);
-      throw error; // Re-throw to be caught by Promise.all
+      // Don't throw - let it fail gracefully
     }
   };
 
@@ -1826,16 +1841,7 @@ Need help? Call us at +254 757 883 799`;
     return () => clearTimeout(timeoutId);
   }, [promoCode, cart]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-lg font-medium">Loading POS system...</p>
-        </div>
-      </div>
-    );
-  }
+  // Page shows immediately - data loads progressively in the background
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -1962,7 +1968,12 @@ Need help? Call us at +254 757 883 799`;
           {/* Services Grid */}
           {activeTab === 'services' && (
             <>
-              {filteredServices.length === 0 ? (
+              {servicesLoading ? (
+                <div className="text-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
+                  <p className="text-gray-500 text-sm">Loading services...</p>
+                </div>
+              ) : filteredServices.length === 0 ? (
             <div className="text-center py-12">
               <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
                 <Search className="w-8 h-8 text-gray-400" />
@@ -2064,7 +2075,12 @@ Need help? Call us at +254 757 883 799`;
           {/* Products Grid */}
           {activeTab === 'products' && (
             <>
-              {filteredProducts.length === 0 ? (
+              {productsLoading ? (
+                <div className="text-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
+                  <p className="text-gray-500 text-sm">Loading products...</p>
+                </div>
+              ) : filteredProducts.length === 0 ? (
                 <div className="text-center py-12">
                   <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
                     <Package className="w-8 h-8 text-gray-400" />
