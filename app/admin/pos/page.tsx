@@ -385,16 +385,23 @@ function POSPageContent() {
     };
   }, []);
 
-  // Fetch services, products and categories
+  // Fetch services, products and categories - optimized for faster loading
   useEffect(() => {
     if (token && user) {
-      fetchServices();
-      fetchProducts();
-      fetchCategories();
-      // Fetch stations for superadmin
-      if (user.role === 'superadmin') {
-        fetchStations();
-      }
+      // Load all data in parallel for faster initial render
+      Promise.all([
+        fetchServices(),
+        fetchProducts(),
+        fetchCategories(),
+        // Fetch stations for superadmin
+        user.role === 'superadmin' ? fetchStations() : Promise.resolve()
+      ]).then(() => {
+        // All data loaded
+        setLoading(false);
+      }).catch((error) => {
+        console.error('Error loading initial data:', error);
+        setLoading(false); // Still set loading to false on error
+      });
     }
   }, [token, user]);
 
@@ -590,6 +597,7 @@ function POSPageContent() {
       }
     } catch (error) {
       console.error('Error fetching services:', error);
+      throw error; // Re-throw to be caught by Promise.all
     }
   };
 
@@ -639,8 +647,7 @@ function POSPageContent() {
       }
     } catch (error) {
       console.error('Error fetching products:', error);
-    } finally {
-      setLoading(false);
+      throw error; // Re-throw to be caught by Promise.all
     }
   };
 
@@ -659,6 +666,7 @@ function POSPageContent() {
       }
     } catch (error) {
       console.error('Error fetching categories:', error);
+      throw error; // Re-throw to be caught by Promise.all
     }
   };
 
@@ -2984,10 +2992,8 @@ Need help? Call us at +254 757 883 799`;
       <Dialog open={paymentStatusDialogOpen} onOpenChange={(open) => {
         // Only allow closing if payment is not successful (user can close failed/cancelled dialogs)
         if (!open && paymentStatus === 'success') {
-          // Auto-redirect on success after a moment
-          setTimeout(() => {
-            router.push('/admin/orders');
-          }, 500);
+          // Don't auto-close - let user choose
+          return;
         } else {
           setPaymentStatusDialogOpen(open);
         }
@@ -3016,19 +3022,49 @@ Need help? Call us at +254 757 883 799`;
           </DialogHeader>
           <div className="flex flex-col gap-3 pt-4">
             {paymentStatus === 'success' ? (
-              <Button 
-                onClick={() => {
-                  setPaymentStatusDialogOpen(false);
-                  setPaymentStatus(null);
-                  setPaymentMessage('');
-                  setCurrentCheckoutRequestId(null);
-                  router.push('/admin/orders');
-                }}
-                className="w-full bg-blue-600 hover:bg-blue-700"
-              >
-                <ArrowRight className="w-4 h-4 mr-2" />
-                Proceed to Orders Page
-              </Button>
+              <>
+                <Button 
+                  onClick={() => {
+                    setPaymentStatusDialogOpen(false);
+                    setPaymentStatus(null);
+                    setPaymentMessage('');
+                    setCurrentCheckoutRequestId(null);
+                    router.push('/admin/orders');
+                  }}
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                >
+                  <ArrowRight className="w-4 h-4 mr-2" />
+                  Proceed to Orders Page
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setPaymentStatusDialogOpen(false);
+                    setPaymentStatus(null);
+                    setPaymentMessage('');
+                    setCurrentCheckoutRequestId(null);
+                    // Stay in POS - clear cart and reset for new order
+                    clearCart();
+                    setCustomerInfo({
+                      name: '',
+                      phone: '',
+                      email: '',
+                      address: '',
+                      pickupDate: '',
+                      pickupTime: '',
+                      notes: '',
+                      pickDropAmount: '',
+                      discount: '',
+                      paymentStatus: 'unpaid',
+                      partialAmount: '',
+                    });
+                  }}
+                  className="w-full"
+                >
+                  <PlusIcon className="w-4 h-4 mr-2" />
+                  Stay in POS (Create New Order)
+                </Button>
+              </>
             ) : (
               <>
                 {/* Show "Cancel and Try Again" and "Continue Waiting" if payment is still pending after 2 minutes */}
