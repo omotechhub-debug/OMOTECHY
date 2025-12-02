@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
+import Inventory from '@/lib/models/Inventory';
+import InventoryMovement from '@/lib/models/InventoryMovement';
 import MpesaTransaction from '@/lib/models/MpesaTransaction';
 import { requireAuth, getTokenFromRequest, verifyToken } from '@/lib/auth';
 import { smsService } from '@/lib/sms';
 import { applyLockedInPromotion, updatePromotionStatuses } from '@/lib/promotion-utils';
+import mongoose from 'mongoose';
 
 // Helper function to recalculate payment status for an order
 async function recalculateOrderPaymentStatus(orderId: string) {
@@ -263,6 +266,95 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     
     console.log('Order found, proceeding with deletion:', existingOrder.orderNumber);
     
+    // Get user ID for inventory movement records
+    let userId: mongoose.Types.ObjectId | null = null;
+    try {
+      if (decoded && decoded.userId) {
+        userId = new mongoose.Types.ObjectId(decoded.userId);
+      }
+    } catch (authError) {
+      console.warn('Could not get user ID from token, using system user');
+    }
+    
+    if (!userId) {
+      userId = new mongoose.Types.ObjectId('000000000000000000000000'); // System user
+    }
+
+    // Get station ID from order for inventory restoration
+    const orderStationId = existingOrder.station?.stationId 
+      ? (typeof existingOrder.station.stationId === 'object' 
+          ? existingOrder.station.stationId.toString() 
+          : existingOrder.station.stationId)
+      : (existingOrder.stationId ? existingOrder.stationId.toString() : null);
+
+    // Restore inventory for products in the order before deleting
+    try {
+      const restoredItems: Array<{ name: string; quantity: number }> = [];
+      
+      for (const service of existingOrder.services || []) {
+        // Check if this service is actually a product (exists in inventory)
+        const inventoryItem = await Inventory.findById(service.serviceId);
+        
+        if (inventoryItem) {
+          // This is a product, restore the stock
+          const quantityToRestore = service.quantity || 0;
+          
+          if (quantityToRestore > 0) {
+            // Check if item is assigned to the order's station (if station exists)
+            if (orderStationId) {
+              const isAssignedToStation = inventoryItem.stationIds.some(
+                (id: mongoose.Types.ObjectId) => id.toString() === orderStationId
+              );
+              
+              if (!isAssignedToStation) {
+                console.warn(`⚠️ Product "${inventoryItem.name}" not assigned to order's station ${orderStationId}, skipping restoration`);
+                continue;
+              }
+            }
+            
+            const previousStock = inventoryItem.stock;
+            inventoryItem.stock += quantityToRestore;
+            await inventoryItem.save();
+            
+            // Create inventory movement record for restoration
+            try {
+              const movement = new InventoryMovement({
+                inventoryItem: inventoryItem._id,
+                movementType: 'return',
+                quantity: quantityToRestore, // Positive for addition
+                previousStock: previousStock,
+                newStock: inventoryItem.stock,
+                reason: `Order ${existingOrder.orderNumber} deleted - inventory restored`,
+                reference: existingOrder.orderNumber,
+                referenceType: 'order',
+                performedBy: userId,
+                notes: `Order deletion: Restored ${quantityToRestore} units of ${inventoryItem.name}${orderStationId ? ` for station ${orderStationId}` : ''}`
+              });
+              await movement.save();
+              console.log(`📝 Inventory restoration movement record created: ${movement._id}`);
+            } catch (movementError) {
+              console.error('Error creating inventory movement record:', movementError);
+              // Don't fail the restoration if movement record creation fails
+            }
+            
+            restoredItems.push({ name: inventoryItem.name, quantity: quantityToRestore });
+            console.log(`✅ Restored ${quantityToRestore} units of "${inventoryItem.name}". Stock: ${previousStock} → ${inventoryItem.stock}`);
+          }
+        }
+      }
+      
+      if (restoredItems.length > 0) {
+        console.log(`📦 Inventory restored for ${restoredItems.length} product(s) from order ${existingOrder.orderNumber}:`, restoredItems);
+      } else {
+        console.log(`ℹ️ No products found in order ${existingOrder.orderNumber} to restore inventory`);
+      }
+    } catch (inventoryError) {
+      console.error('Error restoring inventory during order deletion:', inventoryError);
+      // Don't fail the order deletion if inventory restoration fails
+      // Log the error but continue with deletion
+    }
+    
+    // Now delete the order
     const deletedOrder = await Order.findByIdAndDelete(orderId);
     
     if (!deletedOrder) {
@@ -277,7 +369,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     
     return NextResponse.json({
       success: true,
-      message: 'Order deleted successfully'
+      message: 'Order deleted successfully',
+      inventoryRestored: true
     });
 
   } catch (error) {
