@@ -7,7 +7,7 @@ import { getTokenFromRequest, verifyToken } from '@/lib/auth';
 
 const ALLOWED_ROLES = ['superadmin', 'admin', 'manager'] as const;
 
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
     const token = getTokenFromRequest(request);
     if (!token) {
