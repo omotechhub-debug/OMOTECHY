@@ -115,7 +115,8 @@ export default function ClientsPage() {
         const customerMap = new Map<string, any>()
         customers.forEach((customer: any) => {
           const norm = normalizeKenyaPhoneLocal(customer.phone)
-          const mapKey = norm || `db:${customer._id}`
+          const emailLower = (customer.email || '').trim().toLowerCase()
+          const mapKey = norm || (emailLower ? `email:${emailLower}` : `db:${customer._id}`)
           const displayPhone = norm || formatKenyaPhoneForDisplay(customer.phone)
           customerMap.set(mapKey, {
             id: customer._id,
@@ -140,9 +141,10 @@ export default function ClientsPage() {
         // Process orders and update customer data (prefer STK prompt / valid fields — not M-Pesa hash)
         orders.forEach((order: any) => {
           const resolvedPhone = resolvePhoneFromOrderFields(order)
-          const emailKey = order.customer?.email?.trim()
-          const key = resolvedPhone || emailKey || `ord:${order._id}`
-          if (!resolvedPhone && !emailKey) return
+          const emailLower = (order.customer?.email || '').trim().toLowerCase()
+          if (!resolvedPhone && !emailLower) return
+
+          const key = resolvedPhone || `email:${emailLower}`
 
           const displayPhone =
             resolvedPhone || formatKenyaPhoneForDisplay(order.customer?.phone)

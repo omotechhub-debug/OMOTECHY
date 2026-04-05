@@ -5,9 +5,10 @@
 
 const HASH_HEX_64 = /^[a-f0-9]{64}$/i;
 
-export function isLikelyMpesaPhoneHashOrGarbage(phone: string | null | undefined): boolean {
-  if (!phone || typeof phone !== 'string') return true;
-  const t = phone.replace(/\s+/g, '').trim();
+export function isLikelyMpesaPhoneHashOrGarbage(phone: unknown): boolean {
+  if (phone == null) return true;
+  const s = typeof phone === 'string' ? phone : String(phone);
+  const t = s.replace(/\s+/g, '').trim();
   if (!t) return true;
   if (t === 'Unknown' || t === 'Data Error') return true;
   if (t.length === 64 && HASH_HEX_64.test(t)) return true;
@@ -17,19 +18,22 @@ export function isLikelyMpesaPhoneHashOrGarbage(phone: string | null | undefined
 /**
  * Returns digits-only core for parsing (no formatting).
  */
-export function digitsOnly(input: string | null | undefined): string {
-  if (!input || typeof input !== 'string') return '';
-  return input.replace(/\D/g, '');
+export function digitsOnly(input: unknown): string {
+  if (input == null) return '';
+  const s = typeof input === 'string' ? input : String(input);
+  return s.replace(/\D/g, '');
 }
 
 /**
  * Normalize to local 10-digit format starting with 07, or null if not a valid KE mobile.
  */
-export function normalizeKenyaPhoneLocal(input: string | null | undefined): string | null {
-  if (!input || typeof input !== 'string') return null;
-  if (isLikelyMpesaPhoneHashOrGarbage(input)) return null;
+export function normalizeKenyaPhoneLocal(input: unknown): string | null {
+  if (input == null) return null;
+  const str = typeof input === 'string' ? input : String(input);
+  if (!str.trim()) return null;
+  if (isLikelyMpesaPhoneHashOrGarbage(str)) return null;
 
-  let d = digitsOnly(input);
+  let d = digitsOnly(str);
   if (!d) return null;
 
   if (d.startsWith('254')) {
@@ -55,15 +59,14 @@ export function normalizeKenyaPhoneLocal(input: string | null | undefined): stri
 
 /** Prefer STK prompt / order fields; avoid M-Pesa callback hash. */
 export function resolvePhoneFromOrderFields(order: {
-  customer?: { phone?: string };
-  pendingMpesaPayment?: { phoneNumber?: string } | null;
-  phoneNumber?: string;
-  mpesaPayment?: { phoneNumber?: string } | null;
+  customer?: { phone?: unknown };
+  pendingMpesaPayment?: { phoneNumber?: unknown } | null;
+  phoneNumber?: unknown;
+  mpesaPayment?: { phoneNumber?: unknown } | null;
+  partialPayments?: Array<{ phoneNumber?: unknown }>;
+  c2bPayment?: { phoneNumber?: unknown } | null;
 }): string | null {
-  const tryNormalize = (v: string | null | undefined) => {
-    const n = normalizeKenyaPhoneLocal(v);
-    return n;
-  };
+  const tryNormalize = (v: unknown) => normalizeKenyaPhoneLocal(v);
 
   const fromPending = tryNormalize(order.pendingMpesaPayment?.phoneNumber);
   if (fromPending) return fromPending;
@@ -77,19 +80,27 @@ export function resolvePhoneFromOrderFields(order: {
   const fromMpesa = tryNormalize(order.mpesaPayment?.phoneNumber);
   if (fromMpesa) return fromMpesa;
 
+  const partials = order.partialPayments || [];
+  for (let i = partials.length - 1; i >= 0; i--) {
+    const n = tryNormalize(partials[i]?.phoneNumber);
+    if (n) return n;
+  }
+
+  const fromC2b = tryNormalize(order.c2bPayment?.phoneNumber);
+  if (fromC2b) return fromC2b;
+
   return null;
 }
 
 /**
  * For UI: show normalized phone or placeholder when only garbage/hash is stored.
  */
-export function formatKenyaPhoneForDisplay(
-  input: string | null | undefined,
-  emptyLabel = '—'
-): string {
+export function formatKenyaPhoneForDisplay(input: unknown, emptyLabel = '—'): string {
   const n = normalizeKenyaPhoneLocal(input);
   if (n) return n;
-  if (!input || !String(input).trim()) return emptyLabel;
-  if (isLikelyMpesaPhoneHashOrGarbage(input)) return emptyLabel;
-  return String(input).trim();
+  if (input == null) return emptyLabel;
+  const raw = typeof input === 'string' ? input : String(input);
+  if (!raw.trim()) return emptyLabel;
+  if (isLikelyMpesaPhoneHashOrGarbage(raw)) return emptyLabel;
+  return raw.trim();
 }

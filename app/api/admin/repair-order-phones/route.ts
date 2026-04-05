@@ -12,7 +12,7 @@ import {
  * One-time / admin: fix order.customer.phone when it holds an M-Pesa hash or garbage,
  * using STK prompt / top-level phone fields from the same order.
  */
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
     const token = getTokenFromRequest(request);
     if (!token) {
