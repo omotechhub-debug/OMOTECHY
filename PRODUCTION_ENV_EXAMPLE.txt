@@ -1,0 +1,81 @@
+# =============================================================================
+# ECONURU PRODUCTION ENVIRONMENT VARIABLES
+# Copy this to .env.local for local development with production settings
+# =============================================================================
+
+# M-Pesa Configuration (Production - Till Number: 7092156)
+MPESA_CONSUMER_KEY=H8pg5VVGOWplnPvJmLTQJuBgUMN2CWvG
+MPESA_CONSUMER_SECRET=dEq0sW9L0zHCnfdn
+MPESA_PASSKEY=16346bcbe82536b2c082f7bd00432c8984ffff24686e685ca986458196131955
+MPESA_SHORT_CODE=7092156
+MPESA_ENVIRONMENT=production
+
+# Domain Configuration
+NEXT_PUBLIC_BASE_URL=https://www.econuru.co.ke
+NEXT_PUBLIC_APP_URL=https://www.econuru.co.ke
+NEXT_PUBLIC_API_URL=https://www.econuru.co.ke/api
+
+# M-Pesa Callback URL (Production)
+MPESA_CALLBACK_URL=https://www.econuru.co.ke/api/mpesa/callback
+
+# Database (Replace with your actual MongoDB connection string)
+MONGODB_URI=mongodb+srv://your-username:your-password@your-cluster.mongodb.net/econuru-production?retryWrites=true&w=majority
+
+# Authentication (Replace with your actual JWT secret)
+JWT_SECRET=your-super-secure-jwt-secret-key-here
+
+# NextAuth Configuration
+NEXTAUTH_URL=https://www.econuru.co.ke
+NEXTAUTH_SECRET=your-nextauth-secret-key-here
+
+# File Storage (Replace with your actual Cloudinary credentials)
+CLOUDINARY_CLOUD_NAME=your-cloudinary-cloud-name
+CLOUDINARY_API_KEY=your-cloudinary-api-key
+CLOUDINARY_API_SECRET=your-cloudinary-api-secret
+
+# SMS Configuration (Replace with your actual SMS credentials)
+SMS_API_KEY=your-sms-api-key
+SMS_SENDER_ID=your-sms-sender-id
+SMS_API_URL=your-sms-api-url
+
+# Email Configuration (if using email notifications)
+EMAIL_FROM=noreply@econuru.co.ke
+SMTP_HOST=your-smtp-host
+SMTP_PORT=587
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+
+# Security
+ALLOWED_ORIGINS=https://www.econuru.co.ke,https://econuru.co.ke
+
+# Application Settings
+NODE_ENV=production
+ENABLE_ANALYTICS=true
+ENABLE_MONITORING=true
+
+# =============================================================================
+# IMPORTANT NOTES:
+# 1. This is configured for econuru.co.ke domain
+# 2. M-Pesa is set to production environment
+# 3. All callback URLs point to your live domain
+# 4. Replace placeholder values with your actual credentials
+# =============================================================================
+
+# C2B Configuration (if using C2B payments)
+MPESA_C2B_VALIDATION_URL=https://www.econuru.co.ke/api/payments/c2b/validation
+MPESA_C2B_CONFIRMATION_URL=https://www.econuru.co.ke/api/payments/c2b/confirmation
+MPESA_C2B_RESPONSE_TYPE=Completed
+
+# WhatsApp Business Number
+WHATSAPP_NUMBER=+254757883799
+
+# =============================================================================
+# IMPORTANT DEPLOYMENT NOTES:
+# =============================================================================
+# 1. Ensure all URLs use HTTPS in production
+# 2. Use strong, unique secrets for JWT_SECRET and NEXTAUTH_SECRET  
+# 3. The MPESA_CALLBACK_URL must be publicly accessible
+# 4. Register the callback URL with Safaricom before going live
+# 5. Test M-Pesa integration thoroughly in sandbox before production
+# 6. Set up proper error monitoring and logging
+# ============================================================================= 

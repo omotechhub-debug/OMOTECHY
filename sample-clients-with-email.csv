@@ -1,0 +1,11 @@
+ID,ClientName,ClientNo,Email,ClientLocation
+CSV001,John Smith,+254712345678,john.smith@email.com,Nairobi, Kenya
+CSV002,Mary Johnson,0722123456,mary.johnson@gmail.com,Karen, Nairobi
+CSV003,David Wilson,+254733567890,david.wilson@yahoo.com,Westlands, Nairobi
+CSV004,Sarah Brown,0711987654,sarah.brown@outlook.com,Kileleshwa, Nairobi
+CSV005,Michael Davis,+254700123456,michael.davis@email.com,Runda, Nairobi
+CSV006,Jennifer Garcia,0733456789,jennifer.garcia@gmail.com,Lavington, Nairobi
+CSV007,Robert Miller,+254722876543,robert.miller@yahoo.com,Parklands, Nairobi
+CSV008,Lisa Anderson,0711234567,lisa.anderson@outlook.com,South B, Nairobi
+CSV009,Christopher Taylor,+254733123456,chris.taylor@email.com,Eastleigh, Nairobi
+CSV010,Amanda Thomas,0722567890,amanda.thomas@gmail.com,Donholm, Nairobi 
