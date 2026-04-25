@@ -514,9 +514,10 @@ function POSPageContent() {
   };
 
   const getDemandScore = useCallback((name: string, type: "service" | "product", window: "12h" | "24h" | "72h") => {
+    const normalized = name.toLowerCase().trim();
     const signal = demandSignals.find(
-      (entry) => entry.itemName.toLowerCase() === name.toLowerCase() && entry.itemType === type
-    );
+      (entry) => entry.itemName.toLowerCase().trim() === normalized && entry.itemType === type
+    ) || demandSignals.find((entry) => entry.itemName.toLowerCase().trim() === normalized);
     if (!signal) return 0;
     if (window === "12h") return signal.sold12h;
     if (window === "24h") return signal.sold24h;
@@ -548,12 +549,16 @@ function POSPageContent() {
       const inScopeOrders = stationScopeId
         ? orders.filter((order: any) => {
             const orderStationId =
-              typeof order.stationId === "string" ? order.stationId : order.stationId?._id || null;
-            return orderStationId === stationScopeId;
+              (typeof order.stationId === "string" ? order.stationId : order.stationId?._id) ||
+              (typeof order.station?.stationId === "string" ? order.station.stationId : order.station?.stationId?._id) ||
+              null;
+            return String(orderStationId) === String(stationScopeId);
           })
         : orders;
 
       const map = new Map<string, DemandSignal>();
+      const serviceNameSet = new Set(services.map((service) => service.name.toLowerCase().trim()));
+      const productNameSet = new Set(products.map((product) => product.name.toLowerCase().trim()));
       const hourBuckets = Array.from({ length: 24 }).map((_, hour) => ({
         hour,
         count: 0,
@@ -562,6 +567,9 @@ function POSPageContent() {
       const coPurchaseCounter = new Map<string, number>();
 
       for (const order of inScopeOrders) {
+        const normalizedStatus = String(order.status || "").toLowerCase();
+        if (normalizedStatus === "cancelled") continue;
+
         const createdTs = new Date(order.createdAt).getTime();
         const in12 = createdTs >= hours12;
         const in24 = createdTs >= hours24;
@@ -571,11 +579,17 @@ function POSPageContent() {
         const orderItems: Array<{ name: string; quantity: number; price: number; type: "service" | "product" }> = [];
         const serviceItems = Array.isArray(order.services) ? order.services : [];
         for (const service of serviceItems) {
+          const itemName = service.serviceName || service.name || "Unknown Service";
+          const normalizedName = String(itemName).toLowerCase().trim();
+          const inferredType: "service" | "product" = productNameSet.has(normalizedName) && !serviceNameSet.has(normalizedName)
+            ? "product"
+            : "service";
+
           orderItems.push({
-            name: service.serviceName || service.name || "Unknown Service",
+            name: itemName,
             quantity: Number(service.quantity) || 1,
             price: Number(service.price) || 0,
-            type: "service",
+            type: inferredType,
           });
         }
 
@@ -2191,7 +2205,7 @@ Need help? Call us at +254 757 883 799`;
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm text-gray-600">No completed orders in the last 12 hours yet.</p>
+                  <p className="text-sm text-gray-600">No sales captured in the last 12 hours yet.</p>
                 )}
               </CardContent>
             </Card>
