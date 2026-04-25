@@ -115,13 +115,13 @@ export function getAccessiblePages(user: IUser | null): string[] {
     return [
       'dashboard', 'orders', 'pos', 'customers', 'services', 'reports', 
       'mpesa-transactions', 'users', 'expenses', 'gallery', 'testimonials', 
-      'promotions', 'inventory', 'inventory-management', 'stations', 'settings', 'social-media'
+      'promotions', 'inventory', 'inventory-management', 'stations', 'settings', 'social-media', 'ai-command-center'
     ];
   }
 
   // Manager has very limited access - only POS, Orders, and Expenses
   if (user.role === 'manager') {
-    return ['dashboard', 'orders', 'pos', 'expenses'];
+    return ['dashboard', 'orders', 'pos', 'expenses', 'ai-command-center'];
   }
 
   // Regular users should not access admin pages at all
@@ -130,7 +130,7 @@ export function getAccessiblePages(user: IUser | null): string[] {
   }
 
   // Core pages that all admins should have access to by default
-  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations'];
+  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations', 'ai-command-center'];
   
   // Return pages that admin user can view
   if (user.pagePermissions && Array.isArray(user.pagePermissions)) {
@@ -334,6 +334,7 @@ export const ADMIN_PAGES = {
   'inventory-management': { label: 'Inventory Management', icon: 'BarChart3', path: '/admin/inventory-management' },
   stations: { label: 'Stations', icon: 'Building', path: '/admin/stations' },
   'social-media': { label: 'Social Media', icon: 'MessageSquare', path: '/admin/social-media' },
+  'ai-command-center': { label: 'OMOTECH Intelligence Hub', icon: 'Sparkles', path: '/admin/ai-command-center' },
 } as const;
 
 /**

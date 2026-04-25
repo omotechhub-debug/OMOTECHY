@@ -1,5 +1,5 @@
 /**
- * Kenyan mobile numbers stored and displayed as local 10-digit "07XXXXXXXX".
+ * Kenyan mobile numbers stored and displayed as local 10-digit format ("07XXXXXXXX" or "01XXXXXXXX").
  * M-Pesa STK callbacks sometimes return a 64-char hex "PhoneNumber" — never treat that as the customer phone.
  */
 
@@ -25,7 +25,8 @@ export function digitsOnly(input: unknown): string {
 }
 
 /**
- * Normalize to local 10-digit format starting with 07, or null if not a valid KE mobile.
+ * Normalize to local 10-digit format (07XXXXXXXX or 01XXXXXXXX),
+ * or null if not a valid KE mobile.
  */
 export function normalizeKenyaPhoneLocal(input: unknown): string | null {
   if (input == null) return null;
@@ -38,19 +39,19 @@ export function normalizeKenyaPhoneLocal(input: unknown): string | null {
 
   if (d.startsWith('254')) {
     const rest = d.slice(3);
-    if (rest.length === 9 && rest.startsWith('7')) {
+    if (rest.length === 9 && (rest.startsWith('7') || rest.startsWith('1'))) {
       d = '0' + rest;
     } else if (rest.length >= 9) {
       const nine = rest.slice(0, 9);
-      if (nine.startsWith('7')) d = '0' + nine;
+      if (nine.startsWith('7') || nine.startsWith('1')) d = '0' + nine;
     }
   }
 
-  if (d.length === 9 && d.startsWith('7')) {
+  if (d.length === 9 && (d.startsWith('7') || d.startsWith('1'))) {
     d = '0' + d;
   }
 
-  if (d.length === 10 && d.startsWith('07')) {
+  if (d.length === 10 && (d.startsWith('07') || d.startsWith('01'))) {
     return d;
   }
 

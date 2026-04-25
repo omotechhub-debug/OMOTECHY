@@ -30,6 +30,7 @@ import {
   Folder,
   Clock,
   Smartphone,
+  Sparkles,
 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -110,6 +111,7 @@ function AdminLayoutContent({
     Image: ImageIcon,
     MessageSquare,
     Tag,
+    Sparkles,
   }
 
   // Get navigation items based on user permissions

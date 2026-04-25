@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   Search,
   MapPin,
   Filter,
@@ -41,6 +42,7 @@ import {
   Gift,
   RefreshCw,
   Clock,
+  Flame,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -141,6 +143,16 @@ interface CustomerInfo {
   partialAmount: string; // Amount paid for partial payments
 }
 
+interface DemandSignal {
+  itemName: string;
+  itemType: "service" | "product";
+  sold12h: number;
+  sold24h: number;
+  sold72h: number;
+  revenue12h: number;
+  growthPercent: number;
+}
+
 const locations = [
   { id: "main-branch", name: "Main Branch", address: "Westlands, Nairobi" },
   { id: "karen-branch", name: "Karen Branch", address: "Karen, Nairobi" },
@@ -182,6 +194,10 @@ function POSPageContent() {
   const [selectedLocation, setSelectedLocation] = useState("main-branch");
   const [sortBy, setSortBy] = useState("name");
   const [activeTab, setActiveTab] = useState<'services' | 'products'>('services');
+  const [demandSignals, setDemandSignals] = useState<DemandSignal[]>([]);
+  const [hourlyDemand, setHourlyDemand] = useState<Array<{ hour: number; count: number; label: string }>>([]);
+  const [bundleSuggestions, setBundleSuggestions] = useState<Array<{ seed: string; next: string; confidence: number }>>([]);
+  const [lastDemandRefreshAt, setLastDemandRefreshAt] = useState<Date | null>(null);
   
   // Cart and Order State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -497,6 +513,147 @@ function POSPageContent() {
     userSelectedStationRef.current = true; // Mark as user-selected
   };
 
+  const getDemandScore = useCallback((name: string, type: "service" | "product", window: "12h" | "24h" | "72h") => {
+    const signal = demandSignals.find(
+      (entry) => entry.itemName.toLowerCase() === name.toLowerCase() && entry.itemType === type
+    );
+    if (!signal) return 0;
+    if (window === "12h") return signal.sold12h;
+    if (window === "24h") return signal.sold24h;
+    return signal.sold72h;
+  }, [demandSignals]);
+
+  const fetchDemandIntelligence = useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await fetch("/api/orders?limit=1000", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      const data = await response.json();
+      const orders = data.orders || [];
+
+      const now = Date.now();
+      const hours12 = now - 12 * 60 * 60 * 1000;
+      const hours24 = now - 24 * 60 * 60 * 1000;
+      const hours72 = now - 72 * 60 * 60 * 1000;
+
+      const stationScopeId =
+        user?.role === "superadmin"
+          ? selectedStationId || null
+          : user?.stationId || user?.managedStations?.[0] || null;
+
+      const inScopeOrders = stationScopeId
+        ? orders.filter((order: any) => {
+            const orderStationId =
+              typeof order.stationId === "string" ? order.stationId : order.stationId?._id || null;
+            return orderStationId === stationScopeId;
+          })
+        : orders;
+
+      const map = new Map<string, DemandSignal>();
+      const hourBuckets = Array.from({ length: 24 }).map((_, hour) => ({
+        hour,
+        count: 0,
+        label: `${hour.toString().padStart(2, "0")}:00`,
+      }));
+      const coPurchaseCounter = new Map<string, number>();
+
+      for (const order of inScopeOrders) {
+        const createdTs = new Date(order.createdAt).getTime();
+        const in12 = createdTs >= hours12;
+        const in24 = createdTs >= hours24;
+        const in72 = createdTs >= hours72;
+        if (!in72) continue;
+
+        const orderItems: Array<{ name: string; quantity: number; price: number; type: "service" | "product" }> = [];
+        const serviceItems = Array.isArray(order.services) ? order.services : [];
+        for (const service of serviceItems) {
+          orderItems.push({
+            name: service.serviceName || service.name || "Unknown Service",
+            quantity: Number(service.quantity) || 1,
+            price: Number(service.price) || 0,
+            type: "service",
+          });
+        }
+
+        const productItems = Array.isArray(order.products) ? order.products : [];
+        for (const product of productItems) {
+          orderItems.push({
+            name: product.productName || product.name || "Unknown Product",
+            quantity: Number(product.quantity) || 1,
+            price: Number(product.price) || 0,
+            type: "product",
+          });
+        }
+
+        for (const item of orderItems) {
+          const key = `${item.type}:${item.name.toLowerCase()}`;
+          const existing = map.get(key) || {
+            itemName: item.name,
+            itemType: item.type,
+            sold12h: 0,
+            sold24h: 0,
+            sold72h: 0,
+            revenue12h: 0,
+            growthPercent: 0,
+          };
+
+          if (in12) {
+            existing.sold12h += item.quantity;
+            existing.revenue12h += item.quantity * item.price;
+          }
+          if (in24) existing.sold24h += item.quantity;
+          if (in72) existing.sold72h += item.quantity;
+          map.set(key, existing);
+        }
+
+        if (in12) {
+          const hour = new Date(order.createdAt).getHours();
+          hourBuckets[hour].count += 1;
+        }
+
+        const uniqueNames = [...new Set(orderItems.map((item) => item.name))];
+        for (let i = 0; i < uniqueNames.length; i += 1) {
+          for (let j = i + 1; j < uniqueNames.length; j += 1) {
+            const pair = [uniqueNames[i], uniqueNames[j]].sort().join(" + ");
+            coPurchaseCounter.set(pair, (coPurchaseCounter.get(pair) || 0) + 1);
+          }
+        }
+      }
+
+      const signalList = [...map.values()].map((signal) => {
+        const previousWindow = Math.max(signal.sold24h - signal.sold12h, 1);
+        const growthPercent = Math.round(((signal.sold12h - previousWindow) / previousWindow) * 100);
+        return { ...signal, growthPercent };
+      });
+
+      const bundles = [...coPurchaseCounter.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([pair, count]) => {
+          const [seed, next] = pair.split(" + ");
+          return { seed, next, confidence: Math.min(95, count * 12) };
+        });
+
+      setDemandSignals(signalList);
+      setHourlyDemand(hourBuckets);
+      setBundleSuggestions(bundles);
+      setLastDemandRefreshAt(new Date());
+    } catch (error) {
+      console.error("Error fetching demand intelligence:", error);
+    }
+  }, [token, user?.role, user?.stationId, user?.managedStations, selectedStationId]);
+
+  useEffect(() => {
+    if (!token || !user) return;
+    fetchDemandIntelligence();
+    const interval = setInterval(fetchDemandIntelligence, 180000);
+    return () => clearInterval(interval);
+  }, [token, user, fetchDemandIntelligence]);
+
   // Filter services based on search and category
   useEffect(() => {
     let filtered = services.filter(service => service.active);
@@ -514,6 +671,12 @@ function POSPageContent() {
     }
 
     filtered.sort((a, b) => {
+      const demand12Diff = getDemandScore(b.name, "service", "12h") - getDemandScore(a.name, "service", "12h");
+      if (demand12Diff !== 0) return demand12Diff;
+
+      const demand24Diff = getDemandScore(b.name, "service", "24h") - getDemandScore(a.name, "service", "24h");
+      if (demand24Diff !== 0) return demand24Diff;
+
       switch (sortBy) {
         case "name":
           return a.name.localeCompare(b.name);
@@ -524,12 +687,12 @@ function POSPageContent() {
         case "featured":
           return b.featured ? 1 : -1;
         default:
-          return 0;
+          return a.name.localeCompare(b.name);
       }
     });
 
     setFilteredServices(filtered);
-  }, [services, searchQuery, selectedCategory, sortBy]);
+  }, [services, searchQuery, selectedCategory, sortBy, getDemandScore]);
 
   // Filter products based on search and category
   useEffect(() => {
@@ -550,6 +713,12 @@ function POSPageContent() {
     }
 
     filtered.sort((a, b) => {
+      const demand12Diff = getDemandScore(b.name, "product", "12h") - getDemandScore(a.name, "product", "12h");
+      if (demand12Diff !== 0) return demand12Diff;
+
+      const demand24Diff = getDemandScore(b.name, "product", "24h") - getDemandScore(a.name, "product", "24h");
+      if (demand24Diff !== 0) return demand24Diff;
+
       switch (sortBy) {
         case "name":
           return a.name.localeCompare(b.name);
@@ -560,12 +729,12 @@ function POSPageContent() {
         case "stock":
           return b.stock - a.stock;
         default:
-          return 0;
+          return a.name.localeCompare(b.name);
       }
     });
 
     setFilteredProducts(filtered);
-  }, [products, searchQuery, selectedCategory, sortBy]);
+  }, [products, searchQuery, selectedCategory, sortBy, getDemandScore]);
 
   const fetchServices = async () => {
     try {
@@ -1842,6 +2011,36 @@ Need help? Call us at +254 757 883 799`;
   }, [promoCode, cart]);
 
   // Page shows immediately - data loads progressively in the background
+  const hotTrendingNow = [...demandSignals]
+    .sort((a, b) => b.sold12h - a.sold12h || b.sold24h - a.sold24h || a.itemName.localeCompare(b.itemName))
+    .slice(0, 10);
+
+  const lowDemandAlerts = [...demandSignals]
+    .filter((signal) => signal.sold72h === 0)
+    .slice(0, 5);
+
+  const sortedCategories = [...categories].sort((a, b) => {
+    const categoryDemand = (categoryId: string) => {
+      const serviceDemand = services
+        .filter((service) => service.category === categoryId)
+        .reduce((sum, service) => sum + getDemandScore(service.name, "service", "12h"), 0);
+      const productDemand = products
+        .filter((product) => product.category === categoryId)
+        .reduce((sum, product) => sum + getDemandScore(product.name, "product", "12h"), 0);
+      return serviceDemand + productDemand;
+    };
+    const diff = categoryDemand(b._id) - categoryDemand(a._id);
+    if (diff !== 0) return diff;
+    return a.name.localeCompare(b.name);
+  });
+
+  const topHour = [...hourlyDemand].sort((a, b) => b.count - a.count)[0];
+  const currentHour = new Date().getHours();
+  const peakDemandMessage = topHour
+    ? `Peak buying hour detected at ${topHour.label}. Current hour is ${currentHour
+        .toString()
+        .padStart(2, "0")}:00 - prioritize items with high short-term demand.`
+    : "Demand engine is warming up. Peak-hour forecast will appear after first refresh.";
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -1920,7 +2119,7 @@ Need help? Call us at +254 757 883 799`;
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
-                  {categories.map((category) => (
+                  {sortedCategories.map((category) => (
                     <SelectItem key={category._id} value={category._id}>
                       {category.name}
                     </SelectItem>
@@ -1963,6 +2162,111 @@ Need help? Call us at +254 757 883 799`;
             >
               Products ({filteredProducts.length})
             </button>
+          </div>
+
+          {/* POS Demand Intelligence */}
+          <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <Card className="xl:col-span-2 border-orange-200 bg-gradient-to-r from-orange-50 to-rose-50">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Flame className="h-4 w-4 text-orange-600" />
+                  🔥 Trending Now (Last 12 Hours)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {hotTrendingNow.length > 0 ? (
+                  hotTrendingNow.slice(0, 8).map((signal) => (
+                    <div key={`${signal.itemType}-${signal.itemName}`} className="rounded-lg border border-orange-200 bg-white/70 p-3">
+                      <div className="flex items-center justify-between">
+                        <p className="font-medium text-gray-900">{signal.itemName}</p>
+                        <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">Hot</Badge>
+                      </div>
+                      <div className="mt-2 text-xs text-gray-600">
+                        <p>Sold (12h): {signal.sold12h}</p>
+                        <p>Revenue (12h): Ksh {Math.round(signal.revenue12h).toLocaleString()}</p>
+                        <p className={signal.growthPercent >= 0 ? "text-emerald-600" : "text-red-600"}>
+                          {signal.growthPercent >= 0 ? "↑" : "↓"} {Math.abs(signal.growthPercent)}%
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-gray-600">No completed orders in the last 12 hours yet.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Demand Engine</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-xs text-gray-600">
+                <p>{peakDemandMessage}</p>
+                <div className="space-y-2">
+                  <p className="font-medium text-gray-900">Bundle Suggestions</p>
+                  {bundleSuggestions.length > 0 ? (
+                    bundleSuggestions.slice(0, 3).map((bundle) => (
+                      <div key={`${bundle.seed}-${bundle.next}`} className="rounded-md border p-2">
+                        <p>
+                          If customer buys <b>{bundle.seed}</b>, suggest <b>{bundle.next}</b>
+                        </p>
+                        <p className="text-emerald-700">Confidence: {bundle.confidence}%</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-gray-500">Waiting for enough cart-pattern data...</p>
+                  )}
+                </div>
+                {lastDemandRefreshAt && (
+                  <p className="text-[11px] text-gray-500">
+                    Last refresh: {lastDemandRefreshAt.toLocaleTimeString()}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Time-Based Sales Intelligence</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-6 gap-2 md:grid-cols-8">
+                  {hourlyDemand.map((slot) => {
+                    const intensity = Math.min(1, slot.count / Math.max(...hourlyDemand.map((entry) => entry.count || 1)));
+                    const bg = `rgba(59, 130, 246, ${0.12 + intensity * 0.5})`;
+                    return (
+                      <div key={slot.hour} className="rounded-md p-2 text-center text-[11px]" style={{ backgroundColor: bg }}>
+                        <p>{slot.hour.toString().padStart(2, "0")}</p>
+                        <p className="font-semibold">{slot.count}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  Low Demand Alerts
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {lowDemandAlerts.length > 0 ? (
+                  lowDemandAlerts.map((signal) => (
+                    <div key={`low-${signal.itemType}-${signal.itemName}`} className="rounded-md border border-amber-200 bg-amber-50 p-2">
+                      <p className="font-medium text-amber-900">{signal.itemName}</p>
+                      <p className="text-xs text-amber-700">No sale in last 72h - review pricing or visibility.</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-gray-600">No low-demand items currently detected.</p>
+                )}
+              </CardContent>
+            </Card>
           </div>
 
           {/* Services Grid */}

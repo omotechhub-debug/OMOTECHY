@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const normalizedLocal = normalizeKenyaPhoneLocal(phoneNumber);
     if (!normalizedLocal) {
       return NextResponse.json(
-        { error: 'Invalid phone. Use Kenyan mobile format, e.g. 07XXXXXXXX or 2547XXXXXXXX' },
+        { error: 'Invalid phone. Use Kenyan mobile format, e.g. 07XXXXXXXX / 01XXXXXXXX or 2547XXXXXXXX / 2541XXXXXXXX' },
         { status: 400 }
       );
     }

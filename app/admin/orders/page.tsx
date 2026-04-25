@@ -469,11 +469,22 @@ function OrdersPageContent() {
 
   const handleAcceptAllPending = async () => {
     try {
+      const authToken = token || (typeof window !== 'undefined' ? localStorage.getItem('authToken') : null);
+      if (!authToken) {
+        toast({
+          title: 'Authentication required',
+          description: 'Please log in again and retry.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       setAcceptingAll(true);
       const response = await fetch('/api/admin/orders/accept-pending', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
         },
       });
 
