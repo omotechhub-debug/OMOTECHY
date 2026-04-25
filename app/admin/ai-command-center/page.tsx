@@ -510,8 +510,12 @@ function CommandCenterContent() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">OMOTECH AI</p>
+        <p className="text-sm text-muted-foreground">
+          Analyzing your business performance, payments, demand trends, and operational risks...
+        </p>
       </div>
     );
   }
@@ -521,9 +525,9 @@ function CommandCenterContent() {
       <div className="rounded-3xl border border-white/20 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 p-6 text-white shadow-2xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold md:text-3xl">AI Command Center</h1>
+            <h1 className="text-2xl font-bold md:text-3xl">OMOTECH AI</h1>
             <p className="mt-1 text-sm text-slate-300">
-              OMOTECH Intelligence Hub for operations, finance, CRM, inventory, and station performance.
+              Your intelligent control center for operations, finance, CRM, inventory, and station performance.
             </p>
           </div>
           <div className="flex gap-2">
@@ -908,7 +912,7 @@ function CommandCenterContent() {
 
 export default function AICommandCenterPage() {
   return (
-    <AdminPageProtection pageName="AI Command Center">
+    <AdminPageProtection pageName="OMOTECH AI">
       <CommandCenterContent />
     </AdminPageProtection>
   );

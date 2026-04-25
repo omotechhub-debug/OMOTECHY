@@ -3,12 +3,18 @@
 import { useState, useEffect } from "react"
 import { MessageCircle } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
+import { usePathname } from "next/navigation"
 
 export function WhatsAppWidget() {
+  const pathname = usePathname()
   const [isVisible, setIsVisible] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
   const phoneNumber = "+254740802704" // OMOTECH HUB WhatsApp number with + for display
   const waPhoneNumber = "254740802704" // wa.me format (no +)
+
+  if (pathname?.startsWith("/admin")) {
+    return null
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {

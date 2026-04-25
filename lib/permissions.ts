@@ -334,7 +334,7 @@ export const ADMIN_PAGES = {
   'inventory-management': { label: 'Inventory Management', icon: 'BarChart3', path: '/admin/inventory-management' },
   stations: { label: 'Stations', icon: 'Building', path: '/admin/stations' },
   'social-media': { label: 'Social Media', icon: 'MessageSquare', path: '/admin/social-media' },
-  'ai-command-center': { label: 'OMOTECH Intelligence Hub', icon: 'Sparkles', path: '/admin/ai-command-center' },
+  'ai-command-center': { label: 'OMOTECH AI', icon: 'Sparkles', path: '/admin/ai-command-center' },
 } as const;
 
 /**
