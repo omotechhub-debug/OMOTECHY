@@ -282,15 +282,6 @@ function POSPageContent() {
   }, [searchQuery]);
 
   useEffect(() => {
-    if (!debouncedSearchQuery) return;
-    const topMatches = [...services, ...products]
-      .map((item: any) => item?.name)
-      .filter((name: string) => typeof name === "string" && name.toLowerCase().includes(debouncedSearchQuery))
-      .slice(0, 5);
-    topMatches.forEach((name) => trackSignal(name, "search"));
-  }, [debouncedSearchQuery, services, products, trackSignal]);
-
-  useEffect(() => {
     try {
       const cachedServices = localStorage.getItem(POS_SERVICES_CACHE_KEY);
       const cachedProducts = localStorage.getItem(POS_PRODUCTS_CACHE_KEY);
@@ -321,6 +312,15 @@ function POSPageContent() {
       localStorage.setItem(POS_SIGNAL_CACHE_KEY, JSON.stringify(next));
     } catch {}
   }, [localSignals]);
+
+  useEffect(() => {
+    if (!debouncedSearchQuery) return;
+    const topMatches = [...services, ...products]
+      .map((item: any) => item?.name)
+      .filter((name: string) => typeof name === "string" && name.toLowerCase().includes(debouncedSearchQuery))
+      .slice(0, 5);
+    topMatches.forEach((name) => trackSignal(name, "search"));
+  }, [debouncedSearchQuery, services, products, trackSignal]);
 
   // Customer search functions
   const searchCustomers = useCallback(async (query: string) => {
