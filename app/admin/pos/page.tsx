@@ -151,6 +151,17 @@ interface DemandSignal {
   growthPercent: number;
 }
 
+type LocalSignalEntry = {
+  add_to_cart: number;
+  views: number;
+  searches: number;
+  lastUsedAt: number;
+};
+
+const POS_SERVICES_CACHE_KEY = "pos_services_cache_v1";
+const POS_PRODUCTS_CACHE_KEY = "pos_products_cache_v1";
+const POS_SIGNAL_CACHE_KEY = "pos_signal_cache_v1";
+
 const locations = [
   { id: "main-branch", name: "Main Branch", address: "Westlands, Nairobi" },
   { id: "karen-branch", name: "Karen Branch", address: "Karen, Nairobi" },
@@ -188,6 +199,7 @@ function POSPageContent() {
   const [servicesLoading, setServicesLoading] = useState(false);
   const [productsLoading, setProductsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedLocation, setSelectedLocation] = useState("main-branch");
   const [sortBy, setSortBy] = useState("name");
@@ -196,6 +208,7 @@ function POSPageContent() {
   const [hourlyDemand, setHourlyDemand] = useState<Array<{ hour: number; count: number; label: string }>>([]);
   const [bundleSuggestions, setBundleSuggestions] = useState<Array<{ seed: string; next: string; confidence: number }>>([]);
   const [lastDemandRefreshAt, setLastDemandRefreshAt] = useState<Date | null>(null);
+  const [localSignals, setLocalSignals] = useState<Record<string, LocalSignalEntry>>({});
   
   // Cart and Order State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -262,6 +275,52 @@ function POSPageContent() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const suggestionDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearchQuery(searchQuery.trim().toLowerCase()), 120);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!debouncedSearchQuery) return;
+    const topMatches = [...services, ...products]
+      .map((item: any) => item?.name)
+      .filter((name: string) => typeof name === "string" && name.toLowerCase().includes(debouncedSearchQuery))
+      .slice(0, 5);
+    topMatches.forEach((name) => trackSignal(name, "search"));
+  }, [debouncedSearchQuery, services, products, trackSignal]);
+
+  useEffect(() => {
+    try {
+      const cachedServices = localStorage.getItem(POS_SERVICES_CACHE_KEY);
+      const cachedProducts = localStorage.getItem(POS_PRODUCTS_CACHE_KEY);
+      const cachedSignals = localStorage.getItem(POS_SIGNAL_CACHE_KEY);
+      if (cachedServices) setServices(JSON.parse(cachedServices));
+      if (cachedProducts) setProducts(JSON.parse(cachedProducts));
+      if (cachedSignals) setLocalSignals(JSON.parse(cachedSignals));
+      setLoading(false);
+    } catch {
+      setLoading(false);
+    }
+  }, []);
+
+  const trackSignal = useCallback((itemName: string, event: "add_to_cart" | "view" | "search") => {
+    const key = itemName.toLowerCase().trim();
+    const current = localSignals[key] || { add_to_cart: 0, views: 0, searches: 0, lastUsedAt: 0 };
+    const next = {
+      ...localSignals,
+      [key]: {
+        add_to_cart: current.add_to_cart + (event === "add_to_cart" ? 1 : 0),
+        views: current.views + (event === "view" ? 1 : 0),
+        searches: current.searches + (event === "search" ? 1 : 0),
+        lastUsedAt: Date.now(),
+      },
+    };
+    setLocalSignals(next);
+    try {
+      localStorage.setItem(POS_SIGNAL_CACHE_KEY, JSON.stringify(next));
+    } catch {}
+  }, [localSignals]);
 
   // Customer search functions
   const searchCustomers = useCallback(async (query: string) => {
@@ -516,11 +575,12 @@ function POSPageContent() {
     const signal = demandSignals.find(
       (entry) => entry.itemName.toLowerCase().trim() === normalized && entry.itemType === type
     ) || demandSignals.find((entry) => entry.itemName.toLowerCase().trim() === normalized);
-    if (!signal) return 0;
-    if (window === "12h") return signal.sold12h;
-    if (window === "24h") return signal.sold24h;
-    return signal.sold72h;
-  }, [demandSignals]);
+    const purchases = signal
+      ? (window === "12h" ? signal.sold12h : window === "24h" ? signal.sold24h : signal.sold72h)
+      : 0;
+    const local = localSignals[normalized];
+    return purchases * 5 + (local?.add_to_cart || 0) * 3 + (local?.views || 0) + (local?.searches || 0);
+  }, [demandSignals, localSignals]);
 
   const fetchDemandIntelligence = useCallback(async () => {
     if (!token) return;
@@ -579,11 +639,11 @@ function POSPageContent() {
   useEffect(() => {
     let filtered = services.filter(service => service.active);
 
-    if (searchQuery) {
+    if (debouncedSearchQuery) {
       filtered = filtered.filter(service =>
-        service.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        service.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        service.category.toLowerCase().includes(searchQuery.toLowerCase())
+        service.name.toLowerCase().includes(debouncedSearchQuery) ||
+        service.description.toLowerCase().includes(debouncedSearchQuery) ||
+        service.category.toLowerCase().includes(debouncedSearchQuery)
       );
     }
 
@@ -613,19 +673,19 @@ function POSPageContent() {
     });
 
     setFilteredServices(filtered);
-  }, [services, searchQuery, selectedCategory, sortBy, getDemandScore]);
+  }, [services, debouncedSearchQuery, selectedCategory, sortBy, getDemandScore]);
 
   // Filter products based on search and category
   useEffect(() => {
     let filtered = products.filter(product => product.status === 'active');
 
-    if (searchQuery) {
+    if (debouncedSearchQuery) {
       filtered = filtered.filter(product =>
-        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+        product.name.toLowerCase().includes(debouncedSearchQuery) ||
+        product.description.toLowerCase().includes(debouncedSearchQuery) ||
+        product.category.toLowerCase().includes(debouncedSearchQuery) ||
+        product.sku.toLowerCase().includes(debouncedSearchQuery) ||
+        product.tags.some(tag => tag.toLowerCase().includes(debouncedSearchQuery))
       );
     }
 
@@ -655,7 +715,7 @@ function POSPageContent() {
     });
 
     setFilteredProducts(filtered);
-  }, [products, searchQuery, selectedCategory, sortBy, getDemandScore]);
+  }, [products, debouncedSearchQuery, selectedCategory, sortBy, getDemandScore]);
 
   const fetchServices = async () => {
     try {
@@ -696,7 +756,9 @@ function POSPageContent() {
       
       if (data.success) {
         console.log('📋 Services fetched for POS:', data.services?.map((s: any) => ({ name: s.name, unit: s.unit, turnaroundUnit: s.turnaroundUnit })) || 'No services');
-        setServices(data.services || data.data || []);
+        const fresh = data.services || data.data || [];
+        setServices(fresh);
+        try { localStorage.setItem(POS_SERVICES_CACHE_KEY, JSON.stringify(fresh)); } catch {}
       } else {
         console.error('Failed to fetch services:', data.error);
       }
@@ -748,7 +810,9 @@ function POSPageContent() {
       const data = await response.json();
       
       if (data.success) {
-        setProducts(data.data);
+        const fresh = data.data || [];
+        setProducts(fresh);
+        try { localStorage.setItem(POS_PRODUCTS_CACHE_KEY, JSON.stringify(fresh)); } catch {}
       }
     } catch (error) {
       console.error('Error fetching products:', error);
@@ -808,6 +872,7 @@ function POSPageContent() {
 
   // Cart Functions
   const addToCart = (item: Service | Product, type: 'service' | 'product', quantity: number) => {
+    trackSignal(item.name, "add_to_cart");
     setCart(prevCart => {
       const existingItem = prevCart.find(cartItem => 
         cartItem.item._id === item._id && cartItem.type === type
