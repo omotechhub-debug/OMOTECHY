@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle,
   Search,
   MapPin,
   Filter,
@@ -42,7 +41,6 @@ import {
   Gift,
   RefreshCw,
   Clock,
-  Flame,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -2176,111 +2174,6 @@ Need help? Call us at +254 757 883 799`;
             >
               Products ({filteredProducts.length})
             </button>
-          </div>
-
-          {/* POS Demand Intelligence */}
-          <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <Card className="xl:col-span-2 border-orange-200 bg-gradient-to-r from-orange-50 to-rose-50">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Flame className="h-4 w-4 text-orange-600" />
-                  🔥 Trending Now (Last 12 Hours)
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {hotTrendingNow.length > 0 ? (
-                  hotTrendingNow.slice(0, 8).map((signal) => (
-                    <div key={`${signal.itemType}-${signal.itemName}`} className="rounded-lg border border-orange-200 bg-white/70 p-3">
-                      <div className="flex items-center justify-between">
-                        <p className="font-medium text-gray-900">{signal.itemName}</p>
-                        <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">Hot</Badge>
-                      </div>
-                      <div className="mt-2 text-xs text-gray-600">
-                        <p>Sold (12h): {signal.sold12h}</p>
-                        <p>Revenue (12h): Ksh {Math.round(signal.revenue12h).toLocaleString()}</p>
-                        <p className={signal.growthPercent >= 0 ? "text-emerald-600" : "text-red-600"}>
-                          {signal.growthPercent >= 0 ? "↑" : "↓"} {Math.abs(signal.growthPercent)}%
-                        </p>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-gray-600">No sales captured in the last 12 hours yet.</p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Demand Engine</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-xs text-gray-600">
-                <p>{peakDemandMessage}</p>
-                <div className="space-y-2">
-                  <p className="font-medium text-gray-900">Bundle Suggestions</p>
-                  {bundleSuggestions.length > 0 ? (
-                    bundleSuggestions.slice(0, 3).map((bundle) => (
-                      <div key={`${bundle.seed}-${bundle.next}`} className="rounded-md border p-2">
-                        <p>
-                          If customer buys <b>{bundle.seed}</b>, suggest <b>{bundle.next}</b>
-                        </p>
-                        <p className="text-emerald-700">Confidence: {bundle.confidence}%</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-gray-500">Waiting for enough cart-pattern data...</p>
-                  )}
-                </div>
-                {lastDemandRefreshAt && (
-                  <p className="text-[11px] text-gray-500">
-                    Last refresh: {lastDemandRefreshAt.toLocaleTimeString()}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Time-Based Sales Intelligence</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-6 gap-2 md:grid-cols-8">
-                  {hourlyDemand.map((slot) => {
-                    const intensity = Math.min(1, slot.count / Math.max(...hourlyDemand.map((entry) => entry.count || 1)));
-                    const bg = `rgba(59, 130, 246, ${0.12 + intensity * 0.5})`;
-                    return (
-                      <div key={slot.hour} className="rounded-md p-2 text-center text-[11px]" style={{ backgroundColor: bg }}>
-                        <p>{slot.hour.toString().padStart(2, "0")}</p>
-                        <p className="font-semibold">{slot.count}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  Low Demand Alerts
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                {lowDemandAlerts.length > 0 ? (
-                  lowDemandAlerts.map((signal) => (
-                    <div key={`low-${signal.itemType}-${signal.itemName}`} className="rounded-md border border-amber-200 bg-amber-50 p-2">
-                      <p className="font-medium text-amber-900">{signal.itemName}</p>
-                      <p className="text-xs text-amber-700">No sale in last 72h - review pricing or visibility.</p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-gray-600">No low-demand items currently detected.</p>
-                )}
-              </CardContent>
-            </Card>
           </div>
 
           {/* Services Grid */}
