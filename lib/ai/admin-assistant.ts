@@ -8,7 +8,11 @@ export type AIActionId =
   | "repair_invalid_phones"
   | "reconcile_mpesa"
   | "generate_weekly_report"
-  | "daily_summary";
+  | "daily_summary"
+  | "detect_suspicious_transactions"
+  | "flag_duplicate_orders"
+  | "suggest_inventory_restock"
+  | "detect_inactive_managers";
 
 export type ChatRole = "user" | "assistant";
 
@@ -282,6 +286,135 @@ export async function executeAction(params: {
         actionId: params.actionId,
         message: "Daily summary generated.",
         details: { revenue, pendingOrders: pending, expenses: todayExpense, profit: revenue - todayExpense },
+      } as ActionResult;
+      await writeAudit(payload);
+      return payload;
+    }
+    case "detect_suspicious_transactions": {
+      const tx = await fetchJson(`${params.baseUrl}/api/admin/mpesa-transactions?filter=all`, { headers });
+      if (!tx.ok) {
+        const payload = {
+          ok: false,
+          actionId: params.actionId,
+          message: tx.data?.error || "Could not analyze transactions for suspicious patterns.",
+        } as ActionResult;
+        await writeAudit(payload);
+        return payload;
+      }
+      const transactions = tx.data?.transactions || [];
+      const amounts = transactions.map((t: any) => Number(t.amountPaid) || 0).filter((n: number) => n > 0).sort((a: number, b: number) => a - b);
+      const median = amounts.length ? amounts[Math.floor(amounts.length / 2)] : 0;
+      const suspicious = transactions.filter((t: any) => {
+        const amount = Number(t.amountPaid) || 0;
+        return amount > Math.max(median * 4, 50000) || String(t.confirmationStatus || "").toLowerCase() === "rejected";
+      });
+      const payload = {
+        ok: true,
+        actionId: params.actionId,
+        message: `Suspicious transaction scan completed. ${suspicious.length} flagged.`,
+        details: {
+          medianAmount: median,
+          totalScanned: transactions.length,
+          flagged: suspicious.slice(0, 20).map((t: any) => ({
+            transactionId: t.transactionId,
+            customerName: t.customerName,
+            amountPaid: t.amountPaid,
+            confirmationStatus: t.confirmationStatus,
+          })),
+        },
+      } as ActionResult;
+      await writeAudit(payload);
+      return payload;
+    }
+    case "flag_duplicate_orders": {
+      const orders = await fetchJson(`${params.baseUrl}/api/orders`, { headers });
+      if (!orders.ok) {
+        const payload = { ok: false, actionId: params.actionId, message: "Could not scan orders for duplicates." } as ActionResult;
+        await writeAudit(payload);
+        return payload;
+      }
+      const list = orders.data?.orders || [];
+      const grouped = new Map<string, any[]>();
+      for (const order of list) {
+        const phone = order?.customer?.phone || "unknown";
+        const total = Number(order?.totalAmount) || 0;
+        const day = String(order?.createdAt || "").slice(0, 10);
+        const key = `${phone}|${total}|${day}`;
+        grouped.set(key, [...(grouped.get(key) || []), order]);
+      }
+      const duplicates = [...grouped.values()]
+        .filter((items) => items.length > 1)
+        .flat()
+        .slice(0, 50)
+        .map((order) => ({
+          orderNumber: order.orderNumber,
+          customer: order?.customer?.name,
+          phone: order?.customer?.phone,
+          totalAmount: order.totalAmount,
+          createdAt: order.createdAt,
+        }));
+      const payload = {
+        ok: true,
+        actionId: params.actionId,
+        message: `Duplicate order scan completed. ${duplicates.length} potential duplicates found.`,
+        details: { duplicates },
+      } as ActionResult;
+      await writeAudit(payload);
+      return payload;
+    }
+    case "suggest_inventory_restock": {
+      const inventory = await fetchJson(`${params.baseUrl}/api/inventory?limit=1000`, { headers });
+      if (!inventory.ok) {
+        const payload = { ok: false, actionId: params.actionId, message: "Could not analyze inventory for restock suggestions." } as ActionResult;
+        await writeAudit(payload);
+        return payload;
+      }
+      const items = inventory.data?.data || [];
+      const restock = items
+        .filter((item: any) => {
+          const stock = Number(item.stock) || 0;
+          const minStock = Number(item.minStock) || 0;
+          return stock <= minStock || (minStock > 0 && stock / minStock < 0.5);
+        })
+        .slice(0, 30)
+        .map((item: any) => ({
+          name: item.name,
+          sku: item.sku,
+          stock: item.stock,
+          minStock: item.minStock,
+        }));
+      const payload = {
+        ok: true,
+        actionId: params.actionId,
+        message: `Restock analysis complete. ${restock.length} items need attention.`,
+        details: { restock },
+      } as ActionResult;
+      await writeAudit(payload);
+      return payload;
+    }
+    case "detect_inactive_managers": {
+      const users = await fetchJson(`${params.baseUrl}/api/users`, { headers });
+      if (!users.ok) {
+        const payload = { ok: false, actionId: params.actionId, message: "Could not analyze manager activity." } as ActionResult;
+        await writeAudit(payload);
+        return payload;
+      }
+      const list = users.data?.users || users.data?.data || [];
+      const inactiveManagers = list
+        .filter((u: any) => u.role === "manager")
+        .filter((u: any) => !u.isActive || !u.stationId)
+        .slice(0, 30)
+        .map((u: any) => ({
+          name: u.name,
+          email: u.email,
+          isActive: u.isActive,
+          stationId: u.stationId || null,
+        }));
+      const payload = {
+        ok: true,
+        actionId: params.actionId,
+        message: `Manager activity scan complete. ${inactiveManagers.length} managers need attention.`,
+        details: { inactiveManagers },
       } as ActionResult;
       await writeAudit(payload);
       return payload;

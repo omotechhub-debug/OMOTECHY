@@ -41,7 +41,11 @@ type ActionId =
   | "repair_invalid_phones"
   | "reconcile_mpesa"
   | "generate_weekly_report"
-  | "daily_summary";
+  | "daily_summary"
+  | "detect_suspicious_transactions"
+  | "flag_duplicate_orders"
+  | "suggest_inventory_restock"
+  | "detect_inactive_managers";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -83,10 +87,10 @@ const actionButtons: Array<{ label: string; actionId?: ActionId }> = [
   { label: "Repair invalid customer phone numbers", actionId: "repair_invalid_phones" },
   { label: "Generate weekly report", actionId: "generate_weekly_report" },
   { label: "Daily summary report", actionId: "daily_summary" },
-  { label: "Detect suspicious transactions" },
-  { label: "Flag duplicate orders" },
-  { label: "Suggest inventory restock" },
-  { label: "Detect inactive managers" },
+  { label: "Detect suspicious transactions", actionId: "detect_suspicious_transactions" },
+  { label: "Flag duplicate orders", actionId: "flag_duplicate_orders" },
+  { label: "Suggest inventory restock", actionId: "suggest_inventory_restock" },
+  { label: "Detect inactive managers", actionId: "detect_inactive_managers" },
 ];
 
 function CommandCenterContent() {
@@ -563,7 +567,7 @@ function CommandCenterContent() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3">
-        <Card className="xl:col-span-2 border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
+        <Card className="min-w-0 xl:col-span-2 border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Bot className="h-5 w-5 text-primary" />
@@ -596,7 +600,7 @@ function CommandCenterContent() {
                 </Button>
               ))}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Textarea
                 placeholder="Type your command to AI..."
                 value={chatInput}
@@ -604,7 +608,7 @@ function CommandCenterContent() {
                 className="min-h-[90px]"
               />
             </div>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <Badge variant="outline" className="rounded-full">Voice-ready layout</Badge>
               <div className="flex gap-2">
                 <Button variant="outline" size="icon" className="rounded-xl">
@@ -619,19 +623,19 @@ function CommandCenterContent() {
           </CardContent>
         </Card>
 
-        <Card className="border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
+        <Card className="min-w-0 border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Zap className="h-5 w-5 text-amber-500" />
               Automation Action Center
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
             {actionButtons.map((action) => (
               <Button
                 key={action.label}
                 variant="outline"
-                className="w-full justify-start rounded-xl"
+                className="h-11 w-full justify-start rounded-xl text-left text-sm"
                 disabled={sending}
                 onClick={() => runAction(action.actionId, action.label)}
               >
