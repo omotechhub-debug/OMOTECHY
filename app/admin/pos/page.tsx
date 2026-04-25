@@ -525,144 +525,53 @@ function POSPageContent() {
   const fetchDemandIntelligence = useCallback(async () => {
     if (!token) return;
     try {
-      const response = await fetch("/api/orders?limit=1000", {
+      const stationScopeId =
+        user?.role === "superadmin"
+          ? selectedStationId || null
+          : user?.stationId || user?.managedStations?.[0] || null;
+
+      const query = stationScopeId ? `?stationId=${encodeURIComponent(String(stationScopeId))}` : "";
+      const response = await fetch(`/api/admin/pos-demand${query}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
       });
       const data = await response.json();
-      const orders = data.orders || [];
+      if (!data?.success) return;
 
-      const now = Date.now();
-      const hours12 = now - 12 * 60 * 60 * 1000;
-      const hours24 = now - 24 * 60 * 60 * 1000;
-      const hours72 = now - 72 * 60 * 60 * 1000;
-
-      const stationScopeId =
-        user?.role === "superadmin"
-          ? selectedStationId || null
-          : user?.stationId || user?.managedStations?.[0] || null;
-
-      const inScopeOrders = stationScopeId
-        ? orders.filter((order: any) => {
-            const orderStationId =
-              (typeof order.stationId === "string" ? order.stationId : order.stationId?._id) ||
-              (typeof order.station?.stationId === "string" ? order.station.stationId : order.station?.stationId?._id) ||
-              null;
-            return String(orderStationId) === String(stationScopeId);
-          })
-        : orders;
-
-      const map = new Map<string, DemandSignal>();
       const serviceNameSet = new Set(services.map((service) => service.name.toLowerCase().trim()));
       const productNameSet = new Set(products.map((product) => product.name.toLowerCase().trim()));
-      const hourBuckets = Array.from({ length: 24 }).map((_, hour) => ({
-        hour,
-        count: 0,
-        label: `${hour.toString().padStart(2, "0")}:00`,
-      }));
-      const coPurchaseCounter = new Map<string, number>();
 
-      for (const order of inScopeOrders) {
-        const normalizedStatus = String(order.status || "").toLowerCase();
-        if (normalizedStatus === "cancelled") continue;
+      const mappedSignals: DemandSignal[] = (data.signals || []).map((entry: any) => {
+        const normalizedName = String(entry.itemName || "").toLowerCase().trim();
+        const inferredType: "service" | "product" =
+          productNameSet.has(normalizedName) && !serviceNameSet.has(normalizedName) ? "product" : "service";
 
-        const createdTs = new Date(order.createdAt).getTime();
-        const in12 = createdTs >= hours12;
-        const in24 = createdTs >= hours24;
-        const in72 = createdTs >= hours72;
-        if (!in72) continue;
-
-        const orderItems: Array<{ name: string; quantity: number; price: number; type: "service" | "product" }> = [];
-        const serviceItems = Array.isArray(order.services) ? order.services : [];
-        for (const service of serviceItems) {
-          const itemName = service.serviceName || service.name || "Unknown Service";
-          const normalizedName = String(itemName).toLowerCase().trim();
-          const inferredType: "service" | "product" = productNameSet.has(normalizedName) && !serviceNameSet.has(normalizedName)
-            ? "product"
-            : "service";
-
-          orderItems.push({
-            name: itemName,
-            quantity: Number(service.quantity) || 1,
-            price: Number(service.price) || 0,
-            type: inferredType,
-          });
-        }
-
-        const productItems = Array.isArray(order.products) ? order.products : [];
-        for (const product of productItems) {
-          orderItems.push({
-            name: product.productName || product.name || "Unknown Product",
-            quantity: Number(product.quantity) || 1,
-            price: Number(product.price) || 0,
-            type: "product",
-          });
-        }
-
-        for (const item of orderItems) {
-          const key = `${item.type}:${item.name.toLowerCase()}`;
-          const existing = map.get(key) || {
-            itemName: item.name,
-            itemType: item.type,
-            sold12h: 0,
-            sold24h: 0,
-            sold72h: 0,
-            revenue12h: 0,
-            growthPercent: 0,
-          };
-
-          if (in12) {
-            existing.sold12h += item.quantity;
-            existing.revenue12h += item.quantity * item.price;
-          }
-          if (in24) existing.sold24h += item.quantity;
-          if (in72) existing.sold72h += item.quantity;
-          map.set(key, existing);
-        }
-
-        if (in12) {
-          const hour = new Date(order.createdAt).getHours();
-          hourBuckets[hour].count += 1;
-        }
-
-        const uniqueNames = [...new Set(orderItems.map((item) => item.name))];
-        for (let i = 0; i < uniqueNames.length; i += 1) {
-          for (let j = i + 1; j < uniqueNames.length; j += 1) {
-            const pair = [uniqueNames[i], uniqueNames[j]].sort().join(" + ");
-            coPurchaseCounter.set(pair, (coPurchaseCounter.get(pair) || 0) + 1);
-          }
-        }
-      }
-
-      const signalList = [...map.values()].map((signal) => {
-        const previousWindow = Math.max(signal.sold24h - signal.sold12h, 1);
-        const growthPercent = Math.round(((signal.sold12h - previousWindow) / previousWindow) * 100);
-        return { ...signal, growthPercent };
+        return {
+          itemName: entry.itemName,
+          itemType: inferredType,
+          sold12h: Number(entry.sold12h) || 0,
+          sold24h: Number(entry.sold24h) || 0,
+          sold72h: Number(entry.sold72h) || 0,
+          revenue12h: Number(entry.revenue12h) || 0,
+          growthPercent: Number(entry.growthPercent) || 0,
+        };
       });
 
-      const bundles = [...coPurchaseCounter.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([pair, count]) => {
-          const [seed, next] = pair.split(" + ");
-          return { seed, next, confidence: Math.min(95, count * 12) };
-        });
-
-      setDemandSignals(signalList);
-      setHourlyDemand(hourBuckets);
-      setBundleSuggestions(bundles);
-      setLastDemandRefreshAt(new Date());
+      setDemandSignals(mappedSignals);
+      setHourlyDemand(data.hourlyDemand || []);
+      setBundleSuggestions(data.bundleSuggestions || []);
+      setLastDemandRefreshAt(data.generatedAt ? new Date(data.generatedAt) : new Date());
     } catch (error) {
       console.error("Error fetching demand intelligence:", error);
     }
-  }, [token, user?.role, user?.stationId, user?.managedStations, selectedStationId]);
+  }, [token, user?.role, user?.stationId, user?.managedStations, selectedStationId, services, products]);
 
   useEffect(() => {
     if (!token || !user) return;
     fetchDemandIntelligence();
-    const interval = setInterval(fetchDemandIntelligence, 180000);
+    const interval = setInterval(fetchDemandIntelligence, 45000);
     return () => clearInterval(interval);
   }, [token, user, fetchDemandIntelligence]);
 
