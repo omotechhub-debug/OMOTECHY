@@ -53,6 +53,8 @@ export async function POST(request: NextRequest) {
       message: message || `Run action ${actionId}`,
       contextMessages: session.messages,
       actionResult,
+      baseUrl: new URL(request.url).origin,
+      token,
     });
 
     await pushSessionMessage(session, "assistant", replyPayload.reply);

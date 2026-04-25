@@ -93,6 +93,18 @@ const actionButtons: Array<{ label: string; actionId?: ActionId }> = [
   { label: "Detect inactive managers", actionId: "detect_inactive_managers" },
 ];
 
+const actionIdByLabel: Record<string, ActionId> = {
+  "accept all pending orders": "accept_pending_orders",
+  "reconcile payments": "reconcile_mpesa",
+  "repair invalid customer phone numbers": "repair_invalid_phones",
+  "generate weekly report": "generate_weekly_report",
+  "daily summary report": "daily_summary",
+  "detect suspicious transactions": "detect_suspicious_transactions",
+  "flag duplicate orders": "flag_duplicate_orders",
+  "suggest inventory restock": "suggest_inventory_restock",
+  "detect inactive managers": "detect_inactive_managers",
+};
+
 function CommandCenterContent() {
   const { token, user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -468,14 +480,18 @@ function CommandCenterContent() {
   };
 
   const runAction = async (actionId?: ActionId, fallbackLabel?: string) => {
-    if (!actionId) {
+    const resolvedActionId =
+      actionId ||
+      (fallbackLabel ? actionIdByLabel[fallbackLabel.toLowerCase()] : undefined);
+
+    if (!resolvedActionId) {
       setChatMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `${fallbackLabel || "This action"} is queued for backend integration.` },
+        { role: "assistant", content: `Action not recognized: ${fallbackLabel || "unknown action"}.` },
       ]);
       return;
     }
-    await callAssistant({ actionId, message: `Run action ${actionId}` });
+    await callAssistant({ actionId: resolvedActionId, message: `Run action ${resolvedActionId}` });
   };
 
   const downloadPdfInsights = () => {
@@ -588,7 +604,7 @@ function CommandCenterContent() {
                   className={`rounded-lg p-2 text-sm ${message.role === "assistant" ? "bg-primary/10" : "bg-slate-100 dark:bg-slate-800"}`}
                 >
                   <p className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">{message.role}</p>
-                  <p>{message.content}</p>
+                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
                 </div>
               ))}
               {sending && <p className="text-xs text-muted-foreground">AI is thinking...</p>}
