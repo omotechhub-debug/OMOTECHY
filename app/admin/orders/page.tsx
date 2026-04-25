@@ -150,6 +150,7 @@ function OrdersPageContent() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [acceptAllDialogOpen, setAcceptAllDialogOpen] = useState(false);
   const [acceptingAll, setAcceptingAll] = useState(false);
+  const [acceptAllFeedback, setAcceptAllFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
   const [updating, setUpdating] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -195,6 +196,7 @@ function OrdersPageContent() {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
+        cache: 'no-store',
       });
       
       if (response.ok) {
@@ -469,8 +471,13 @@ function OrdersPageContent() {
 
   const handleAcceptAllPending = async () => {
     try {
+      setAcceptAllFeedback(null);
       const authToken = token || (typeof window !== 'undefined' ? localStorage.getItem('authToken') : null);
       if (!authToken) {
+        setAcceptAllFeedback({
+          type: 'error',
+          text: 'Authentication missing. Please log in again.',
+        });
         toast({
           title: 'Authentication required',
           description: 'Please log in again and retry.',
@@ -480,18 +487,38 @@ function OrdersPageContent() {
       }
 
       setAcceptingAll(true);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
       const response = await fetch('/api/admin/orders/accept-pending', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`,
         },
+        cache: 'no-store',
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       const data = await response.json().catch(() => ({}));
 
       if (response.ok && data.success) {
         const n = typeof data.modifiedCount === 'number' ? data.modifiedCount : 0;
+        // Optimistically update currently loaded orders immediately for instant UX.
+        if (n > 0) {
+          setOrders(prev =>
+            prev.map(order =>
+              order.status === 'pending' ? { ...order, status: 'confirmed' } : order
+            )
+          );
+        }
+        setAcceptAllFeedback({
+          type: 'success',
+          text:
+            n === 0
+              ? 'No pending orders found to update.'
+              : `${n} pending order${n === 1 ? '' : 's'} confirmed successfully.`,
+        });
         toast({
           title: 'Orders accepted',
           description:
@@ -501,7 +528,12 @@ function OrdersPageContent() {
         });
         setAcceptAllDialogOpen(false);
         await fetchOrders();
+        await fetchPendingConfirmationsCount();
       } else {
+        setAcceptAllFeedback({
+          type: 'error',
+          text: data.error || 'Could not accept orders. Please try again.',
+        });
         toast({
           title: 'Could not accept orders',
           description: data.error || 'Something went wrong',
@@ -509,9 +541,14 @@ function OrdersPageContent() {
         });
       }
     } catch (error) {
+      const isAbort = error instanceof Error && error.name === 'AbortError';
+      setAcceptAllFeedback({
+        type: 'error',
+        text: isAbort ? 'Request timed out. Please retry.' : (error instanceof Error ? error.message : String(error)),
+      });
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : String(error),
+        description: isAbort ? 'Request timed out. Please retry.' : (error instanceof Error ? error.message : String(error)),
         variant: 'destructive',
       });
     } finally {
@@ -3060,6 +3097,17 @@ function OrdersPageContent() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
+            {acceptAllFeedback && (
+              <div
+                className={`w-full rounded-md border px-3 py-2 text-sm ${
+                  acceptAllFeedback.type === 'success'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : 'border-red-200 bg-red-50 text-red-700'
+                }`}
+              >
+                {acceptAllFeedback.text}
+              </div>
+            )}
             <Button
               variant="outline"
               onClick={() => setAcceptAllDialogOpen(false)}
