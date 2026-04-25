@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   Clock3,
+  Flame,
   Bot,
   Brain,
   CheckCircle2,
@@ -59,6 +60,15 @@ type AuditLogItem = {
   createdAt: string;
 };
 
+type DemandSignal = {
+  itemName: string;
+  sold12h: number;
+  sold24h: number;
+  sold72h: number;
+  revenue12h: number;
+  growthPercent: number;
+};
+
 const quickPrompts = [
   "Daily business summary",
   "Payment issues",
@@ -101,6 +111,10 @@ function CommandCenterContent() {
   const [activity, setActivity] = useState<string[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [demandSignals, setDemandSignals] = useState<DemandSignal[]>([]);
+  const [hourlyDemand, setHourlyDemand] = useState<Array<{ hour: number; count: number; label: string }>>([]);
+  const [bundleSuggestions, setBundleSuggestions] = useState<Array<{ seed: string; next: string; confidence: number }>>([]);
+  const [lastDemandRefreshAt, setLastDemandRefreshAt] = useState<Date | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -280,6 +294,79 @@ function CommandCenterContent() {
           { name: "Failed", value: orders.filter((o: any) => (o.paymentStatus || "").toLowerCase() === "failed").length, fill: "#ef4444" },
         ];
 
+        const hours12 = now - 12 * 60 * 60 * 1000;
+        const hours24 = now - 24 * 60 * 60 * 1000;
+        const hours72 = now - 72 * 60 * 60 * 1000;
+        const demandMap = new Map<string, DemandSignal>();
+        const hourBuckets = Array.from({ length: 24 }).map((_, hour) => ({
+          hour,
+          count: 0,
+          label: `${hour.toString().padStart(2, "0")}:00`,
+        }));
+        const coPurchaseCounter = new Map<string, number>();
+
+        for (const order of orders) {
+          if (String(order.status || "").toLowerCase() === "cancelled") continue;
+          const createdTs = new Date(order.createdAt).getTime();
+          const in12 = createdTs >= hours12;
+          const in24 = createdTs >= hours24;
+          const in72 = createdTs >= hours72;
+          if (!in72) continue;
+
+          const serviceItems = Array.isArray(order.services) ? order.services : [];
+          const orderItemNames: string[] = [];
+
+          for (const service of serviceItems) {
+            const name = service.serviceName || service.name || "Unknown Item";
+            const quantity = Number(service.quantity) || 1;
+            const price = Number(service.price) || 0;
+            orderItemNames.push(name);
+
+            const existing = demandMap.get(name.toLowerCase().trim()) || {
+              itemName: name,
+              sold12h: 0,
+              sold24h: 0,
+              sold72h: 0,
+              revenue12h: 0,
+              growthPercent: 0,
+            };
+            if (in12) {
+              existing.sold12h += quantity;
+              existing.revenue12h += quantity * price;
+            }
+            if (in24) existing.sold24h += quantity;
+            if (in72) existing.sold72h += quantity;
+            demandMap.set(name.toLowerCase().trim(), existing);
+          }
+
+          if (in12) {
+            const hour = new Date(order.createdAt).getHours();
+            hourBuckets[hour].count += 1;
+          }
+
+          const uniqueNames = [...new Set(orderItemNames)];
+          for (let i = 0; i < uniqueNames.length; i += 1) {
+            for (let j = i + 1; j < uniqueNames.length; j += 1) {
+              const pair = [uniqueNames[i], uniqueNames[j]].sort().join(" + ");
+              coPurchaseCounter.set(pair, (coPurchaseCounter.get(pair) || 0) + 1);
+            }
+          }
+        }
+
+        const demandList = [...demandMap.values()].map((entry) => {
+          const previousWindow = Math.max(entry.sold24h - entry.sold12h, 1);
+          const growthPercent = Math.round(((entry.sold12h - previousWindow) / previousWindow) * 100);
+          return { ...entry, growthPercent };
+        });
+
+        const bundles = [...coPurchaseCounter.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([pair, count]) => {
+            const [seed, next] = pair.split(" + ");
+            return { seed, next, confidence: Math.min(95, count * 12) };
+          });
+
         if (!cancelled) {
           setInsights(insightCards);
           setHealthIssues(health);
@@ -292,6 +379,10 @@ function CommandCenterContent() {
             "Two stations show elevated expense-to-revenue ratio.",
             "Customer retention segment updated with repeat-buy cohort.",
           ]);
+          setDemandSignals(demandList);
+          setHourlyDemand(hourBuckets);
+          setBundleSuggestions(bundles);
+          setLastDemandRefreshAt(new Date());
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -398,6 +489,20 @@ function CommandCenterContent() {
     doc.text(lines, 14, 32, { maxWidth: 180 });
     doc.save(`omotech-ai-insights-${new Date().toISOString().slice(0, 10)}.pdf`);
   };
+
+  const hotTrendingNow = [...demandSignals]
+    .sort((a, b) => b.sold12h - a.sold12h || b.sold24h - a.sold24h || a.itemName.localeCompare(b.itemName))
+    .slice(0, 8);
+
+  const lowDemandAlerts = [...demandSignals]
+    .filter((signal) => signal.sold72h === 0)
+    .slice(0, 5);
+
+  const topHour = [...hourlyDemand].sort((a, b) => b.count - a.count)[0];
+  const currentHour = new Date().getHours();
+  const peakDemandMessage = topHour
+    ? `Peak buying hour detected at ${topHour.label}. Current hour is ${currentHour.toString().padStart(2, "0")}:00 - prioritize items with high short-term demand.`
+    : "Demand engine is warming up. Peak-hour forecast will appear after first refresh.";
 
   useEffect(() => {
     fetchAuditLogs();
@@ -582,6 +687,109 @@ function CommandCenterContent() {
                 <ChartTooltip content={<ChartTooltipContent />} />
               </PieChart>
             </ChartContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Card className="xl:col-span-2 border-orange-200 bg-gradient-to-r from-orange-50 to-rose-50 dark:bg-slate-900/60">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Flame className="h-4 w-4 text-orange-600" />
+              🔥 Trending Now (Last 12 Hours)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {hotTrendingNow.length > 0 ? (
+              hotTrendingNow.map((signal) => (
+                <div key={signal.itemName} className="rounded-lg border border-orange-200 bg-white/70 p-3 dark:bg-slate-900/50">
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-gray-900 dark:text-gray-100">{signal.itemName}</p>
+                    <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">Hot</Badge>
+                  </div>
+                  <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                    <p>Sold (12h): {signal.sold12h}</p>
+                    <p>Revenue (12h): Ksh {Math.round(signal.revenue12h).toLocaleString()}</p>
+                    <p className={signal.growthPercent >= 0 ? "text-emerald-600" : "text-red-600"}>
+                      {signal.growthPercent >= 0 ? "↑" : "↓"} {Math.abs(signal.growthPercent)}%
+                    </p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-600">No sales captured in the last 12 hours yet.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Demand Engine</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-xs text-gray-600 dark:text-gray-300">
+            <p>{peakDemandMessage}</p>
+            <div className="space-y-2">
+              <p className="font-medium text-gray-900 dark:text-gray-100">Bundle Suggestions</p>
+              {bundleSuggestions.length > 0 ? (
+                bundleSuggestions.slice(0, 3).map((bundle) => (
+                  <div key={`${bundle.seed}-${bundle.next}`} className="rounded-md border p-2">
+                    <p>
+                      If customer buys <b>{bundle.seed}</b>, suggest <b>{bundle.next}</b>
+                    </p>
+                    <p className="text-emerald-700">Confidence: {bundle.confidence}%</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-gray-500">Waiting for enough cart-pattern data...</p>
+              )}
+            </div>
+            {lastDemandRefreshAt && (
+              <p className="text-[11px] text-gray-500">Last refresh: {lastDemandRefreshAt.toLocaleTimeString()}</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Time-Based Sales Intelligence</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-6 gap-2 md:grid-cols-8">
+              {hourlyDemand.map((slot) => {
+                const maxHourCount = Math.max(...hourlyDemand.map((entry) => entry.count || 1), 1);
+                const intensity = Math.min(1, slot.count / maxHourCount);
+                const bg = `rgba(59, 130, 246, ${0.12 + intensity * 0.5})`;
+                return (
+                  <div key={slot.hour} className="rounded-md p-2 text-center text-[11px]" style={{ backgroundColor: bg }}>
+                    <p>{slot.hour.toString().padStart(2, "0")}</p>
+                    <p className="font-semibold">{slot.count}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              Low Demand Alerts
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {lowDemandAlerts.length > 0 ? (
+              lowDemandAlerts.map((signal) => (
+                <div key={`low-${signal.itemName}`} className="rounded-md border border-amber-200 bg-amber-50 p-2 dark:bg-amber-900/20">
+                  <p className="font-medium text-amber-900 dark:text-amber-200">{signal.itemName}</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-300">No sale in last 72h - review pricing or visibility.</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-gray-600">No low-demand items currently detected.</p>
+            )}
           </CardContent>
         </Card>
       </div>
