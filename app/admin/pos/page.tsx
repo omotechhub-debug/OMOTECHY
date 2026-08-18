@@ -223,7 +223,7 @@ function POSPageContent() {
   const [paymentWaitMode, setPaymentWaitMode] = useState<'stk' | 'manual' | null>(null);
   const [checkingPayment, setCheckingPayment] = useState(false);
   const [paymentStatusDialogOpen, setPaymentStatusDialogOpen] = useState(false);
-  const [paymentStatus, setPaymentStatus] = useState<'success' | 'failed' | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<'success' | 'failed' | 'saved' | null>(null);
   const [paymentMessage, setPaymentMessage] = useState('');
   const [currentCheckoutRequestId, setCurrentCheckoutRequestId] = useState<string | null>(null);
   const paymentPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -3103,16 +3103,25 @@ Need help? Call us at +254 757 883 799`;
                           }
                           
                           setCheckingPayment(false);
-                          setPaymentStatus(null);
-                          setPaymentMessage('');
                           setShowCancelOption(false);
                           setCurrentCheckoutRequestId(null);
-                          setPaymentWaitMode(null);
-                          setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
 
                           if (paymentWaitMode === 'manual') {
+                            setPaymentWaitMode(null);
+                            setPaymentStatus('saved');
+                            setPaymentMessage(
+                              manualPayInfo
+                                ? `Order created. Ask the customer to pay Paybill ${manualPayInfo.paybill}, Account ${manualPayInfo.account}, Amount Ksh ${manualPayInfo.amount.toLocaleString()}. Payment will be matched automatically when it comes in.`
+                                : 'Order created. Paybill instructions were sent to the customer. Payment will be matched automatically when they pay.'
+                            );
+                            setPaymentStatusDialogOpen(true);
                             return;
                           }
+
+                          setPaymentWaitMode(null);
+                          setPaymentStatus(null);
+                          setPaymentMessage('');
+                          setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
 
                           if (lastCreatedOrderId) {
                             try {
@@ -3220,9 +3229,8 @@ Need help? Call us at +254 757 883 799`;
 
       {/* Payment Status Dialog */}
       <Dialog open={paymentStatusDialogOpen} onOpenChange={(open) => {
-        // Only allow closing if payment is not successful (user can close failed/cancelled dialogs)
-        if (!open && paymentStatus === 'success') {
-          // Don't auto-close - let user choose
+        // Don't auto-close success/saved dialogs - let the user choose stay or go to orders
+        if (!open && (paymentStatus === 'success' || paymentStatus === 'saved')) {
           return;
         } else {
           setPaymentStatusDialogOpen(open);
@@ -3231,14 +3239,16 @@ Need help? Call us at +254 757 883 799`;
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle className={`flex items-center gap-2 ${
-              paymentStatus === 'success' ? 'text-emerald-600' : 'text-red-600'
+              paymentStatus === 'success' || paymentStatus === 'saved' ? 'text-emerald-600' : 'text-red-600'
             }`}>
-              {paymentStatus === 'success' ? (
+              {paymentStatus === 'success' || paymentStatus === 'saved' ? (
                 <CheckCircle className="w-6 h-6" />
               ) : (
                 <XCircle className="w-6 h-6" />
               )}
-              {paymentStatus === 'success' 
+              {paymentStatus === 'saved'
+                ? 'Order Created'
+                : paymentStatus === 'success' 
                 ? 'Payment Successful!' 
                 : paymentMessage?.toLowerCase().includes('cancelled') 
                   ? 'Transaction Cancelled' 
@@ -3247,11 +3257,13 @@ Need help? Call us at +254 757 883 799`;
             <DialogDescription>
               {paymentMessage || (paymentStatus === 'success' 
                 ? 'The payment has been successfully processed.' 
+                : paymentStatus === 'saved'
+                  ? 'The order was saved. The customer can pay the Paybill anytime.'
                 : 'The payment could not be completed.')}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3 pt-4">
-            {paymentStatus === 'success' ? (
+            {paymentStatus === 'success' || paymentStatus === 'saved' ? (
               <>
                 <Button 
                   onClick={() => {
