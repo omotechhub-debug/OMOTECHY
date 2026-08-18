@@ -67,6 +67,7 @@ export interface IOrder extends mongoose.Document {
   resultDescription?: string;
   paymentInitiatedAt?: Date;
   paymentCompletedAt?: Date;
+  purchaseConfirmationSmsSentAt?: Date;
   // M-Pesa payment fields (nested - for backward compatibility)
   mpesaPayment?: {
     checkoutRequestId?: string;
@@ -299,6 +300,7 @@ const orderSchema = new mongoose.Schema<IOrder>({
   resultDescription: String,
   paymentInitiatedAt: Date,
   paymentCompletedAt: Date,
+  purchaseConfirmationSmsSentAt: Date,
   // M-Pesa payment fields (nested - for backward compatibility)
   mpesaPayment: {
     checkoutRequestId: String,

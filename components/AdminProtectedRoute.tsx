@@ -46,7 +46,7 @@ export default function AdminProtectedRoute({
     if (path.startsWith('/admin/stations')) return 'stations';
     if (path.startsWith('/admin/mpesa-transactions')) return 'mpesa-transactions';
     if (path.startsWith('/admin/banners')) return 'settings';
-    if (path.startsWith('/admin/sms')) return 'settings';
+    if (path.startsWith('/admin/sms')) return 'sms';
     if (path.startsWith('/admin/settings')) return 'settings';
     // Only map /admin/dashboard to 'dashboard', not /admin itself
     if (path === '/admin' || path === '/admin/') return '';

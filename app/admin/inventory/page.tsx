@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { canAddInventory } from '@/lib/permissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -123,7 +123,6 @@ const UNITS = [
 export default function InventoryPage() {
   const { token, user } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [allInventory, setAllInventory] = useState<InventoryItem[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
   const [loading, setLoading] = useState(true);
   const [stationsLoading, setStationsLoading] = useState(true);
@@ -174,6 +173,8 @@ export default function InventoryPage() {
     stationIds: []
   });
 
+  const itemsPerPage = 12;
+
   // Debounce search term
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -182,97 +183,23 @@ export default function InventoryPage() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Show search loading when search term changes
   useEffect(() => {
     if (searchTerm !== debouncedSearchTerm) {
       setSearchLoading(true);
-    } else {
-      setSearchLoading(false);
     }
   }, [searchTerm, debouncedSearchTerm]);
 
-  // Fetch all inventory data once
   useEffect(() => {
-    if (token) {
-      fetchAllInventory();
-      fetchStations();
-    }
+    setCurrentPage(1);
+  }, [debouncedSearchTerm, categoryFilter, statusFilter, stockFilter, stationFilter]);
+
+  useEffect(() => {
+    if (token) fetchStations();
   }, [token]);
 
-  // Client-side filtering and pagination
-  const filteredInventory = useMemo(() => {
-    let filtered = allInventory;
-
-    // Apply search filter
-    if (debouncedSearchTerm) {
-      const searchLower = debouncedSearchTerm.toLowerCase();
-      filtered = filtered.filter(item =>
-        item.name.toLowerCase().includes(searchLower) ||
-        item.description.toLowerCase().includes(searchLower) ||
-        item.sku.toLowerCase().includes(searchLower) ||
-        item.brand?.toLowerCase().includes(searchLower) ||
-        item.model?.toLowerCase().includes(searchLower) ||
-        item.tags.some(tag => tag.toLowerCase().includes(searchLower))
-      );
-    }
-
-    // Apply category filter
-    if (categoryFilter !== 'all') {
-      filtered = filtered.filter(item => item.category === categoryFilter);
-    }
-
-    // Apply status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(item => item.status === statusFilter);
-    }
-
-    // Apply stock filter
-    if (stockFilter !== 'all') {
-      filtered = filtered.filter(item => {
-        const stockStatus = item.stockStatus || 'in_stock';
-        return stockStatus === stockFilter;
-      });
-    }
-
-    // Apply station filter
-    if (stationFilter !== 'all') {
-      if (stationFilter === 'no_station') {
-        filtered = filtered.filter(item => !item.stationIds || item.stationIds.length === 0);
-      } else {
-        filtered = filtered.filter(item => 
-          item.stationIds && item.stationIds.some(station => station._id === stationFilter)
-        );
-      }
-    }
-
-    return filtered;
-  }, [allInventory, debouncedSearchTerm, categoryFilter, statusFilter, stockFilter, stationFilter]);
-
-  // Paginate filtered results
-  const paginatedInventory = useMemo(() => {
-    const itemsPerPage = 12;
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return filteredInventory.slice(startIndex, endIndex);
-  }, [filteredInventory, currentPage]);
-
-  // Update total pages and items
   useEffect(() => {
-    const itemsPerPage = 12;
-    const totalPages = Math.ceil(filteredInventory.length / itemsPerPage);
-    setTotalPages(totalPages);
-    setTotalItems(filteredInventory.length);
-    
-    // Reset to page 1 if current page is beyond total pages
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(1);
-    }
-  }, [filteredInventory.length, currentPage]);
-
-  // Update displayed inventory
-  useEffect(() => {
-    setInventory(paginatedInventory);
-  }, [paginatedInventory]);
+    if (token) fetchInventory();
+  }, [token, currentPage, debouncedSearchTerm, categoryFilter, statusFilter, stockFilter, stationFilter]);
 
   // Auto-remove success messages after 3 seconds
   useEffect(() => {
@@ -294,10 +221,23 @@ export default function InventoryPage() {
     }
   }, [error]);
 
-  const fetchAllInventory = async () => {
+  const fetchInventory = async () => {
     try {
-      setLoading(true);
-      const response = await fetch('/api/inventory?limit=1000', {
+      if (inventory.length === 0) setLoading(true);
+      else setSearchLoading(true);
+
+      const params = new URLSearchParams({
+        page: String(currentPage),
+        limit: String(itemsPerPage),
+      });
+      if (debouncedSearchTerm.trim()) params.set('search', debouncedSearchTerm.trim());
+      if (categoryFilter !== 'all') params.set('category', categoryFilter);
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (stockFilter !== 'all') params.set('stockStatus', stockFilter);
+      if (stationFilter === 'no_station') params.set('noStation', '1');
+      else if (stationFilter !== 'all') params.set('stationId', stationFilter);
+
+      const response = await fetch(`/api/inventory?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -306,7 +246,9 @@ export default function InventoryPage() {
 
       if (response.ok) {
         const data = await response.json();
-        setAllInventory(data.data);
+        setInventory(data.data || []);
+        setTotalPages(data.pagination?.pages || 1);
+        setTotalItems(data.pagination?.total || 0);
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to fetch inventory');
@@ -316,13 +258,14 @@ export default function InventoryPage() {
       setError('Network error. Please check your connection.');
     } finally {
       setLoading(false);
+      setSearchLoading(false);
     }
   };
 
   const fetchStations = async () => {
     try {
       setStationsLoading(true);
-      const response = await fetch('/api/stations?limit=1000', {
+      const response = await fetch('/api/stations?limit=200&simple=1', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -389,7 +332,7 @@ export default function InventoryPage() {
           setSuccess(`Successfully created ${successCount} inventory item(s) for selected stations!`);
           setIsCreateDialogOpen(false);
           resetForm();
-          fetchAllInventory();
+          fetchInventory();
         }
         
         if (errorCount > 0) {
@@ -411,7 +354,7 @@ export default function InventoryPage() {
         setSuccess('Inventory item created successfully!');
         setIsCreateDialogOpen(false);
         resetForm();
-        fetchAllInventory();
+        fetchInventory();
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to create inventory item');
@@ -455,7 +398,7 @@ export default function InventoryPage() {
         setIsEditDialogOpen(false);
         setSelectedItem(null);
         resetForm();
-        fetchAllInventory();
+        fetchInventory();
       } else {
         const responseText = await response.text();
         console.error('Response status:', response.status);
@@ -492,7 +435,7 @@ export default function InventoryPage() {
 
       if (response.ok) {
         setSuccess('Inventory item deleted successfully!');
-        fetchAllInventory();
+        fetchInventory();
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to delete inventory item');
@@ -616,7 +559,7 @@ export default function InventoryPage() {
     }
   };
 
-  if (loading) {
+  if (loading && inventory.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -634,7 +577,14 @@ export default function InventoryPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Inventory Management</h1>
-            <p className="text-gray-600 mt-1">Manage your products inventory</p>
+            <p className="text-gray-600 mt-1">
+              Manage your products inventory
+              {totalItems > 0 && (
+                <span className="text-gray-500">
+                  {' '}· Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}
+                </span>
+              )}
+            </p>
             <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-800">
                 <strong>Note:</strong> For service management (repairs, consultations, installations), 

@@ -108,3 +108,25 @@ export function formatKenyaPhoneForDisplay(input: unknown, emptyLabel = '—'): 
   if (isLikelyMpesaPhoneHashOrGarbage(raw)) return emptyLabel;
   return raw.trim();
 }
+
+const PLACEHOLDER_CUSTOMER_NAMES = new Set([
+  'customer',
+  'unknown',
+  'c2b customer',
+  'stk push customer',
+  'valued customer',
+]);
+
+export function isPlaceholderCustomerName(name: unknown): boolean {
+  if (name == null) return true;
+  const trimmed = String(name).trim();
+  if (!trimmed) return true;
+  return PLACEHOLDER_CUSTOMER_NAMES.has(trimmed.toLowerCase());
+}
+
+/** Use a real name when present; otherwise show the phone number. */
+export function customerDisplayName(name: unknown, phone: unknown): string {
+  const phoneLabel = formatKenyaPhoneForDisplay(phone, '');
+  if (!isPlaceholderCustomerName(name)) return String(name).trim();
+  return phoneLabel || 'Customer';
+}

@@ -3,6 +3,8 @@ import {
   kenyaPhoneLookupValues,
   normalizeKenyaPhoneLocal,
   resolvePhoneFromOrderFields,
+  customerDisplayName,
+  isPlaceholderCustomerName,
 } from '@/lib/phone-utils';
 
 /**
@@ -21,7 +23,7 @@ export async function upsertCustomerFromPromptedPhone(params: {
   const phone = normalizeKenyaPhoneLocal(params.phone);
   if (!phone) return null;
 
-  const name = (params.name || '').trim();
+  const name = customerDisplayName(params.name, phone);
   const variants = kenyaPhoneLookupValues(phone);
   const existing = await Customer.findOne({ phone: { $in: variants } });
   const incrementStats = params.incrementStats !== false;
@@ -31,7 +33,12 @@ export async function upsertCustomerFromPromptedPhone(params: {
       lastOrder: new Date(),
     };
     if (existing.phone !== phone) update.phone = phone;
-    if (name && name !== existing.name) update.name = name;
+    const incomingName = (params.name || '').trim();
+    if (incomingName && !isPlaceholderCustomerName(incomingName) && incomingName !== existing.name) {
+      update.name = incomingName;
+    } else if (isPlaceholderCustomerName(existing.name) && name !== existing.name) {
+      update.name = name;
+    }
     if (params.email && !existing.email) update.email = params.email;
     if (params.address && !existing.address) update.address = params.address;
 
@@ -55,7 +62,7 @@ export async function upsertCustomerFromPromptedPhone(params: {
 
   try {
     await Customer.create({
-      name: name || 'Customer',
+      name,
       phone,
       email: params.email || '',
       address: params.address || '',

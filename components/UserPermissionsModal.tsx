@@ -45,6 +45,7 @@ const PAGE_LABELS: { [key: string]: string } = {
   promotions: 'Promotions',
   'mpesa-transactions': 'M-Pesa Transactions',
   settings: 'Settings',
+  sms: 'SMS Settings',
   'social-media': 'Social Media'
 };
 
@@ -63,6 +64,7 @@ const PAGE_DESCRIPTIONS: { [key: string]: string } = {
   promotions: 'Configure promotional offers',
   'mpesa-transactions': 'Manage M-Pesa payment transactions',
   settings: 'System configuration and settings',
+  sms: 'Configure TXTLINK SMS API key and sender ID',
   'social-media': 'Manage social media links for website footer'
 };
 
@@ -82,6 +84,7 @@ const DEFAULT_PERMISSIONS: PagePermission[] = [
   { page: 'promotions', canView: true, canEdit: false, canDelete: false },
   { page: 'mpesa-transactions', canView: true, canEdit: true, canDelete: false },
   { page: 'settings', canView: false, canEdit: false, canDelete: false },
+  { page: 'sms', canView: true, canEdit: true, canDelete: false },
   { page: 'social-media', canView: true, canEdit: true, canDelete: false }
 ];
 

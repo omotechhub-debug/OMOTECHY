@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
       );
     }
     
+    const simple = searchParams.get('simple') === '1';
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
     const search = searchParams.get('search') || '';
@@ -58,8 +59,34 @@ export async function GET(request: NextRequest) {
       query.isActive = status === 'active';
     }
 
-    // Get stations with pagination
     const skip = (page - 1) * limit;
+
+    if (simple) {
+      const [stations, total] = await Promise.all([
+        Station.find(query)
+          .select('name location isActive')
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(Math.min(limit, 200))
+          .lean()
+          .maxTimeMS(5000),
+        Station.countDocuments(query).maxTimeMS(5000),
+      ]);
+      const totalPages = Math.max(Math.ceil(total / limit), 1);
+      return NextResponse.json({
+        success: true,
+        stations,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalStations: total,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+        },
+      });
+    }
+
+    // Get stations with pagination
     const stations = await Station.find(query)
       .populate('managerId', 'name email role')
       .sort({ createdAt: -1 })

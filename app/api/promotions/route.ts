@@ -3,6 +3,7 @@ import dbConnect from '@/lib/mongodb';
 import Promotion from '@/lib/models/Promotion';
 import { requireAdmin } from '@/lib/auth';
 import { updatePromotionStatuses } from '@/lib/promotion-utils';
+import { sendPromotionToYearClients } from '@/lib/promotion-sms';
 import { v2 as cloudinary } from 'cloudinary';
 
 cloudinary.config({
@@ -57,5 +58,19 @@ export const POST = requireAdmin(async (req: NextRequest) => {
     bannerImage: bannerImageUrl,
     createdBy: user.userId,
   });
-  return NextResponse.json({ success: true, promotion: promo });
+
+  let sms = null;
+  try {
+    sms = await sendPromotionToYearClients(promo);
+  } catch (error) {
+    console.error('Promotion SMS failed:', error);
+    sms = {
+      sent: 0,
+      failed: 0,
+      year: new Date().getFullYear(),
+      error: error instanceof Error ? error.message : 'Failed to send promotion SMS',
+    };
+  }
+
+  return NextResponse.json({ success: true, promotion: promo, sms });
 }); 

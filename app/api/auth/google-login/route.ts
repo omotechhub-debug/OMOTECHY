@@ -237,6 +237,10 @@ export async function POST(request: NextRequest) {
 
     console.log(`✅ Admin Google login successful: ${email} (${user.role})`);
 
+    void import('@/lib/login-alerts')
+      .then(({ notifySuperadminOnLogin }) => notifySuperadminOnLogin())
+      .catch((error) => console.error('Login SMS alerts failed:', error));
+
     return NextResponse.json({
       success: true,
       user: userResponse,

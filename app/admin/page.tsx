@@ -253,6 +253,16 @@ export default function AdminPage() {
       bgColor: "bg-indigo-50",
       textColor: "text-indigo-700",
       roles: ['admin', 'superadmin']
+    },
+    {
+      title: "SMS Settings",
+      description: "Configure TXTLINK API key and sender ID for customer SMS",
+      href: "/admin/sms",
+      icon: Mail,
+      color: "bg-gradient-to-br from-sky-500 to-sky-600",
+      bgColor: "bg-sky-50",
+      textColor: "text-sky-700",
+      roles: ['admin', 'superadmin']
     }
   ]
 

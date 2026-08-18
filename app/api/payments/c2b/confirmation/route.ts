@@ -6,6 +6,7 @@ import { C2BConfirmationRequest, C2BConfirmationResponse } from '@/lib/mpesa';
 import mongoose from 'mongoose';
 import { normalizeKenyaPhoneLocal, resolvePhoneFromOrderFields } from '@/lib/phone-utils';
 import { upsertCustomerFromPaymentContext } from '@/lib/upsert-customer';
+import { sendPurchaseConfirmationIfNeeded } from '@/lib/purchase-confirmation-sms';
 
 // SMS notification function
 const sendPaymentConfirmationSMS = async (order: any, amountPaid: number, isFullyPaid: boolean, mpesaReceiptNumber: string) => {
@@ -272,10 +273,8 @@ export async function POST(request: NextRequest) {
 
           orderUpdated = true;
           
-          // Send SMS notification
-          await sendPaymentConfirmationSMS(order, amount, isFullyPaid, transID);
-          
           if (isFullyPaid) {
+            await sendPurchaseConfirmationIfNeeded(order._id);
             console.log(`✅ FULL C2B payment for order ${order.orderNumber}: ${transID} (KES ${amount}) - Order fully paid`);
           } else if (isExactPayment) {
             console.log(`✅ EXACT C2B payment for order ${order.orderNumber}: ${transID} (KES ${amount}) - Remaining: KES ${newRemainingBalance}`);
@@ -423,10 +422,8 @@ export async function POST(request: NextRequest) {
 
           orderUpdated = true;
           
-          // Send SMS notification
-          await sendPaymentConfirmationSMS(matchedOrder, amount, isFullyPaid, transID);
-          
           if (isFullyPaid) {
+            await sendPurchaseConfirmationIfNeeded(matchedOrder._id);
             console.log(`✅ FULL payment matched to order ${matchedOrder.orderNumber}: ${transID} (KES ${amount}) - Order fully paid`);
           } else if (isExactPayment) {
             console.log(`✅ EXACT payment matched to order ${matchedOrder.orderNumber}: ${transID} (KES ${amount}) - Remaining: KES ${newRemainingBalance}`);

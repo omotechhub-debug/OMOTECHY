@@ -59,56 +59,19 @@ export default function SMSTest() {
     }
   };
 
-  const sendSampleBookingSMS = async () => {
-    setMobile('254796030992'); // Replace with your test number
-    setMessage(`*** Welcome to Econuru Services! ***
+  const sendSamplePurchaseSMS = async () => {
+    setMessage(`OMOTECH HUB COMPUTERS
 
-Your order #ORD-123456 has been confirmed! 
+Thank you for shopping with us.
 
-Services: Wash & Fold, Dry Cleaning
-Pickup: 2024-01-15 at 10:00 AM
+Purchase: Laptop Service
+Amount: KSh 1,500
+Order No: #TEST123
 
-We're excited to serve you with our premium laundry care!
+Your purchase has been confirmed successfully.
 
-You'll get a text as soon as your booking is approved.
-
-Thank you for choosing Econuru Services!
-
-Need help? Call us: +254757883799`);
-  };
-
-  const sendSampleStatusUpdate = async () => {
-    setMobile('254796030992');
-    setMessage(`✓ Order Update - Econuru Services ✓
-
-Your order #ORD-123456 is now: COMPLETED
-
-We're working hard to give your clothes the care they deserve!
-
-Stay tuned for more updates! 
-
-Thank you for trusting Econuru Services!
-
-Customer care: +254757883799`);
-  };
-
-  const sendSampleDeliveryNotification = async () => {
-    setMobile('254796030992');
-    setMessage(`*** Great News! - Econuru Services ***
-
-Your order #ORD-123456 is ready for delivery! 
-
-Your clothes have been treated with our premium care and are looking fabulous!
-
-We'll contact you shortly to arrange delivery.
-
-Thank you for choosing Econuru Services - where quality meets care!
-
-Don't forget to share your experience with friends and family!
-
-We appreciate your business!
-
-Customer care: +254757883799`);
+Thank you for choosing Omotech Hub Computers.
+We appreciate your business.`);
   };
 
   return (
@@ -117,32 +80,30 @@ Customer care: +254757883799`);
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Send className="h-5 w-5" />
-            SMS Configuration Status
+            SMS configuration status
           </CardTitle>
           <CardDescription>
-            Check your SMS service configuration and test SMS functionality
+            Check TXTLINK status and send a custom test message
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button onClick={testSMSConfig} variant="outline" className="mb-4">
-            Check SMS Configuration
+            Check SMS configuration
           </Button>
           
           {config && (
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="font-medium">User ID:</span> {config.userId}
-                </div>
-                <div>
-                  <span className="font-medium">Password:</span> {config.password}
-                </div>
-                <div>
-                  <span className="font-medium">Sender ID:</span> {config.senderId}
-                </div>
-                <div>
-                  <span className="font-medium">API URL:</span> {config.apiUrl}
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="font-medium">Provider:</span> {config.provider || 'txtlink'}
+              </div>
+              <div>
+                <span className="font-medium">API key:</span> {config.hasApiKey ? config.apiKeyMasked || 'Configured' : 'Not configured'}
+              </div>
+              <div>
+                <span className="font-medium">Sender ID:</span> {config.senderIdName || 'Default'}
+              </div>
+              <div>
+                <span className="font-medium">Enabled:</span> {config.enabled === false ? 'No' : 'Yes'}
               </div>
             </div>
           )}
@@ -151,24 +112,24 @@ Customer care: +254757883799`);
 
       <Card>
         <CardHeader>
-          <CardTitle>Send Test SMS</CardTitle>
+          <CardTitle>Send test SMS</CardTitle>
           <CardDescription>
-            Test SMS functionality with custom messages
+            Uses the TXTLINK settings saved on the Configuration tab
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-2">
-              Mobile Number (with country code)
+              Mobile number
             </label>
             <Input
               type="text"
-              placeholder="919999999999"
+              placeholder="+254712345678 or 0712345678"
               value={mobile}
               onChange={(e) => setMobile(e.target.value)}
             />
             <p className="text-xs text-gray-500 mt-1">
-              Include country code (e.g., 91 for India)
+              Kenyan numbers are converted to E.164 (+254...)
             </p>
           </div>
 
@@ -180,11 +141,11 @@ Customer care: +254757883799`);
               placeholder="Enter your message here..."
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              rows={4}
+              rows={8}
             />
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button 
               onClick={sendTestSMS} 
               disabled={loading || !mobile || !message}
@@ -199,27 +160,11 @@ Customer care: +254757883799`);
             </Button>
             
             <Button 
-              onClick={sendSampleBookingSMS} 
+              onClick={sendSamplePurchaseSMS} 
               variant="outline"
               disabled={loading}
             >
-              Sample Booking
-            </Button>
-
-            <Button 
-              onClick={sendSampleStatusUpdate} 
-              variant="outline"
-              disabled={loading}
-            >
-              Sample Status
-            </Button>
-
-            <Button 
-              onClick={sendSampleDeliveryNotification} 
-              variant="outline"
-              disabled={loading}
-            >
-              Sample Delivery
+              Sample purchase SMS
             </Button>
           </div>
 
@@ -233,9 +178,12 @@ Customer care: +254757883799`);
               <AlertDescription className={result.success ? "text-green-800" : "text-red-800"}>
                 {result.success ? (
                   <div>
-                    <p className="font-medium">SMS sent successfully!</p>
-                    <p className="text-sm mt-1">Transaction ID: {result.smsResponse?.transactionId}</p>
-                    <p className="text-sm">Status: {result.smsResponse?.status}</p>
+                    <p className="font-medium">SMS sent successfully</p>
+                    <p className="text-sm mt-1">Message ID: {result.smsResponse?.messageId || result.smsResponse?.transactionId || 'N/A'}</p>
+                    <p className="text-sm">Status: {result.smsResponse?.status || 'queued'}</p>
+                    {typeof result.smsResponse?.newBalance === 'number' && (
+                      <p className="text-sm">New balance: {result.smsResponse.newBalance} credits</p>
+                    )}
                   </div>
                 ) : (
                   <div>
@@ -250,4 +198,4 @@ Customer care: +254757883799`);
       </Card>
     </div>
   );
-} 
+}

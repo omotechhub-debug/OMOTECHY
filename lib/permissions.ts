@@ -34,7 +34,7 @@ export function canViewPage(user: IUser | null, page: string): boolean {
   }
 
   // Core pages that all admins should have access to by default
-  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations'];
+  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations', 'sms'];
   if (user.role === 'admin' && coreAdminPages.includes(page)) {
     return true;
   }
@@ -115,7 +115,7 @@ export function getAccessiblePages(user: IUser | null): string[] {
     return [
       'dashboard', 'orders', 'pos', 'customers', 'services', 'reports', 
       'mpesa-transactions', 'users', 'expenses', 'gallery', 'testimonials', 
-      'promotions', 'inventory', 'inventory-management', 'stations', 'settings', 'social-media', 'ai-command-center'
+      'promotions', 'inventory', 'inventory-management', 'stations', 'settings', 'sms', 'social-media', 'ai-command-center'
     ];
   }
 
@@ -130,7 +130,7 @@ export function getAccessiblePages(user: IUser | null): string[] {
   }
 
   // Core pages that all admins should have access to by default
-  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations', 'ai-command-center'];
+  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations', 'sms', 'ai-command-center'];
   
   // Return pages that admin user can view
   if (user.pagePermissions && Array.isArray(user.pagePermissions)) {
@@ -334,6 +334,7 @@ export const ADMIN_PAGES = {
   'inventory-management': { label: 'Inventory Management', icon: 'BarChart3', path: '/admin/inventory-management' },
   stations: { label: 'Stations', icon: 'Building', path: '/admin/stations' },
   'social-media': { label: 'Social Media', icon: 'MessageSquare', path: '/admin/social-media' },
+  sms: { label: 'SMS Settings', icon: 'MessageSquare', path: '/admin/sms' },
   'ai-command-center': { label: 'OMOTECH AI', icon: 'Sparkles', path: '/admin/ai-command-center' },
 } as const;
 

@@ -154,6 +154,10 @@ const InventorySchema = new Schema<IInventory>({
 InventorySchema.index({ category: 1, subcategory: 1 });
 InventorySchema.index({ sku: 1 }, { unique: true });
 InventorySchema.index({ status: 1 });
+InventorySchema.index({ createdAt: -1 });
+InventorySchema.index({ stationIds: 1 });
+InventorySchema.index({ category: 1, status: 1, createdAt: -1 });
+InventorySchema.index({ stock: 1 });
 InventorySchema.index({ name: 'text', description: 'text', tags: 'text' });
 
 // Virtual for profit margin

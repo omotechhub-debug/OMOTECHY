@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import Link from "next/link"
 import { motion } from "framer-motion"
 import * as XLSX from 'xlsx'
 import {
@@ -87,6 +88,7 @@ export default function ClientsPage() {
   const [messageSentCount, setMessageSentCount] = useState(0)
   const [messageFailedCount, setMessageFailedCount] = useState(0)
   const [sendingComplete, setSendingComplete] = useState(false)
+  const [smsReady, setSmsReady] = useState<boolean | null>(null)
   
   // CSV Upload state
   const [showCsvDialog, setShowCsvDialog] = useState(false)
@@ -185,6 +187,15 @@ export default function ClientsPage() {
   useEffect(() => {
     fetchClients(currentPage, debouncedSearch)
   }, [currentPage, debouncedSearch])
+
+  useEffect(() => {
+    fetch('/api/sms')
+      .then((response) => response.json())
+      .then((data) => {
+        setSmsReady(!!data.config?.hasApiKey && data.config?.enabled !== false)
+      })
+      .catch(() => setSmsReady(false))
+  }, [])
 
   useEffect(() => {
     if (!showMessageDialog || messageType !== 'specific') return
@@ -535,106 +546,65 @@ export default function ClientsPage() {
       setError('Please enter a message')
       return
     }
+    if (messageContent.length > 1600) {
+      setError('Message must be 1600 characters or less')
+      return
+    }
+    if (smsReady === false) {
+      setError('TXTLINK SMS is not configured. Open SMS Settings and add the API key first.')
+      return
+    }
 
     setSendingMessage(true)
     setError('')
     setMessageSentCount(0)
     setMessageFailedCount(0)
+    setSendingComplete(false)
 
-    let targetClients = []
-
-    if (messageType === 'all' || messageType === 'new') {
-      const response = await fetch('/api/customers?page=1&limit=5000')
-      const data = await response.json()
-      const rows = (data.customers || []).map((customer: any) => ({
-        ...customer,
-        fullName: customer.fullName || customer.name,
-        phone: customer.phone,
-        status: customer.status,
-      }))
-      targetClients = messageType === 'new'
-        ? rows.filter((client: any) => {
-            const join = new Date(client.joinDate || client.createdAt)
-            const twoWeeksAgo = new Date()
-            twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14)
-            return join >= twoWeeksAgo && canMessagePhone(client.phone)
-          })
-        : rows.filter((client: any) => canMessagePhone(client.phone))
-    } else {
-      targetClients = Object.values(selectedClientMap).filter(
-        (client: any) => canMessagePhone(client.phone)
-      )
-    }
-
-    if (targetClients.length === 0) {
-      setError('No clients selected or no phone numbers available')
-      setSendingMessage(false)
-      return
-    }
-
-    let sent = 0
-    let failed = 0
-
-    // Send messages one by one to avoid rate limiting
-    for (const client of targetClients) {
-      try {
-        const response = await fetch('/api/sms', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            mobile: normalizeKenyaPhoneLocal(client.phone) || client.phone,
-            message: messageContent,
-            type: 'custom'
-          })
-        })
-
-        const data = await response.json()
-        
-        if (data.success) {
-          sent++
-        } else {
-          failed++
-          console.error(`Failed to send to ${client.fullName}:`, data.error)
-        }
-      } catch (error) {
-        failed++
-        console.error(`Error sending to ${client.fullName}:`, error)
+    try {
+      const payload: Record<string, unknown> = {
+        type: 'bulk',
+        message: messageContent.trim(),
+        audience: messageType,
+      }
+      if (messageType === 'specific') {
+        payload.recipients = Object.values(selectedClientMap)
+          .map((client: any) => client.phone)
+          .filter(Boolean)
       }
 
-      // Update counters in real-time
+      const response = await fetch('/api/sms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      const data = await response.json()
+      const sent = Number(data.sent) || 0
+      const failed = Number(data.failed) || 0
       setMessageSentCount(sent)
       setMessageFailedCount(failed)
+      setSendingComplete(true)
 
-      // Small delay to avoid overwhelming the SMS service
-      await new Promise(resolve => setTimeout(resolve, 500))
+      if (sent > 0) {
+        toast({
+          title: "Messages Sent",
+          description: `Successfully sent ${sent} message(s). ${failed > 0 ? `${failed} failed.` : ''}`,
+        })
+      }
+
+      if (sent === 0) {
+        const details = Array.isArray(data.errors) && data.errors.length ? ` ${data.errors[0]}` : ''
+        setError((data.error || 'All messages failed to send. Check SMS Settings.') + details)
+      }
+    } catch (error) {
+      setSendingComplete(true)
+      setError(error instanceof Error ? error.message : 'Failed to send SMS')
+    } finally {
+      setSendingMessage(false)
     }
-
-    setSendingMessage(false)
-    setSendingComplete(true)
-
-    // Show completion toast
-    if (sent > 0) {
-      toast({
-        title: "Messages Sent",
-        description: `Successfully sent ${sent} message(s). ${failed > 0 ? `${failed} failed.` : ''}`,
-      })
-    }
-
-    if (failed === targetClients.length) {
-      setError('All messages failed to send. Please check your SMS configuration.')
-    }
-
-    // Auto-close modal after 3 seconds
-    setTimeout(() => {
-      setShowMessageDialog(false)
-      // Reset states when closing
-      setSendingComplete(false)
-      setMessageSentCount(0)
-      setMessageFailedCount(0)
-      setError('')
-    }, 3000)
   }
 
   function getMessageTargetInfo() {
@@ -907,9 +877,9 @@ export default function ClientsPage() {
           {/* Message Clients Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="rounded-xl">
+              <Button className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white">
                 <MessageSquare className="mr-2 w-4 h-4" />
-                Message Clients
+                Send SMS
                 <ChevronDown className="ml-2 w-4 h-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -948,6 +918,21 @@ export default function ClientsPage() {
           </Button>
         </div>
       </div>
+      {smsReady === false && (
+        <div className="flex items-start gap-3 p-4 rounded-lg border border-amber-200 bg-amber-50 text-amber-900">
+          <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">SMS is not configured yet</p>
+            <p className="text-sm">
+              Add your TXTLINK API key in{' '}
+              <Link href="/admin/sms" className="underline font-semibold">
+                SMS Settings
+              </Link>{' '}
+              before sending messages to clients.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
@@ -1080,6 +1065,15 @@ export default function ClientsPage() {
                   <span className="flex items-center gap-1 justify-center"><Phone className="w-4 h-4" />{client.phone}</span>
                   <span className="flex items-center gap-1 justify-center"><Mail className="w-4 h-4" />{client.email}</span>
                 </div>
+                <Button
+                  className="w-full mt-2 rounded-xl"
+                  variant="outline"
+                  onClick={() => preselectClientForMessage(client)}
+                  disabled={!canMessagePhone(client.phone)}
+                >
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Send SMS
+                </Button>
               </Card>
             ))}
           </div>
@@ -1191,6 +1185,16 @@ export default function ClientsPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-full"
+                          title={canMessagePhone(client.phone) ? 'Send SMS' : 'No valid phone number'}
+                          onClick={() => preselectClientForMessage(client)}
+                          disabled={!canMessagePhone(client.phone)}
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </Button>
                         <Dialog>
                           <DialogTrigger asChild>
                             <Button
@@ -1618,14 +1622,23 @@ export default function ClientsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5" />
-              Message Clients
+              Send SMS to clients
             </DialogTitle>
             <DialogDescription>
-              Send SMS messages to your clients. Target: {getMessageTargetInfo()}
+              Uses your TXTLINK settings. Target: {getMessageTargetInfo()}
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-6">
+            {smsReady === false && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-sm">
+                TXTLINK is not configured.{' '}
+                <Link href="/admin/sms" className="underline font-semibold">
+                  Open SMS Settings
+                </Link>{' '}
+                to add the API key.
+              </div>
+            )}
             {/* Message Type Indicator */}
             <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
               <div className="flex items-center gap-2">
@@ -1645,17 +1658,22 @@ export default function ClientsPage() {
 
             {/* Message Content */}
             <div className="space-y-2">
-              <Label htmlFor="message">Message Content</Label>
+              <Label htmlFor="message">SMS message</Label>
               <Textarea
                 id="message"
-                placeholder="Type your message here..."
+                placeholder="Type the SMS to send..."
                 value={messageContent}
                 onChange={(e) => setMessageContent(e.target.value)}
-                rows={4}
+                rows={6}
+                maxLength={1600}
                 className="resize-none"
               />
-              <div className="text-right text-sm text-gray-500">
-                {messageContent.length}/160 characters
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>TXTLINK allows up to 1600 characters</span>
+                <span className={messageContent.length > 1600 ? 'text-red-600' : ''}>
+                  {messageContent.length}/1600
+                  {messageContent.length > 0 ? ` · ~${Math.ceil(messageContent.length / 160)} SMS segment${Math.ceil(messageContent.length / 160) === 1 ? '' : 's'}` : ''}
+                </span>
               </div>
             </div>
 
@@ -1772,7 +1790,7 @@ export default function ClientsPage() {
                   )}
                 </div>
                 <div className="text-xs text-green-600 text-center mt-2">
-                  This dialog will close automatically in 3 seconds...
+                  You can close this dialog when you are done.
                 </div>
               </div>
             )}
@@ -1797,11 +1815,11 @@ export default function ClientsPage() {
                 </Button>
                 <Button
                   onClick={sendMessage}
-                  disabled={sendingMessage || !messageContent.trim()}
+                  disabled={sendingMessage || !messageContent.trim() || messageContent.length > 1600 || smsReady === false}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   <Send className="w-4 h-4 mr-2" />
-                  {sendingMessage ? 'Sending...' : 'Send Messages'}
+                  {sendingMessage ? 'Sending...' : 'Send SMS'}
                 </Button>
               </>
             )}

@@ -6,119 +6,148 @@ import User from '@/lib/models/User';
 import { requireAdmin, getTokenFromRequest, verifyToken } from '@/lib/auth';
 import mongoose from 'mongoose';
 
-// Ensure Station model is registered
-if (!mongoose.models.Station) {
-  const StationSchema = new mongoose.Schema({
-    name: String,
-    location: String,
-    isActive: Boolean
-  });
-  mongoose.model('Station', StationSchema);
+void Station;
+
+function stockStatusOf(item: { stock?: number; minStock?: number; maxStock?: number }) {
+  const stock = Number(item.stock) || 0;
+  const minStock = Number(item.minStock) || 0;
+  const maxStock = Number(item.maxStock) || 0;
+  if (stock <= 0) return 'out_of_stock';
+  if (stock <= minStock) return 'low_stock';
+  if (maxStock > 0 && stock >= maxStock) return 'overstock';
+  return 'in_stock';
+}
+
+function profitMarginOf(item: { price?: number; cost?: number }) {
+  const cost = Number(item.cost) || 0;
+  const price = Number(item.price) || 0;
+  if (cost <= 0) return 0;
+  return Number(((price - cost) / cost * 100).toFixed(2));
 }
 
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
-    
-    
-    // Safely parse URL parameters
+
     let searchParams;
     try {
       if (!request.url) {
-        console.error('Request URL is undefined in inventory route');
         return NextResponse.json(
           { success: false, error: 'Request URL is undefined' },
           { status: 400 }
         );
       }
-      const url = new URL(request.url);
-      searchParams = url.searchParams;
+      searchParams = new URL(request.url).searchParams;
     } catch (error) {
       console.error('Error parsing URL in inventory route:', error);
-      console.error('Request URL:', request.url);
       return NextResponse.json(
         { success: false, error: 'Invalid URL' },
         { status: 400 }
       );
     }
-    
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
+
+    const page = Math.max(parseInt(searchParams.get('page') || '1', 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '12', 10) || 12, 1), 1000);
     const category = searchParams.get('category');
     const subcategory = searchParams.get('subcategory');
     const status = searchParams.get('status');
-    const search = searchParams.get('search');
+    const search = (searchParams.get('search') || '').trim();
     const stationId = searchParams.get('stationId');
+    const noStation = searchParams.get('noStation') === '1';
+    const stockStatus = searchParams.get('stockStatus');
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
-    // Build filter object - exclude services
-    const filter: any = {
-      isService: { $ne: true } // Exclude services
+    const filter: Record<string, unknown> = {
+      isService: { $ne: true },
     };
-    
+
     if (category) filter.category = category;
     if (subcategory) filter.subcategory = subcategory;
     if (status) filter.status = status;
-    
-    // Filter by station if stationId is provided
-    if (stationId && mongoose.Types.ObjectId.isValid(stationId)) {
-      filter.stationIds = { $in: [new mongoose.Types.ObjectId(stationId)] };
-    }
-    
-    if (search) {
+
+    if (noStation) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } },
-        { tags: { $in: [new RegExp(search, 'i')] } }
+        { stationIds: { $exists: false } },
+        { stationIds: { $size: 0 } },
+        { stationIds: null },
       ];
+    } else if (stationId && mongoose.Types.ObjectId.isValid(stationId)) {
+      filter.stationIds = new mongoose.Types.ObjectId(stationId);
     }
 
-    // Calculate pagination
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const searchClause = {
+        $or: [
+          { name: { $regex: escaped, $options: 'i' } },
+          { description: { $regex: escaped, $options: 'i' } },
+          { sku: { $regex: escaped, $options: 'i' } },
+          { brand: { $regex: escaped, $options: 'i' } },
+          { model: { $regex: escaped, $options: 'i' } },
+          { tags: { $regex: escaped, $options: 'i' } },
+        ],
+      };
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or as object[] }, searchClause];
+        delete filter.$or;
+      } else {
+        Object.assign(filter, searchClause);
+      }
+    }
+
+    if (stockStatus === 'out_of_stock') {
+      filter.stock = { $lte: 0 };
+    } else if (stockStatus === 'low_stock') {
+      filter.$expr = {
+        $and: [
+          { $gt: ['$stock', 0] },
+          { $lte: ['$stock', '$minStock'] },
+        ],
+      };
+    } else if (stockStatus === 'overstock') {
+      filter.$expr = { $gte: ['$stock', '$maxStock'] };
+    } else if (stockStatus === 'in_stock') {
+      filter.$expr = {
+        $and: [
+          { $gt: ['$stock', '$minStock'] },
+          { $lt: ['$stock', '$maxStock'] },
+        ],
+      };
+    }
+
     const skip = (page - 1) * limit;
+    const allowedSort = new Set(['createdAt', 'updatedAt', 'name', 'price', 'stock', 'sku']);
+    const sortField = allowedSort.has(sortBy) ? sortBy : 'createdAt';
+    const sort: Record<string, 1 | -1> = { [sortField]: sortOrder === 'asc' ? 1 : -1 };
 
-    // Build sort object
-    const sort: any = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    const [total, inventory] = await Promise.all([
+      Inventory.countDocuments(filter).maxTimeMS(8000),
+      Inventory.find(filter)
+        .select('-specifications -dimensions')
+        .populate({ path: 'stationIds', select: 'name location', options: { strictPopulate: false } })
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .maxTimeMS(8000),
+    ]);
 
-    // Get total count for pagination
-    const total = await Inventory.countDocuments(filter);
-
-    // Get inventory items
-    const inventory = await Inventory.find(filter)
-      .sort(sort)
-      .skip(skip)
-      .limit(limit)
-      .lean();
-    
-    
-    // Manually populate station data
-    const inventoryWithStations = await Promise.all(
-      inventory.map(async (item) => {
-        if (item.stationIds && item.stationIds.length > 0) {
-          try {
-            const stations = await Station.find({ _id: { $in: item.stationIds } }).select('name location').lean();
-            return { ...item, stationIds: stations };
-          } catch (error) {
-            console.error('Error populating stations for item:', item._id, error);
-            return { ...item, stationIds: [] };
-          }
-        }
-        return item;
-      })
-    );
-
+    const data = inventory.map((item: any) => ({
+      ...item,
+      stockStatus: stockStatusOf(item),
+      profitMargin: profitMarginOf(item),
+    }));
 
     return NextResponse.json({
       success: true,
-      data: inventoryWithStations,
+      data,
       pagination: {
         page,
         limit,
         total,
-        pages: Math.ceil(total / limit)
-      }
+        pages: Math.max(Math.ceil(total / limit), 1),
+      },
     });
 
   } catch (error) {

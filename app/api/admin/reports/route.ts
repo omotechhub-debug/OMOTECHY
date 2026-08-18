@@ -8,6 +8,43 @@ import Promotion from '@/lib/models/Promotion';
 import MpesaTransaction from '@/lib/models/MpesaTransaction';
 import { requireAdmin } from '@/lib/auth';
 
+function kenyaYearBounds(year: number) {
+  const start = new Date(`${year}-01-01T00:00:00+03:00`);
+  const end = new Date(`${year}-12-31T23:59:59.999+03:00`);
+  return { start, end };
+}
+
+function kenyaYearMonthKey(date: Date | string | null | undefined) {
+  if (!date) return '';
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Nairobi',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(d);
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  return year && month ? `${year}-${month}` : '';
+}
+
+function calendarMonths(year: number) {
+  const now = new Date();
+  const currentKey = kenyaYearMonthKey(now);
+  return Array.from({ length: 12 }, (_, monthIndex) => {
+    const key = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+    const labelDate = new Date(Date.UTC(year, monthIndex, 1));
+    return {
+      key,
+      monthIndex,
+      year,
+      month: labelDate.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
+      label: labelDate.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' }),
+      isCurrent: key === currentKey,
+    };
+  });
+}
+
 // GET reports data
 export const GET = requireAdmin(async (request: NextRequest) => {
   try {
@@ -33,46 +70,31 @@ export const GET = requireAdmin(async (request: NextRequest) => {
         { status: 400 }
       );
     }
-    
-    const range = searchParams.get('range') || '30';
-    
-    // Calculate date range - set to start and end of day for accurate filtering
-    const endDate = new Date();
-    endDate.setHours(23, 59, 59, 999); // End of today
-    const startDate = new Date();
-    
-    switch (range) {
-      case '7':
-        startDate.setDate(endDate.getDate() - 7);
-        break;
-      case '30':
-        startDate.setDate(endDate.getDate() - 30);
-        break;
-      case '90':
-        startDate.setDate(endDate.getDate() - 90);
-        break;
-      case '365':
-        startDate.setDate(endDate.getDate() - 365);
-        break;
-      default:
-        startDate.setDate(endDate.getDate() - 30);
-    }
-    startDate.setHours(0, 0, 0, 0); // Start of day
-    
-    console.log(`📊 Reports: Fetching data from ${startDate.toISOString()} to ${endDate.toISOString()} (${range} days)`);
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const requestedYear = parseInt(searchParams.get('year') || '', 10);
+    const year = Number.isInteger(requestedYear) && requestedYear >= 2020 && requestedYear <= currentYear + 1
+      ? requestedYear
+      : currentYear;
+    const { start: startDate, end: endDate } = kenyaYearBounds(year);
+    const months = calendarMonths(year);
+    const availableYears = Array.from({ length: 6 }, (_, index) => currentYear - index);
+
+    console.log(`📊 Reports: Fetching calendar year ${year} (${startDate.toISOString()} to ${endDate.toISOString()})`);
 
     // Fetch orders within date range (customer is embedded, not a reference)
     const orders = await Order.find({
       createdAt: { $gte: startDate, $lte: endDate }
-    }).lean();
+    }).lean().maxTimeMS(15000);
 
     // Fetch all customers (for status distribution)
-    const allCustomers = await Customer.find({}).lean();
+    const allCustomers = await Customer.find({}).select('phone status').lean().maxTimeMS(8000);
 
     // Fetch expenses within date range
     const expenses = await Expense.find({
       date: { $gte: startDate, $lte: endDate }
-    }).lean();
+    }).lean().maxTimeMS(8000);
 
     // Fetch promotions within date range
     const promotions = await Promotion.find({
@@ -91,7 +113,7 @@ export const GET = requireAdmin(async (request: NextRequest) => {
           ]
         }
       ]
-    }).lean();
+    }).lean().maxTimeMS(15000);
     
     console.log(`📊 M-Pesa: Found ${mpesaTransactions.length} transactions in date range`);
 
@@ -109,34 +131,24 @@ export const GET = requireAdmin(async (request: NextRequest) => {
     
     console.log(`📊 Sales Summary: ${totalOrders} orders, Revenue: ${totalRevenue}, Discounts: ${totalDiscounts}, Pick&Drop: ${totalPickDropAmount}`);
 
-    // Revenue by month
-    const revenueByMonth = [];
-    const months = [];
-    for (let i = 0; i < 6; i++) {
-      const date = new Date();
-      date.setMonth(date.getMonth() - i);
-      const monthName = date.toLocaleString('default', { month: 'short', year: 'numeric' });
-      months.unshift(monthName);
-    }
-
-    months.forEach(month => {
-      const monthOrders = orders.filter(order => {
-        const orderDate = new Date(order.createdAt);
-        const orderMonth = orderDate.toLocaleString('default', { month: 'short', year: 'numeric' });
-        return orderMonth === month;
-      });
+    // Revenue by month (January–December of selected year)
+    const revenueByMonth = months.map((month) => {
+      const monthOrders = orders.filter((order) => kenyaYearMonthKey(order.createdAt) === month.key);
       const monthRevenue = monthOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
       const monthOrdersCount = monthOrders.length;
       const monthPickDrop = monthOrders.reduce((sum, order) => sum + (order.pickDropAmount || 0), 0);
       const monthDiscounts = monthOrders.reduce((sum, order) => sum + (order.discount || 0), 0);
-      
-      revenueByMonth.push({ 
-        month, 
+
+      return {
+        month: month.month,
+        label: month.label,
+        year: month.year,
+        isCurrent: month.isCurrent,
         revenue: monthRevenue,
         orders: monthOrdersCount,
         pickDrop: monthPickDrop,
-        discounts: monthDiscounts
-      });
+        discounts: monthDiscounts,
+      };
     });
 
     // Orders by status
@@ -269,22 +281,20 @@ export const GET = requireAdmin(async (request: NextRequest) => {
       });
     });
 
-    // Monthly expenses
-    const monthlyExpenses = [];
-    months.forEach(month => {
-      const monthExpenses = expenses.filter(expense => {
-        const expenseDate = new Date(expense.date);
-        const expenseMonth = expenseDate.toLocaleString('default', { month: 'short', year: 'numeric' });
-        return expenseMonth === month;
-      });
+    // Monthly expenses (January–December of selected year)
+    const monthlyExpenses = months.map((month) => {
+      const monthExpenses = expenses.filter((expense) => kenyaYearMonthKey(expense.date) === month.key);
       const monthAmount = monthExpenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
       const monthExpenseCount = monthExpenses.length;
-      monthlyExpenses.push({ 
-        month, 
+      return {
+        month: month.month,
+        label: month.label,
+        year: month.year,
+        isCurrent: month.isCurrent,
         amount: monthAmount,
         count: monthExpenseCount,
-        averageAmount: monthExpenseCount > 0 ? monthAmount / monthExpenseCount : 0
-      });
+        averageAmount: monthExpenseCount > 0 ? monthAmount / monthExpenseCount : 0,
+      };
     });
 
     // Service report
@@ -474,25 +484,23 @@ export const GET = requireAdmin(async (request: NextRequest) => {
     const mpesaStatusPie = Object.entries(mpesaStatusCounts).map(([status, count]) => ({ status, count }));
     const mpesaStatusAmountPie = Object.entries(mpesaStatusAmounts).map(([status, amount]) => ({ status, amount }));
 
-    // Monthly M-Pesa transactions
-    const monthlyMpesaTransactions = [];
-    months.forEach(month => {
-      const monthTransactions = mpesaTransactions.filter(transaction => {
-        // Use transactionDate if available, otherwise use createdAt
+    // Monthly M-Pesa transactions (January–December of selected year)
+    const monthlyMpesaTransactions = months.map((month) => {
+      const monthTransactions = mpesaTransactions.filter((transaction) => {
         const dateToUse = transaction.transactionDate || transaction.createdAt;
-        if (!dateToUse) return false;
-        const transactionDate = new Date(dateToUse);
-        const transactionMonth = transactionDate.toLocaleString('default', { month: 'short', year: 'numeric' });
-        return transactionMonth === month;
+        return kenyaYearMonthKey(dateToUse) === month.key;
       });
       const monthAmount = monthTransactions.reduce((sum, transaction) => sum + (transaction.amountPaid || 0), 0);
       const monthCount = monthTransactions.length;
-      monthlyMpesaTransactions.push({ 
-        month, 
+      return {
+        month: month.month,
+        label: month.label,
+        year: month.year,
+        isCurrent: month.isCurrent,
         amount: monthAmount,
         count: monthCount,
-        averageAmount: monthCount > 0 ? monthAmount / monthCount : 0
-      });
+        averageAmount: monthCount > 0 ? monthAmount / monthCount : 0,
+      };
     });
 
     // M-Pesa confirmation status breakdown
@@ -761,7 +769,14 @@ export const GET = requireAdmin(async (request: NextRequest) => {
         }),
         totalMpesaAmount: totalMpesaAmount,
         totalMpesaTransactions: totalMpesaTransactions
-      }
+      },
+      period: {
+        year,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        type: 'calendar_year',
+        availableYears,
+      },
     };
 
     console.log(`✅ Reports generated successfully: ${totalOrders} orders, ${totalCustomers} customers, ${mpesaTransactions.length} M-Pesa transactions`);

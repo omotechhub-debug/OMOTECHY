@@ -6,6 +6,7 @@ import PaymentAuditLog from '@/lib/models/PaymentAuditLog';
 import {
   normalizeKenyaPhoneLocal,
 } from '@/lib/phone-utils';
+import { sendPurchaseConfirmationIfNeeded } from '@/lib/purchase-confirmation-sms';
 
 // SMS notification function
 const sendPaymentConfirmationSMS = async (order: any, amountPaid: number, isFullyPaid: boolean, mpesaReceiptNumber: string) => {
@@ -268,7 +269,9 @@ export async function POST(request: NextRequest) {
 
           await Order.findByIdAndUpdate(order._id, updateData);
 
-          // Create audit log
+          if (isFullyPaid) {
+            await sendPurchaseConfirmationIfNeeded(order._id);
+          }
           await PaymentAuditLog.create({
             action: 'auto_confirm_payment',
             transactionId: mpesaReceiptNumber,
@@ -292,22 +295,6 @@ export async function POST(request: NextRequest) {
           console.log(`✅ AUTO-CONFIRMED: STK Push payment for order ${order.orderNumber}: Receipt ${mpesaReceiptNumber} (KES ${amountPaid})`);
           console.log(`📱 Phone Tracking: Requested ${requestedPhoneNumber} → Paid ${actualPhoneNumber}`);
           console.log(`💰 Balance Updated: ${currentRemainingBalance} → ${newRemainingBalance} (${isFullyPaid ? 'FULLY PAID' : 'PARTIAL'})`);
-          
-          // Send SMS notification (use prompt/local number — not M-Pesa callback hash)
-          const orderForSms =
-            typeof order.toObject === 'function' ? order.toObject() : { ...order };
-          await sendPaymentConfirmationSMS(
-            {
-              ...orderForSms,
-              customer: {
-                ...orderForSms.customer,
-                phone: promptedCustomerPhone || orderForSms.customer?.phone,
-              },
-            },
-            amountPaid,
-            isFullyPaid,
-            mpesaReceiptNumber
-          );
           
         } catch (transactionError) {
           console.error('Error processing exact amount match:', transactionError);

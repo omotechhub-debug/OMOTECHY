@@ -73,6 +73,21 @@ export async function repairHashedCustomersFromOrders() {
   return { repaired, removed, scanned: hashed.length };
 }
 
+export async function repairPlaceholderCustomerNames() {
+  const result = await Customer.updateMany(
+    {
+      $or: [
+        { name: { $in: ['Customer', 'Unknown', 'C2B Customer', 'STK Push Customer', 'Valued Customer', ''] } },
+        { name: { $exists: false } },
+        { name: null },
+      ],
+      phone: { $regex: /^(07|01)\d{8}$/ },
+    },
+    [{ $set: { name: '$phone' } }]
+  );
+  return result.modifiedCount || 0;
+}
+
 export function isUnusableCustomerPhone(phone: unknown) {
   return !normalizeKenyaPhoneLocal(phone) || isLikelyMpesaPhoneHashOrGarbage(phone);
 }

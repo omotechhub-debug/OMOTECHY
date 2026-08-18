@@ -2,17 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import Customer from '@/lib/models/Customer';
 import { requireAdmin } from '@/lib/auth';
-import { kenyaPhoneLookupValues, normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
-import { repairHashedCustomersFromOrders } from '@/lib/repair-hashed-customers';
+import { kenyaPhoneLookupValues, normalizeKenyaPhoneLocal, customerDisplayName } from '@/lib/phone-utils';
+import { repairHashedCustomersFromOrders, repairPlaceholderCustomerNames } from '@/lib/repair-hashed-customers';
 
 function mapCustomer(customer: any) {
   const phone = normalizeKenyaPhoneLocal(customer.phone) || '';
+  const fullName = customerDisplayName(customer.name, phone);
   return {
     ...customer,
     _id: customer._id,
     id: String(customer._id),
     clientNo: phone ? String(phone).slice(-6) : String(customer._id).slice(-6),
-    fullName: customer.name,
+    fullName,
+    name: fullName,
     phone,
     email: customer.email || '',
     address: customer.address || '',
@@ -86,6 +88,7 @@ export async function GET(request: NextRequest) {
 
     try {
       await repairHashedCustomersFromOrders();
+      await repairPlaceholderCustomerNames();
     } catch (error) {
       console.error('Hashed customer repair skipped:', error);
     }

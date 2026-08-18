@@ -1024,6 +1024,19 @@ Need help? Call us at +254 757 883 799`;
     }
   };
 
+  const sendPaidPurchaseSms = async (orderId?: string | null) => {
+    if (!orderId) return;
+    try {
+      await fetch('/api/sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'purchase_confirmation', orderId }),
+      });
+    } catch (error) {
+      console.error('Purchase confirmation SMS failed:', error);
+    }
+  };
+
   const sendStatusUpdateSMS = async (statusType: 'payment' | 'laundry', newStatus: string) => {
     console.log('sendStatusUpdateSMS called with:', { statusType, newStatus });
     console.log('sendSMS:', sendSMS, 'customerInfo.phone:', customerInfo.phone);
@@ -1037,47 +1050,9 @@ Need help? Call us at +254 757 883 799`;
       let message = '';
       
       if (statusType === 'payment') {
-        console.log('Creating payment status SMS...');
-        // Check if order has been delivered (laundry status removed, so always false for now)
-        const isDelivered = false;
-        console.log('Is delivered:', isDelivered);
-        
         if (newStatus === 'paid') {
-          if (isDelivered) {
-            message = `*** Payment Confirmation - Econuru Services ***
-
-Dear ${customerInfo.name || 'Valued Customer'},
-
-Thank you for your payment!
-
-Order Total: Ksh ${calculateFinalTotal().toLocaleString()}
-Payment Status: PAID
-
-Your order has been successfully completed and delivered.
-
-We appreciate your business and hope you're satisfied with our service!
-
-Thank you for choosing Econuru Services!
-
-Need help? Call us at +254 757 883 799`;
-          } else {
-            message = `*** Payment Confirmation - Econuru Services ***
-
-Dear ${customerInfo.name || 'Valued Customer'},
-
-Thank you for your payment!
-
-Order Total: Ksh ${calculateFinalTotal().toLocaleString()}
-Payment Status: PAID
-
-Your order is now confirmed and will be processed.
-
-We'll keep you updated on your order progress.
-
-Thank you for choosing Econuru Services!
-
-Need help? Call us at +254 757 883 799`;
-          }
+          await sendPaidPurchaseSms(editingOrderId || lastCreatedOrderId);
+          return;
         } else if (newStatus === 'unpaid') {
           message = `*** Payment Status Update - Econuru Services ***
 
@@ -1227,6 +1202,9 @@ Need help? Call us at +254 757 883 799`;
                   ? `Partial payment successful! Amount paid: Ksh ${amountPaid.toLocaleString()}, Remaining: Ksh ${remainingBalance.toLocaleString()}. Receipt: ${order.mpesaReceiptNumber || order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber || 'N/A'}`
                   : `Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`;
                 
+                if (!isPartial) {
+                  void sendPaidPurchaseSms(orderId);
+                }
                 setPaymentMessage(successMessage);
                 setPaymentStatusDialogOpen(true);
                 setCustomerInfo(prev => ({ 
@@ -1297,6 +1275,9 @@ Need help? Call us at +254 757 883 799`;
                   ? `Partial payment successful! Amount paid: Ksh ${amountPaid.toLocaleString()}, Remaining: Ksh ${remainingBalance.toLocaleString()}. Receipt: ${order.mpesaReceiptNumber || order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber || 'N/A'}`
                   : `Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`;
                 
+                if (!isPartial) {
+                  void sendPaidPurchaseSms(orderId);
+                }
                 setPaymentMessage(successMessage);
                 setPaymentStatusDialogOpen(true);
                 setCustomerInfo(prev => ({ 
@@ -1362,6 +1343,9 @@ Need help? Call us at +254 757 883 799`;
                 ? `Partial payment successful! Amount paid: Ksh ${amountPaid.toLocaleString()}, Remaining: Ksh ${remainingBalance.toLocaleString()}. Receipt: ${order.mpesaReceiptNumber || order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber || 'N/A'}`
                 : `Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`;
               
+              if (!isPartial) {
+                void sendPaidPurchaseSms(orderId);
+              }
               setPaymentMessage(successMessage);
               setPaymentStatusDialogOpen(true);
               setCustomerInfo(prev => ({ 
@@ -1656,11 +1640,14 @@ Need help? Call us at +254 757 883 799`;
             console.log('Previous payment status:', previousPaymentStatus);
             console.log('Is editing:', isEditing);
             
-            // Send order update SMS only for new orders or when simplified is checked
-            if (!isEditing || sendSimplifiedSMS) {
-              console.log('Sending order update SMS...');
-              await sendOrderUpdateSMS(data.order, !isEditing);
-            }
+        // Send purchase confirmation only after the order is paid (cash paid now, or after M-Pesa)
+        if (!isEditing && customerInfo.paymentStatus === 'paid' && data.order?._id) {
+          await fetch('/api/sms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'purchase_confirmation', orderId: data.order._id }),
+          });
+        }
             
             // Send status update SMS if status changed
             if (isEditing) {

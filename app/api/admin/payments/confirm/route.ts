@@ -4,6 +4,7 @@ import MpesaTransaction from '@/lib/models/MpesaTransaction';
 import Order from '@/lib/models/Order';
 import PaymentAuditLog from '@/lib/models/PaymentAuditLog';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
+import { sendPurchaseConfirmationIfNeeded } from '@/lib/purchase-confirmation-sms';
 
 // SMS notification function
 const sendPaymentConfirmationSMS = async (order: any, amountPaid: number, isFullyPaid: boolean, mpesaReceiptNumber: string) => {
@@ -188,8 +189,9 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Send SMS notification
-    await sendPaymentConfirmationSMS(order, newTotalPaid, paymentStatus === 'paid', transaction.mpesaReceiptNumber);
+    if (paymentStatus === 'paid') {
+      await sendPurchaseConfirmationIfNeeded(order._id);
+    }
 
     console.log(`✅ Transaction ${transaction.mpesaReceiptNumber} confirmed by ${decoded.name || decoded.email} for order ${order.orderNumber}`);
 

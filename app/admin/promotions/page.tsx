@@ -186,6 +186,14 @@ export default function PromotionsPage() {
         active: false,
       })
       setPromotions((prev) => [data.promotion, ...prev])
+      const sms = data.sms
+      if (sms?.sent > 0) {
+        setUpdateMessage(`✅ Promotion created. SMS sent to ${sms.sent} client${sms.sent === 1 ? '' : 's'} registered in ${sms.year}.${sms.failed ? ` ${sms.failed} failed.` : ''}`)
+      } else if (sms?.error) {
+        setUpdateMessage(`✅ Promotion created, but SMS was not sent: ${sms.error}`)
+      } else {
+        setUpdateMessage(`✅ Promotion created. No SMS sent to ${sms?.year || 'this year'} clients${sms?.reason === 'no_valid_phones' ? ' (no valid phone numbers).' : '.'}`)
+      }
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -455,7 +463,9 @@ export default function PromotionsPage() {
             <DialogContent className="max-w-2xl">
               <DialogHeader>
                 <DialogTitle>Create New Promotion</DialogTitle>
-                <DialogDescription>Set up a new promotional campaign with discount codes</DialogDescription>
+                <DialogDescription>
+                  Clients registered this year will automatically receive an SMS with the promo code.
+                </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleCreatePromotion} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
                 <div className="grid grid-cols-2 gap-4">
@@ -523,10 +533,13 @@ export default function PromotionsPage() {
                   <Switch id="active" name="active" checked={form.active} onCheckedChange={(checked) => setForm(f => ({ ...f, active: checked }))} />
                   <Label htmlFor="active">Activate immediately</Label>
                 </div>
+                <p className="text-sm text-text-light">
+                  Saving this promotion will SMS every client registered in {new Date().getFullYear()} with the code and dates.
+                </p>
                 {error && <div className="text-red-500 text-sm">{error}</div>}
                 <DialogFooter>
                   <Button type="button" variant="outline" className="rounded-xl" onClick={() => setCreateDialogOpen(false)} disabled={submitting}>Cancel</Button>
-                  <Button type="submit" className="bg-accent hover:bg-accent/90 text-white rounded-xl" disabled={submitting}>{submitting ? "Creating..." : "Create Promotion"}</Button>
+                  <Button type="submit" className="bg-accent hover:bg-accent/90 text-white rounded-xl" disabled={submitting}>{submitting ? "Creating & sending SMS..." : "Create Promotion"}</Button>
                 </DialogFooter>
               </form>
             </DialogContent>

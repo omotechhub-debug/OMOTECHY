@@ -576,17 +576,12 @@ export async function POST(request: NextRequest) {
     // to ensure proper station-specific inventory management and avoid double reduction
     console.log('ℹ️ Inventory reduction skipped in order API - handled by POS page');
 
-    // Send SMS confirmation
+    // Send purchase confirmation SMS only after the order is paid
     try {
-      const smsResponse = await smsService.sendBookingConfirmation(order);
-      console.log('SMS sent successfully:', smsResponse);
-      
-      // Update order with SMS transaction ID
-      order.smsTransactionId = smsResponse.transactionId;
-      await order.save();
+      const { sendPurchaseConfirmationIfNeeded } = await import('@/lib/purchase-confirmation-sms');
+      await sendPurchaseConfirmationIfNeeded(order._id);
     } catch (smsError) {
-      console.error('SMS sending failed:', smsError);
-      // Don't fail the order creation if SMS fails
+      console.error('Purchase confirmation SMS failed:', smsError);
     }
 
     // Send admin notification SMS

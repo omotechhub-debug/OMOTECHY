@@ -39,7 +39,7 @@ export default function ProtectedRoute({
     if (path.startsWith('/admin/testimonials')) return 'testimonials';
     if (path.startsWith('/admin/promotions')) return 'promotions';
     if (path.startsWith('/admin/banners')) return 'settings';
-    if (path.startsWith('/admin/sms')) return 'settings';
+    if (path.startsWith('/admin/sms')) return 'sms';
     if (path.startsWith('/admin/settings')) return 'settings';
     // Only map /admin/dashboard to 'dashboard', not /admin itself
     if (path === '/admin' || path === '/admin/') return '';

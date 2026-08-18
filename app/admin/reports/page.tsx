@@ -14,13 +14,14 @@ import {
   Package, 
   Calendar,
   Download,
-  Filter,
   RefreshCw,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   FileSpreadsheet
 } from "lucide-react"
 import { useAuth } from '@/hooks/useAuth'
-import { PieChart, Pie, Cell, Legend, ResponsiveContainer, Tooltip } from 'recharts'
+import { PieChart, Pie, Cell, Legend, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { toast } from "@/components/ui/use-toast"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import * as XLSX from 'xlsx'
@@ -30,7 +31,7 @@ interface ReportData {
     totalRevenue: number
     totalOrders: number
     averageOrderValue: number
-    revenueByMonth: Array<{ month: string; revenue: number }>
+    revenueByMonth: Array<{ month: string; label?: string; year?: number; isCurrent?: boolean; revenue: number; orders?: number }>
     ordersByStatus: Array<{ status: string; count: number }>
     grossRevenue?: number
     totalPickDropAmount?: number
@@ -47,7 +48,7 @@ interface ReportData {
   expenseReport: {
     totalExpenses: number
     expensesByCategory: Array<{ category: string; amount: number }>
-    monthlyExpenses: Array<{ month: string; amount: number }>
+    monthlyExpenses: Array<{ month: string; label?: string; year?: number; isCurrent?: boolean; amount: number; count?: number }>
   }
   serviceReport: {
     topServices: Array<{ name: string; revenue: number; orderCount: number }>
@@ -79,7 +80,7 @@ interface ReportData {
     fullyPaidAmount: number
     partialAmount: number
     unpaidAmount: number
-    monthlyTransactions: Array<{ month: string; amount: number; count: number; averageAmount: number }>
+    monthlyTransactions: Array<{ month: string; label?: string; year?: number; isCurrent?: boolean; amount: number; count: number; averageAmount: number }>
     statusDistribution: Array<{ status: string; count: number }>
     statusAmountDistribution: Array<{ status: string; amount: number }>
     confirmationStatusBreakdown: Array<{ status: string; count: number }>
@@ -178,6 +179,13 @@ interface ReportData {
     totalMpesaAmount?: number
     totalMpesaTransactions?: number
   }
+  period?: {
+    year: number
+    startDate: string
+    endDate: string
+    type: string
+    availableYears: number[]
+  }
 }
 
 const STATUS_COLORS = [
@@ -200,19 +208,167 @@ const CUSTOMER_STATUS_COLORS = [
   '#ef4444', // suspended - red
 ];
 
+type MonthRow = {
+  month: string
+  label?: string
+  year?: number
+  isCurrent?: boolean
+  amount?: number
+  revenue?: number
+  count?: number
+  orders?: number
+  averageAmount?: number
+}
+
+function YearMonthBreakdown({
+  title,
+  description,
+  items,
+  valueKey,
+  countKey,
+  countLabel,
+  barColor,
+  formatCurrency,
+  formatNumber,
+}: {
+  title: string
+  description: string
+  items: MonthRow[]
+  valueKey: 'amount' | 'revenue'
+  countKey?: 'count' | 'orders'
+  countLabel?: string
+  barColor: string
+  formatCurrency: (n: number) => string
+  formatNumber: (n: number) => string
+}) {
+  const rows = items
+  const values = rows.map((row) => Number(row[valueKey]) || 0)
+  const maxValue = Math.max(...values, 1)
+  const totalValue = values.reduce((sum, value) => sum + value, 0)
+  const totalCount = countKey
+    ? rows.reduce((sum, row) => sum + (Number(row[countKey]) || 0), 0)
+    : 0
+  const chartData = rows.map((row) => ({
+    month: row.month,
+    value: Number(row[valueKey]) || 0,
+  }))
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+          <div>
+            <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
+            <CardDescription className="text-sm">{description}</CardDescription>
+          </div>
+          <div className="text-left sm:text-right">
+            <div className="text-lg sm:text-xl font-bold text-gray-900">{formatCurrency(totalValue)}</div>
+            {countKey && (
+              <div className="text-xs text-gray-500">
+                {formatNumber(totalCount)} {countLabel || 'records'} for the year
+              </div>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="h-56 sm:h-64 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                tickFormatter={(value) =>
+                  value >= 1000 ? `${Math.round(value / 1000)}k` : String(value)
+                }
+              />
+              <Tooltip
+                formatter={(value: number) => [formatCurrency(Number(value) || 0), 'Total']}
+                contentStyle={{ borderRadius: 8, fontSize: 12 }}
+              />
+              <Bar dataKey="value" fill={barColor} radius={[6, 6, 0, 0]} maxBarSize={36} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-600">
+              <tr>
+                <th className="text-left font-medium px-3 py-2">Month</th>
+                {countKey && <th className="text-right font-medium px-3 py-2">{countLabel || 'Count'}</th>}
+                <th className="text-right font-medium px-3 py-2">Amount</th>
+                <th className="hidden sm:table-cell px-3 py-2 font-medium">Share</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const value = Number(row[valueKey]) || 0
+                const count = countKey ? Number(row[countKey]) || 0 : 0
+                const share = totalValue > 0 ? (value / totalValue) * 100 : 0
+                return (
+                  <tr
+                    key={row.month}
+                    className={`border-t ${row.isCurrent ? 'bg-emerald-50/70' : 'bg-white'}`}
+                  >
+                    <td className="px-3 py-2 font-medium text-gray-900">
+                      {row.label || row.month}
+                      {row.isCurrent && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-emerald-700">Now</span>
+                      )}
+                    </td>
+                    {countKey && (
+                      <td className="px-3 py-2 text-right text-gray-600">{formatNumber(count)}</td>
+                    )}
+                    <td className="px-3 py-2 text-right font-semibold">{formatCurrency(value)}</td>
+                    <td className="hidden sm:table-cell px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 flex-1 rounded-full bg-gray-100 overflow-hidden">
+                          <div
+                            className="h-2 rounded-full"
+                            style={{ width: `${Math.max(share, value > 0 ? 2 : 0)}%`, backgroundColor: barColor }}
+                          />
+                        </div>
+                        <span className="w-10 text-right text-xs text-gray-500">{share.toFixed(0)}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t bg-gray-50 font-semibold">
+                <td className="px-3 py-2">Year total</td>
+                {countKey && <td className="px-3 py-2 text-right">{formatNumber(totalCount)}</td>}
+                <td className="px-3 py-2 text-right">{formatCurrency(totalValue)}</td>
+                <td className="hidden sm:table-cell px-3 py-2 text-right text-xs text-gray-500">100%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function ReportsPage() {
   const { token } = useAuth()
   const [reportData, setReportData] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [dateRange, setDateRange] = useState('30')
+  const currentYear = new Date().getFullYear()
+  const [selectedYear, setSelectedYear] = useState(currentYear)
   const [activeTab, setActiveTab] = useState('sales')
   const [error, setError] = useState<string | null>(null)
+  const availableYears = reportData?.period?.availableYears?.length
+    ? reportData.period.availableYears
+    : Array.from({ length: 6 }, (_, index) => currentYear - index)
 
   useEffect(() => {
     if (token) {
       fetchReportData()
     }
-  }, [dateRange, token])
+  }, [selectedYear, token])
 
   const fetchReportData = async () => {
     if (!token) {
@@ -224,7 +380,7 @@ export default function ReportsPage() {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch(`/api/admin/reports?range=${dateRange}`, {
+      const response = await fetch(`/api/admin/reports?year=${selectedYear}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -294,7 +450,7 @@ export default function ReportsPage() {
     const summaryData = [
       ['ECONURU LAUNDRY SERVICES - EXECUTIVE SUMMARY'],
       [`Report Generated: ${new Date().toLocaleDateString('en-KE')}`],
-      [`Period: Last ${dateRange} days`],
+      [`Period: Calendar year ${selectedYear}`],
       [''],
       ['=== FINANCIAL OVERVIEW ==='],
       ['Metric', 'Value'],
@@ -607,7 +763,7 @@ export default function ReportsPage() {
     // 9. BUSINESS ANALYTICS SHEET
     const analyticsData = [
       ['ECONURU BUSINESS ANALYTICS & INSIGHTS'],
-      [`Analysis Period: Last ${dateRange} days`],
+      [`Analysis Period: Calendar year ${selectedYear}`],
       [`Generated: ${new Date().toLocaleDateString('en-KE')}`],
       [''],
       
@@ -754,8 +910,8 @@ export default function ReportsPage() {
     const exportData = {
       reportMetadata: {
         generatedAt: new Date().toISOString(),
-        dateRange: `${dateRange} days`,
-        reportPeriod: `${dateRange} days ending ${new Date().toISOString().split('T')[0]}`,
+        dateRange: `${selectedYear}`,
+        reportPeriod: `Calendar year ${selectedYear}`,
         businessName: "Econuru Laundry Services",
         reportType: "Comprehensive Business Report"
       },
@@ -932,7 +1088,7 @@ export default function ReportsPage() {
     // Create simple, practical CSV content
     let csvContent = "Econuru Laundry Services - Business Report\n";
     csvContent += `Report Date: ${new Date().toLocaleDateString()}\n`;
-    csvContent += `Period: Last ${dateRange} days\n\n`;
+    csvContent += `Period: Calendar year ${selectedYear}\n\n`;
 
     // 1. SALES SUMMARY
     csvContent += "=== SALES SUMMARY ===\n";
@@ -1093,20 +1249,46 @@ export default function ReportsPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Reports & Analytics</h1>
-          <p className="text-sm sm:text-base text-gray-600 mt-1">Comprehensive business insights and performance metrics</p>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">
+            January–December {selectedYear} · switch years to view past records
+          </p>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
-          <Select value={dateRange} onValueChange={setDateRange}>
-            <SelectTrigger className="w-full sm:w-40">
-              <SelectValue placeholder="Date Range" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="7">Last 7 days</SelectItem>
-              <SelectItem value="30">Last 30 days</SelectItem>
-              <SelectItem value="90">Last 90 days</SelectItem>
-              <SelectItem value="365">Last year</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              disabled={selectedYear <= Math.min(...availableYears)}
+              onClick={() => setSelectedYear((year) => year - 1)}
+              aria-label="Previous year"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Select value={String(selectedYear)} onValueChange={(value) => setSelectedYear(parseInt(value, 10))}>
+              <SelectTrigger className="w-full sm:w-40">
+                <Calendar className="h-4 w-4 mr-2 text-gray-500" />
+                <SelectValue placeholder="Year" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableYears.map((year) => (
+                  <SelectItem key={year} value={String(year)}>
+                    {year}{year === currentYear ? ' (this year)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              disabled={selectedYear >= currentYear}
+              onClick={() => setSelectedYear((year) => year + 1)}
+              aria-label="Next year"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
           <div className="flex gap-2">
             <Button onClick={fetchReportData} variant="outline" size="sm" className="flex-1 sm:flex-none">
               <RefreshCw className="h-4 w-4 mr-2" />
@@ -1238,24 +1420,19 @@ export default function ReportsPage() {
         </TabsList>
 
         <TabsContent value="sales" className="space-y-4 sm:space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base sm:text-lg">Revenue by Month</CardTitle>
-                <CardDescription className="text-sm">Monthly revenue breakdown</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 sm:space-y-4">
-                  {reportData.salesReport.revenueByMonth.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{item.month}</span>
-                      <span className="text-sm font-bold">{formatCurrency(item.revenue)}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+          <YearMonthBreakdown
+            title={`Revenue by Month · ${selectedYear}`}
+            description="Full calendar year from January to December"
+            items={reportData.salesReport.revenueByMonth}
+            valueKey="revenue"
+            countKey="orders"
+            countLabel="orders"
+            barColor="#2563eb"
+            formatCurrency={formatCurrency}
+            formatNumber={formatNumber}
+          />
 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base sm:text-lg">Orders by Status</CardTitle>
@@ -1510,6 +1687,18 @@ export default function ReportsPage() {
         </TabsContent>
 
         <TabsContent value="mpesa" className="space-y-4 sm:space-y-6">
+          <YearMonthBreakdown
+            title={`Monthly M-Pesa Transactions · ${selectedYear}`}
+            description="January to December for the selected year. Use the year control above for previous years."
+            items={reportData.mpesaReport?.monthlyTransactions || []}
+            valueKey="amount"
+            countKey="count"
+            countLabel="transactions"
+            barColor="#059669"
+            formatCurrency={formatCurrency}
+            formatNumber={formatNumber}
+          />
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <Card>
               <CardHeader>
@@ -1567,26 +1756,6 @@ export default function ReportsPage() {
                       <Legend />
                     </PieChart>
                   </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base sm:text-lg">Monthly M-Pesa Transactions</CardTitle>
-                <CardDescription className="text-sm">M-Pesa transaction trends by month</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 sm:space-y-4">
-                  {(reportData.mpesaReport?.monthlyTransactions || []).map((item, index) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <div className="min-w-0 flex-1">
-                        <span className="text-sm font-medium">{item.month}</span>
-                        <p className="text-xs text-gray-600">{item.count} transactions</p>
-                      </div>
-                      <span className="text-sm font-bold ml-2">{formatCurrency(item.amount)}</span>
-                    </div>
-                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -1740,6 +1909,18 @@ export default function ReportsPage() {
         </TabsContent>
 
         <TabsContent value="expenses" className="space-y-4 sm:space-y-6">
+          <YearMonthBreakdown
+            title={`Monthly Expenses · ${selectedYear}`}
+            description="Full calendar year from January to December"
+            items={reportData.expenseReport.monthlyExpenses}
+            valueKey="amount"
+            countKey="count"
+            countLabel="expenses"
+            barColor="#d97706"
+            formatCurrency={formatCurrency}
+            formatNumber={formatNumber}
+          />
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <Card>
               <CardHeader>
@@ -1752,23 +1933,6 @@ export default function ReportsPage() {
                     <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
                       <span className="font-medium truncate">{expense.category}</span>
                       <span className="font-bold text-sm sm:text-base ml-2">{formatCurrency(expense.amount)}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base sm:text-lg">Monthly Expenses</CardTitle>
-                <CardDescription className="text-sm">Expense trends over time</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 sm:space-y-4">
-                  {reportData.expenseReport.monthlyExpenses.map((expense, index) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{expense.month}</span>
-                      <span className="text-sm font-bold">{formatCurrency(expense.amount)}</span>
                     </div>
                   ))}
                 </div>

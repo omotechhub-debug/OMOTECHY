@@ -56,6 +56,11 @@ async function recalculateOrderPaymentStatus(orderId: string) {
         updatedAt: new Date()
       });
 
+      if (paymentStatus === 'paid') {
+        const { sendPurchaseConfirmationIfNeeded } = await import('@/lib/purchase-confirmation-sms');
+        await sendPurchaseConfirmationIfNeeded(order._id);
+      }
+
       console.log(`✅ Payment status recalculated for order ${order.orderNumber}:`, {
         oldStatus: order.paymentStatus,
         newStatus: paymentStatus,
