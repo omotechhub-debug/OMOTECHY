@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
 
 export interface ICustomer extends mongoose.Document {
   name: string;
@@ -82,6 +83,16 @@ const customerSchema = new mongoose.Schema<ICustomer>({
   },
 }, {
   timestamps: true,
+});
+
+customerSchema.pre('validate', function (next) {
+  const normalized = normalizeKenyaPhoneLocal(this.phone);
+  if (!normalized) {
+    next(new Error('Customer phone must be the POS/prompt Kenyan mobile number, not an M-Pesa hash'));
+    return;
+  }
+  this.phone = normalized;
+  next();
 });
 
 // Index for efficient queries

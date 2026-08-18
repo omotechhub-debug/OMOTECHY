@@ -7,6 +7,7 @@ import {
   normalizeKenyaPhoneLocal,
   resolvePhoneFromOrderFields,
 } from '@/lib/phone-utils';
+import { repairHashedCustomersFromOrders } from '@/lib/repair-hashed-customers';
 
 /**
  * One-time / admin: fix order.customer.phone when it holds an M-Pesa hash or garbage,
@@ -41,10 +42,15 @@ export async function POST(request: NextRequest) {
       updated++;
     }
 
+    const customers = await repairHashedCustomersFromOrders();
+
     return NextResponse.json({
       success: true,
       scanned: orders.length,
       ordersUpdated: updated,
+      customersRepaired: customers.repaired,
+      customersRemoved: customers.removed,
+      customersScanned: customers.scanned,
     });
   } catch (error) {
     console.error('repair-order-phones:', error);

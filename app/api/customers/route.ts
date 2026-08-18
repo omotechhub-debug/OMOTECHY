@@ -3,9 +3,10 @@ import dbConnect from '@/lib/mongodb';
 import Customer from '@/lib/models/Customer';
 import { requireAdmin } from '@/lib/auth';
 import { kenyaPhoneLookupValues, normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+import { repairHashedCustomersFromOrders } from '@/lib/repair-hashed-customers';
 
 function mapCustomer(customer: any) {
-  const phone = normalizeKenyaPhoneLocal(customer.phone) || customer.phone || '';
+  const phone = normalizeKenyaPhoneLocal(customer.phone) || '';
   return {
     ...customer,
     _id: customer._id,
@@ -81,6 +82,12 @@ export async function GET(request: NextRequest) {
         .lean()
         .maxTimeMS(5000);
       return NextResponse.json({ success: true, customers: customers.map(mapCustomer) });
+    }
+
+    try {
+      await repairHashedCustomersFromOrders();
+    } catch (error) {
+      console.error('Hashed customer repair skipped:', error);
     }
 
     const page = Math.max(parseInt(pageParam || '1', 10) || 1, 1);

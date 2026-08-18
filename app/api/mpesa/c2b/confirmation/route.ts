@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
-import Customer from '@/lib/models/Customer';
 import { C2BConfirmationRequest, C2BConfirmationResponse } from '@/lib/mpesa';
+import { normalizeKenyaPhoneLocal, resolvePhoneFromOrderFields } from '@/lib/phone-utils';
+import { upsertCustomerFromPaymentContext } from '@/lib/upsert-customer';
 
 export async function POST(request: NextRequest) {
   try {
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
 
     let orderUpdated = false;
     let customerUpdated = false;
+    let linkedOrder: any = null;
 
     // Try to find and update existing order
     if (billRefNumber && billRefNumber !== '') {
@@ -75,16 +77,22 @@ export async function POST(request: NextRequest) {
         });
 
         if (order) {
+          linkedOrder = order;
+          const identityPhone =
+            resolvePhoneFromOrderFields(order) ||
+            normalizeKenyaPhoneLocal(formattedPhone) ||
+            undefined;
           // Update order with payment details
           await Order.findByIdAndUpdate(order._id, {
             paymentStatus: 'paid',
             paymentMethod: 'mpesa_c2b',
             $set: {
+              ...(identityPhone ? { 'customer.phone': identityPhone, phoneNumber: identityPhone } : {}),
               'c2bPayment': {
                 transactionId: transID,
                 mpesaReceiptNumber: transID, // M-Pesa receipt is the transID for C2B
                 transactionDate: transactionDate,
-                phoneNumber: originalPhone,
+                phoneNumber: identityPhone || originalPhone,
                 amountPaid: amount,
                 transactionType: transactionType,
                 billRefNumber: billRefNumber,
@@ -104,54 +112,28 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Try to find or create customer
+    // Never create a client from Safaricom's hashed MSISDN. Use the POS/prompt number on the order.
     try {
-      let customer = await Customer.findOne({
-        $or: [
-          { phone: msisdn },
-          { phone: formattedPhone },
-          { phone: '+' + msisdn }
-        ]
+      const mpesaName = [firstName, middleName, lastName].filter(Boolean).join(' ');
+      const saved = await upsertCustomerFromPaymentContext({
+        order: linkedOrder,
+        mpesaMsisdn: formattedPhone,
+        fallbackName: mpesaName,
+        lastPaymentDate: transactionDate,
+        lastPaymentAmount: amount,
+        lastTransactionId: transID,
       });
-
-      if (customer) {
-        // Update existing customer's last payment
-        await Customer.findByIdAndUpdate(customer._id, {
-          $set: {
-            lastPaymentDate: transactionDate,
-            lastPaymentAmount: amount,
-            lastTransactionId: transID
-          }
-        });
-        customerUpdated = true;
-        console.log(`✅ Customer ${customer.name} updated with payment info`);
-      } else if (firstName || lastName) {
-        // Create new customer if we have name information
-        const customerName = [firstName, middleName, lastName].filter(Boolean).join(' ');
-        
-        if (customerName.trim()) {
-          customer = new Customer({
-            name: customerName,
-            phone: formattedPhone,
-            email: '', // Will be updated when they register
-            createdViaPayment: true,
-            lastPaymentDate: transactionDate,
-            lastPaymentAmount: amount,
-            lastTransactionId: transID,
-            totalOrders: orderUpdated ? 1 : 0
-          });
-
-          await customer.save();
-          customerUpdated = true;
-          console.log(`✅ New customer created: ${customerName} (${formattedPhone})`);
-        }
-      }
+      customerUpdated = !!saved;
     } catch (error) {
       console.error('Error handling customer:', error);
     }
 
-    // If no order was found, create a standalone payment record
+    // If no order was found, skip creating a client/order from a hashed M-Pesa MSISDN.
     if (!orderUpdated && !billRefNumber) {
+      const identityPhone = normalizeKenyaPhoneLocal(formattedPhone);
+      if (!identityPhone) {
+        console.log('Skipping standalone C2B order — Safaricom sent a hashed/invalid MSISDN');
+      } else {
       try {
         // Create a new order for this standalone payment
         const orderNumber = `C2B-${Date.now()}`;
@@ -159,9 +141,11 @@ export async function POST(request: NextRequest) {
         
         const newOrder = new Order({
           orderNumber: orderNumber,
-          customerName: customerName,
-          customerPhone: formattedPhone,
-          customerEmail: '',
+          customer: {
+            name: customerName,
+            phone: identityPhone,
+            email: '',
+          },
           services: [{
             name: 'C2B Payment',
             price: amount,
@@ -192,6 +176,7 @@ export async function POST(request: NextRequest) {
         console.log(`✅ Standalone C2B payment order created: ${orderNumber}`);
       } catch (error) {
         console.error('Error creating standalone payment order:', error);
+      }
       }
     }
 

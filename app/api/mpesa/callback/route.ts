@@ -4,7 +4,6 @@ import Order from '@/lib/models/Order';
 import MpesaTransaction from '@/lib/models/MpesaTransaction';
 import PaymentAuditLog from '@/lib/models/PaymentAuditLog';
 import {
-  isLikelyMpesaPhoneHashOrGarbage,
   normalizeKenyaPhoneLocal,
 } from '@/lib/phone-utils';
 
@@ -190,10 +189,7 @@ export async function POST(request: NextRequest) {
       const localFromExistingCustomer = normalizeKenyaPhoneLocal(order.customer?.phone);
       // Keep the POS/prompt number on the order. Never copy M-Pesa callback MSISDN/hash onto customer.phone.
       const promptedCustomerPhone = localFromPrompt || localFromExistingCustomer || undefined;
-      const phoneForStorage =
-        (!isLikelyMpesaPhoneHashOrGarbage(phoneNumber) ? phoneNumber : null) ||
-        promptedCustomerPhone ||
-        'Unknown';
+      const phoneForStorage = promptedCustomerPhone || 'Unknown';
       
       if (isExactAmountMatch) {
         // EXACT AMOUNT MATCH: Auto-process the payment and subtract from balance

@@ -1,5 +1,9 @@
 import Customer from '@/lib/models/Customer';
-import { kenyaPhoneLookupValues, normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+import {
+  kenyaPhoneLookupValues,
+  normalizeKenyaPhoneLocal,
+  resolvePhoneFromOrderFields,
+} from '@/lib/phone-utils';
 
 /**
  * Save the POS-entered Kenyan number once.
@@ -69,4 +73,53 @@ export async function upsertCustomerFromPromptedPhone(params: {
   }
 
   return phone;
+}
+
+/**
+ * Always save the POS / STK prompt number. Never persist Safaricom callback MSISDN or 64-char hashes.
+ */
+export async function upsertCustomerFromPaymentContext(params: {
+  order?: any;
+  mpesaMsisdn?: unknown;
+  fallbackName?: string;
+  lastPaymentDate?: Date;
+  lastPaymentAmount?: number;
+  lastTransactionId?: string;
+}) {
+  const orderPlain =
+    params.order && typeof params.order.toObject === 'function'
+      ? params.order.toObject()
+      : params.order;
+  const phone =
+    (orderPlain ? resolvePhoneFromOrderFields(orderPlain) : null) ||
+    normalizeKenyaPhoneLocal(params.mpesaMsisdn);
+
+  if (!phone) {
+    console.log('Skipping customer upsert — no POS/prompt Kenyan number (M-Pesa hash ignored)');
+    return null;
+  }
+
+  const saved = await upsertCustomerFromPromptedPhone({
+    phone,
+    name: orderPlain?.customer?.name || params.fallbackName,
+    email: orderPlain?.customer?.email,
+    address: orderPlain?.customer?.address,
+    incrementStats: false,
+  });
+
+  if (saved && (params.lastPaymentDate || params.lastPaymentAmount || params.lastTransactionId)) {
+    const variants = kenyaPhoneLookupValues(phone);
+    await Customer.updateOne(
+      { phone: { $in: variants } },
+      {
+        $set: {
+          ...(params.lastPaymentDate ? { lastPaymentDate: params.lastPaymentDate } : {}),
+          ...(params.lastPaymentAmount != null ? { lastPaymentAmount: params.lastPaymentAmount } : {}),
+          ...(params.lastTransactionId ? { lastTransactionId: params.lastTransactionId } : {}),
+        },
+      }
+    );
+  }
+
+  return saved;
 }

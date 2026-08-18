@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
-import Customer from '@/lib/models/Customer';
 import MpesaTransaction from '@/lib/models/MpesaTransaction';
 import { C2BConfirmationRequest, C2BConfirmationResponse } from '@/lib/mpesa';
 import mongoose from 'mongoose';
+import { normalizeKenyaPhoneLocal, resolvePhoneFromOrderFields } from '@/lib/phone-utils';
+import { upsertCustomerFromPaymentContext } from '@/lib/upsert-customer';
 
 // SMS notification function
 const sendPaymentConfirmationSMS = async (order: any, amountPaid: number, isFullyPaid: boolean, mpesaReceiptNumber: string) => {
@@ -137,6 +138,7 @@ export async function POST(request: NextRequest) {
 
     let orderUpdated = false;
     let customerUpdated = false;
+    let linkedOrder: any = null;
 
     // Try to find and update existing order
     if (billRefNumber && billRefNumber !== '') {
@@ -157,6 +159,11 @@ export async function POST(request: NextRequest) {
         });
 
         if (order) {
+          linkedOrder = order;
+          const identityPhone =
+            resolvePhoneFromOrderFields(order) ||
+            normalizeKenyaPhoneLocal(formattedPhone) ||
+            undefined;
           // Check if payment amount matches order total exactly (strict comparison)
           const orderTotal = order.totalAmount || 0;
           const currentRemainingBalance = order.remainingBalance || orderTotal;
@@ -181,7 +188,7 @@ export async function POST(request: NextRequest) {
             amount: amount,
             date: transactionDate,
             mpesaReceiptNumber: transID,
-            phoneNumber: originalPhone,
+            phoneNumber: identityPhone || originalPhone,
             method: 'mpesa_c2b' as const
           };
 
@@ -194,11 +201,12 @@ export async function POST(request: NextRequest) {
               partialPayments: partialPayment
             },
             $set: {
+              ...(identityPhone ? { 'customer.phone': identityPhone } : {}),
               'c2bPayment': {
                 transactionId: transID,
                 mpesaReceiptNumber: transID, // M-Pesa receipt is the transID for C2B
                 transactionDate: transactionDate,
-                phoneNumber: originalPhone,
+                phoneNumber: identityPhone || originalPhone,
                 amountPaid: amount,
                 transactionType: transactionType,
                 billRefNumber: billRefNumber,
@@ -215,7 +223,7 @@ export async function POST(request: NextRequest) {
             updateData.amountPaid = orderTotal;
             updateData.mpesaReceiptNumber = transID;
             updateData.transactionDate = transactionDate;
-            updateData.phoneNumber = originalPhone;
+            updateData.phoneNumber = identityPhone || originalPhone;
           }
 
           await Order.findByIdAndUpdate(order._id, updateData);
@@ -282,52 +290,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Try to find or create customer
-    try {
-      let customer = await Customer.findOne({
-        $or: [
-          { phone: msisdn },
-          { phone: formattedPhone },
-          { phone: '+' + msisdn }
-        ]
-      });
-
-      if (customer) {
-        // Update existing customer's last payment
-        await Customer.findByIdAndUpdate(customer._id, {
-          $set: {
-            lastPaymentDate: transactionDate,
-            lastPaymentAmount: amount,
-            lastTransactionId: transID
-          }
-        });
-        customerUpdated = true;
-        console.log(`✅ Customer ${customer.name} updated with payment info`);
-      } else if (firstName || lastName) {
-        // Create new customer if we have name information
-        const customerName = [firstName, middleName, lastName].filter(Boolean).join(' ');
-        
-        if (customerName.trim()) {
-          customer = new Customer({
-            name: customerName,
-            phone: formattedPhone,
-            email: '', // Will be updated when they register
-            createdViaPayment: true,
-            lastPaymentDate: transactionDate,
-            lastPaymentAmount: amount,
-            lastTransactionId: transID,
-            totalOrders: orderUpdated ? 1 : 0
-          });
-
-          await customer.save();
-          customerUpdated = true;
-          console.log(`✅ New customer created: ${customerName} (${formattedPhone})`);
-        }
-      }
-    } catch (error) {
-      console.error('Error handling customer:', error);
-    }
-
     // If no order was found by bill reference, try intelligent matching for till number payments
     if (!orderUpdated && (!billRefNumber || billRefNumber === '')) {
       try {
@@ -349,6 +311,11 @@ export async function POST(request: NextRequest) {
         if (matchingOrders.length === 1) {
           // Exact match found - update this order
           const matchedOrder = matchingOrders[0];
+          linkedOrder = matchedOrder;
+          const identityPhone =
+            resolvePhoneFromOrderFields(matchedOrder) ||
+            normalizeKenyaPhoneLocal(formattedPhone) ||
+            undefined;
           const orderTotal = matchedOrder.totalAmount || 0;
           const currentRemainingBalance = matchedOrder.remainingBalance || orderTotal;
           const isExactPayment = amount === currentRemainingBalance;
@@ -372,7 +339,7 @@ export async function POST(request: NextRequest) {
             amount: amount,
             date: transactionDate,
             mpesaReceiptNumber: transID,
-            phoneNumber: originalPhone,
+            phoneNumber: identityPhone || originalPhone,
             method: 'mpesa_c2b' as const
           };
 
@@ -385,11 +352,12 @@ export async function POST(request: NextRequest) {
               partialPayments: partialPayment
             },
             $set: {
+              ...(identityPhone ? { 'customer.phone': identityPhone } : {}),
               'c2bPayment': {
                 transactionId: transID,
                 mpesaReceiptNumber: transID,
                 transactionDate: transactionDate,
-                phoneNumber: originalPhone,
+                phoneNumber: identityPhone || originalPhone,
                 amountPaid: amount,
                 transactionType: transactionType,
                 billRefNumber: billRefNumber || 'TILL_PAYMENT',
@@ -406,7 +374,7 @@ export async function POST(request: NextRequest) {
             updateData.amountPaid = orderTotal;
             updateData.mpesaReceiptNumber = transID;
             updateData.transactionDate = transactionDate;
-            updateData.phoneNumber = originalPhone;
+            updateData.phoneNumber = identityPhone || originalPhone;
           }
           
           await Order.findByIdAndUpdate(matchedOrder._id, updateData);
@@ -520,6 +488,22 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error('Error saving M-Pesa transaction:', error);
       }
+    }
+
+    // Customer records use the POS/prompt number only. Never save Safaricom hashed MSISDN.
+    try {
+      const mpesaName = [firstName, middleName, lastName].filter(Boolean).join(' ');
+      const saved = await upsertCustomerFromPaymentContext({
+        order: linkedOrder,
+        mpesaMsisdn: formattedPhone,
+        fallbackName: mpesaName,
+        lastPaymentDate: transactionDate,
+        lastPaymentAmount: amount,
+        lastTransactionId: transID,
+      });
+      customerUpdated = !!saved;
+    } catch (error) {
+      console.error('Error handling customer:', error);
     }
 
     // Log payment processing result

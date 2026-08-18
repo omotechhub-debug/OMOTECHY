@@ -319,8 +319,8 @@ export default function ClientsPage() {
       const data = await response.json()
       if (data.success) {
         toast({
-          title: "Order phones repaired",
-          description: `Updated ${data.ordersUpdated} of ${data.scanned} orders. Refreshing…`,
+          title: "Phones repaired",
+          description: `Orders: ${data.ordersUpdated || 0}. Clients remapped: ${data.customersRepaired || 0}, hash rows removed: ${data.customersRemoved || 0}. Refreshing…`,
         })
         window.location.reload()
       } else {
