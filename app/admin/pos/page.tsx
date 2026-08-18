@@ -227,6 +227,9 @@ function POSPageContent() {
   const [paymentMessage, setPaymentMessage] = useState('');
   const [currentCheckoutRequestId, setCurrentCheckoutRequestId] = useState<string | null>(null);
   const paymentPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const paymentWaitModeRef = useRef<'stk' | 'manual' | null>(null);
+  const lastCreatedOrderIdRef = useRef<string | null>(null);
+  const manualPayInfoRef = useRef<{ paybill: string; account: string; amount: number } | null>(null);
   const [showCancelOption, setShowCancelOption] = useState(false);
 
   // Order Editing State
@@ -900,8 +903,11 @@ function POSPageContent() {
     
     // Clear last created order ID
     setLastCreatedOrderId(null);
+    lastCreatedOrderIdRef.current = null;
     setManualPayInfo(null);
+    manualPayInfoRef.current = null;
     setPaymentWaitMode(null);
+    paymentWaitModeRef.current = null;
     setShowExtraOrderOptions(false);
     
     // Reset station selection for superadmin when cart is cleared
@@ -1119,6 +1125,26 @@ Need help? Call us at +254 757 883 799`;
     }
   };
 
+  const finishManualPaybillOrder = () => {
+    if (paymentPollIntervalRef.current) {
+      clearInterval(paymentPollIntervalRef.current);
+      paymentPollIntervalRef.current = null;
+    }
+
+    paymentWaitModeRef.current = 'manual';
+    setPaymentWaitMode(null);
+    setCheckingPayment(false);
+    setShowCancelOption(false);
+    setCurrentCheckoutRequestId(null);
+    setPaymentStatus('saved');
+    setPaymentMessage(
+      manualPayInfoRef.current
+        ? `Order created. Ask the customer to pay Paybill ${manualPayInfoRef.current.paybill}, Account ${manualPayInfoRef.current.account}, Amount Ksh ${manualPayInfoRef.current.amount.toLocaleString()}. Payment will be matched automatically when it comes in.`
+        : 'Order created. Paybill instructions were sent to the customer. Payment will be matched automatically when they pay.'
+    );
+    setPaymentStatusDialogOpen(true);
+  };
+
   // Payment polling function - checks database first, then M-Pesa if needed
   const startPaymentPolling = (checkoutRequestId: string | null, orderId: string, waitMode: 'stk' | 'manual' = checkoutRequestId ? 'stk' : 'manual') => {
     // Clear any existing polling
@@ -1126,6 +1152,8 @@ Need help? Call us at +254 757 883 799`;
       clearInterval(paymentPollIntervalRef.current);
     }
 
+    paymentWaitModeRef.current = waitMode;
+    setPaymentWaitMode(waitMode);
     setCheckingPayment(true);
     setShowCancelOption(false); // Reset cancel option when starting new polling
     let attempts = 0;
@@ -1135,6 +1163,10 @@ Need help? Call us at +254 757 883 799`;
 
     const poll = async () => {
       if (attempts >= maxAttempts) {
+        if (waitMode === 'manual') {
+          finishManualPaybillOrder();
+          return;
+        }
         // Timeout - stop polling
         setCheckingPayment(false);
         setPaymentStatus('failed');
@@ -1561,6 +1593,7 @@ Need help? Call us at +254 757 883 799`;
     }
 
     setLastCreatedOrderId(data.order._id);
+    lastCreatedOrderIdRef.current = String(data.order._id);
     const currentStationId = getPosStationId();
     if (currentStationId) {
       void reduceInventory(cart, currentStationId, data.order?.orderNumber);
@@ -1569,7 +1602,9 @@ Need help? Call us at +254 757 883 799`;
   };
 
   const ensureUnpaidPosOrder = async () => {
-    if (lastCreatedOrderId) return lastCreatedOrderId;
+    if (lastCreatedOrderIdRef.current || lastCreatedOrderId) {
+      return lastCreatedOrderIdRef.current || lastCreatedOrderId;
+    }
     if (cart.length === 0) {
       throw new Error('Add items to the cart first');
     }
@@ -1629,6 +1664,8 @@ Need help? Call us at +254 757 883 799`;
     setSendingManualPay(true);
     try {
       const orderId = await ensureUnpaidPosOrder();
+      lastCreatedOrderIdRef.current = String(orderId);
+      setLastCreatedOrderId(String(orderId));
       const response = await fetch('/api/mpesa/manual-paybill', {
         method: 'POST',
         headers: {
@@ -1649,9 +1686,11 @@ Need help? Call us at +254 757 883 799`;
         amount: Number(data.amount) || calculateFinalTotal(),
       };
       setManualPayInfo(info);
+      manualPayInfoRef.current = info;
+      paymentWaitModeRef.current = 'manual';
       setPaymentWaitMode('manual');
       setCustomerInfo((prev) => ({ ...prev, paymentStatus: 'pending' }));
-      startPaymentPolling(null, orderId);
+      startPaymentPolling(null, orderId, 'manual');
     } catch (error) {
       console.error('Error sending Paybill SMS:', error);
       alert(error instanceof Error ? error.message : 'Failed to send Paybill instructions.');
@@ -1825,6 +1864,7 @@ Need help? Call us at +254 757 883 799`;
         // Store the created order ID for manual payment initiation
         if (!isEditing && data.order?._id) {
           setLastCreatedOrderId(data.order._id);
+          lastCreatedOrderIdRef.current = String(data.order._id);
         }
         
         // Note: Payment initiation is now manual only - use the "Initiate Payment" button when ready
@@ -2584,41 +2624,51 @@ Need help? Call us at +254 757 883 799`;
 
           {/* Customer Information */}
           {cart.length > 0 && (
-            <Card className="overflow-hidden border-2 border-gray-100 shadow-lg">
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-4 border-b border-gray-200">
-                <CardTitle className="text-xl flex items-center gap-3 text-gray-800">
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <User className="w-5 h-5 text-blue-600" />
-                  </div>
-                  Customer Information
-                  {isExistingCustomer && (
-                    <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-sm px-3 py-1 rounded-full">
-                      <UserCheck className="w-3 h-3 mr-1" />
-                      Existing Customer
-                    </Badge>
-                  )}
-                  {!isExistingCustomer && customerInfo.name && (
-                    <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-sm px-3 py-1 rounded-full">
-                      <UserPlus className="w-3 h-3 mr-1" />
-                      New Customer
-                    </Badge>
-                  )}
-                </CardTitle>
+            <Card className="overflow-hidden border border-gray-200 shadow-sm">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 bg-blue-50/80">
+                <User className="w-4 h-4 text-blue-600" />
+                <CardTitle className="text-sm font-semibold text-gray-800">Customer</CardTitle>
+                {isExistingCustomer && (
+                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] px-2 py-0">
+                    Existing
+                  </Badge>
+                )}
               </div>
-              <div className="p-6">
-                <div className="space-y-6">
-                  {/* Customer Details */}
-                  <div className="space-y-4">
-                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                      <User className="w-4 h-4" />
-                      Customer Details
-                    </h3>
-                    
-                    {/* Customer Name Search */}
-                    <div className="relative mb-4" ref={suggestionDropdownRef}>
-                      <Label htmlFor="name" className="text-sm font-medium text-gray-600 mb-2 block">
-                        Customer Name <span className="text-gray-400">(Optional)</span>
+              <div className="p-3 space-y-3">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      id="phone"
+                      value={customerInfo.phone}
+                      onChange={(e) => handlePhoneChange(e.target.value)}
+                      placeholder="Phone number *"
+                      className={`h-10 ${isExistingCustomer ? 'border-emerald-500 bg-emerald-50 focus:border-emerald-500 focus:ring-emerald-200' : 'focus:border-blue-500 focus:ring-blue-200'}`}
+                    />
+                    {isExistingCustomer && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <UserCheck className="h-4 w-4 text-emerald-600" />
+                      </div>
+                    )}
+                  </div>
+                  <Select
+                    value={showExtraOrderOptions ? 'show' : 'hide'}
+                    onValueChange={(value) => setShowExtraOrderOptions(value === 'show')}
+                  >
+                    <SelectTrigger className="h-10 sm:w-44">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hide">More options hidden</SelectItem>
+                      <SelectItem value="show">Show extra options</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                  {showExtraOrderOptions && (
+                    <div className="space-y-3">
+                    <div className="relative" ref={suggestionDropdownRef}>
+                      <Label htmlFor="name" className="text-xs font-medium text-gray-600 mb-1 block">
+                        Customer name (optional)
                       </Label>
                       <div className="relative">
                         <Input
@@ -2626,128 +2676,55 @@ Need help? Call us at +254 757 883 799`;
                           value={customerSearch}
                           onChange={(e) => handleCustomerSearchChange(e.target.value)}
                           placeholder="Start typing customer name..."
-                          className={`h-11 ${isExistingCustomer ? 'border-emerald-500 bg-emerald-50 focus:border-emerald-500 focus:ring-emerald-200' : 'focus:border-blue-500 focus:ring-blue-200'}`}
+                          className={`h-10 ${isExistingCustomer ? 'border-emerald-500 bg-emerald-50 focus:border-emerald-500 focus:ring-emerald-200' : 'focus:border-blue-500 focus:ring-blue-200'}`}
                         />
-                      {searchLoading && (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                          <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                        </div>
-                      )}
-                      {isExistingCustomer && (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                          <UserCheck className="h-4 w-4 text-emerald-600" />
-                        </div>
-                      )}
-                      {customerInfo.name && !isExistingCustomer && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={clearCustomerSearch}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-gray-100"
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
-                  
-                  {/* Customer Suggestions Dropdown */}
-                  {showSuggestions && customerSuggestions.length > 0 && (
-                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                      {customerSuggestions.map((customer) => (
-                        <div
-                          key={customer._id}
-                          onClick={() => selectCustomer(customer)}
-                          className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <div className="font-medium text-gray-900">{customer.name}</div>
-                              <div className="text-sm text-gray-600 flex items-center gap-3">
-                                <span className="flex items-center gap-1">
-                                  <Phone className="w-3 h-3" />
-                                  {customer.phone}
-                                </span>
-                                {customer.email && (
-                                  <span className="flex items-center gap-1">
-                                    <Mail className="w-3 h-3" />
-                                    {customer.email}
-                                  </span>
-                                )}
-                              </div>
-                              {customer.address && (
-                                <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                                  <MapPinIcon className="w-3 h-3" />
-                                  {customer.address}
-                                </div>
-                              )}
-                            </div>
-                            <UserCheck className="w-4 h-4 text-emerald-600" />
+                        {searchLoading && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {/* No results message */}
-                  {showSuggestions && customerSuggestions.length === 0 && !searchLoading && customerSearch.length >= 2 && (
-                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3">
-                      <div className="text-center text-gray-500">
-                        <UserPlus className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                        <div className="text-sm">No existing customers found</div>
-                        <div className="text-xs text-gray-400">Will create new customer</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                    {/* Phone Number */}
-                    <div>
-                      <Label htmlFor="phone" className="text-sm font-medium text-gray-600 mb-2 block">
-                        Phone Number <span className="text-red-500">*</span>
-                      </Label>
-                      <div className="relative">
-                        <Input
-                          id="phone"
-                          value={customerInfo.phone}
-                          onChange={(e) => handlePhoneChange(e.target.value)}
-                          placeholder="Enter phone number"
-                          className={`h-11 ${isExistingCustomer ? 'border-emerald-500 bg-emerald-50 focus:border-emerald-500 focus:ring-emerald-200' : 'focus:border-blue-500 focus:ring-blue-200'}`}
-                        />
+                        )}
                         {isExistingCustomer && (
                           <div className="absolute right-3 top-1/2 -translate-y-1/2">
                             <UserCheck className="h-4 w-4 text-emerald-600" />
                           </div>
                         )}
+                        {customerInfo.name && !isExistingCustomer && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={clearCustomerSearch}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-gray-100"
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        )}
                       </div>
-                      <div className="text-xs text-gray-500 mt-2 flex items-center gap-1">
-                        <Phone className="w-3 h-3" />
-                        Phone numbers are used to identify existing customers
-                      </div>
+                      {showSuggestions && customerSuggestions.length > 0 && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                          {customerSuggestions.map((customer) => (
+                            <div
+                              key={customer._id}
+                              onClick={() => selectCustomer(customer)}
+                              className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  <div className="font-medium text-gray-900">{customer.name}</div>
+                                  <div className="text-sm text-gray-600 flex items-center gap-3">
+                                    <span className="flex items-center gap-1">
+                                      <Phone className="w-3 h-3" />
+                                      {customer.phone}
+                                    </span>
+                                  </div>
+                                </div>
+                                <UserCheck className="w-4 h-4 text-emerald-600" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                  </div>
-
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600 mb-2 block">
-                      More options
-                    </Label>
-                    <Select
-                      value={showExtraOrderOptions ? 'show' : 'hide'}
-                      onValueChange={(value) => setShowExtraOrderOptions(value === 'show')}
-                    >
-                      <SelectTrigger className="h-11 focus:border-blue-500 focus:ring-blue-200">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="hide">Hidden</SelectItem>
-                        <SelectItem value="show">Show extra options</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {showExtraOrderOptions && (
-                    <div className="space-y-4">
                     {/* Station Selection for Superadmin */}
                     {user?.role === 'superadmin' && (
                       <div>
@@ -2867,6 +2844,28 @@ Need help? Call us at +254 757 883 799`;
                         <SelectItem value="partial">💰 Partial Payment</SelectItem>
                       </SelectContent>
                     </Select>
+                    {customerInfo.paymentStatus === 'partial' && (
+                      <div className="mt-3">
+                        <Label htmlFor="partialAmount" className="text-xs font-medium text-yellow-800">Amount paid</Label>
+                        <Input
+                          id="partialAmount"
+                          type="number"
+                          min={0}
+                          max={calculateFinalTotal()}
+                          step={1}
+                          value={customerInfo.partialAmount}
+                          onChange={(e) => {
+                            const value = Math.max(0, Math.min(calculateFinalTotal(), parseInt(e.target.value) || 0));
+                            setCustomerInfo(prev => ({ ...prev, partialAmount: value.toString() }));
+                          }}
+                          placeholder={`Max: Ksh ${calculateFinalTotal().toLocaleString()}`}
+                          className="mt-1 h-10"
+                        />
+                        <div className="text-xs text-yellow-700 mt-1">
+                          Remaining: Ksh {Math.max(0, calculateFinalTotal() - (parseInt(customerInfo.partialAmount) || 0)).toLocaleString()}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* SMS Notifications Section */}
@@ -2906,35 +2905,6 @@ Need help? Call us at +254 757 883 799`;
                   </div>
                     </div>
                   )}
-                </div>
-              </div>
-
-              {/* Full-width sections */}
-              <div className="mt-6 space-y-4">
-                {/* Partial Payment Amount */}
-                {showExtraOrderOptions && customerInfo.paymentStatus === 'partial' && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <Label htmlFor="partialAmount" className="text-sm font-medium text-yellow-800">Amount Paid</Label>
-                    <Input
-                      id="partialAmount"
-                      type="number"
-                      min={0}
-                      max={calculateFinalTotal()}
-                      step={1}
-                      value={customerInfo.partialAmount}
-                      onChange={(e) => {
-                        const value = Math.max(0, Math.min(calculateFinalTotal(), parseInt(e.target.value) || 0));
-                        setCustomerInfo(prev => ({ ...prev, partialAmount: value.toString() }));
-                      }}
-                      placeholder={`Max: Ksh ${calculateFinalTotal().toLocaleString()}`}
-                      className="mt-1"
-                    />
-                    <div className="text-xs text-yellow-700 mt-1">
-                      Remaining: Ksh {Math.max(0, calculateFinalTotal() - (parseInt(customerInfo.partialAmount) || 0)).toLocaleString()}
-                    </div>
-                  </div>
-                )}
-
               </div>
             </Card>
           )}
@@ -3121,54 +3091,42 @@ Need help? Call us at +254 757 883 799`;
                         </AlertDescription>
                       </Alert>
                       <Button
-                        onClick={async () => {
-                          // Cancel payment attempt
+                        onClick={() => {
                           if (paymentPollIntervalRef.current) {
                             clearInterval(paymentPollIntervalRef.current);
                             paymentPollIntervalRef.current = null;
                           }
-                          
+
+                          const wasManual = paymentWaitModeRef.current === 'manual' || paymentWaitMode === 'manual';
                           setCheckingPayment(false);
                           setShowCancelOption(false);
                           setCurrentCheckoutRequestId(null);
 
-                          if (paymentWaitMode === 'manual') {
-                            setPaymentWaitMode(null);
-                            setPaymentStatus('saved');
-                            setPaymentMessage(
-                              manualPayInfo
-                                ? `Order created. Ask the customer to pay Paybill ${manualPayInfo.paybill}, Account ${manualPayInfo.account}, Amount Ksh ${manualPayInfo.amount.toLocaleString()}. Payment will be matched automatically when it comes in.`
-                                : 'Order created. Paybill instructions were sent to the customer. Payment will be matched automatically when they pay.'
-                            );
-                            setPaymentStatusDialogOpen(true);
+                          if (wasManual) {
+                            finishManualPaybillOrder();
                             return;
                           }
 
+                          paymentWaitModeRef.current = null;
                           setPaymentWaitMode(null);
                           setPaymentStatus(null);
                           setPaymentMessage('');
                           setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
 
-                          if (lastCreatedOrderId) {
-                            try {
-                              const deleteResponse = await fetch(`/api/orders/${lastCreatedOrderId}`, {
-                                method: 'DELETE',
-                                headers: {
-                                  'Authorization': `Bearer ${token}`,
-                                  'Content-Type': 'application/json',
-                                },
-                              });
-                              
-                              const deleteData = await deleteResponse.json();
-                              if (deleteData.success) {
-                                console.log('Order deleted successfully after payment cancellation');
-                                setLastCreatedOrderId(null);
-                              } else {
-                                console.error('Failed to delete order:', deleteData.error);
-                              }
-                            } catch (error) {
+                          const orderIdToDelete = lastCreatedOrderIdRef.current || lastCreatedOrderId;
+                          if (orderIdToDelete) {
+                            void fetch(`/api/orders/${orderIdToDelete}`, {
+                              method: 'DELETE',
+                              headers: {
+                                Authorization: `Bearer ${token}`,
+                                'Content-Type': 'application/json',
+                              },
+                            }).then(() => {
+                              setLastCreatedOrderId(null);
+                              lastCreatedOrderIdRef.current = null;
+                            }).catch((error) => {
                               console.error('Error deleting order:', error);
-                            }
+                            });
                           }
                         }}
                         variant="outline"
@@ -3353,11 +3311,16 @@ Need help? Call us at +254 757 883 799`;
                         setCheckingPayment(false);
                         setShowCancelOption(false);
                         setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
+
+                        if (paymentWaitModeRef.current === 'manual' || paymentWaitMode === 'manual') {
+                          finishManualPaybillOrder();
+                          return;
+                        }
                         
-                        // Delete the order if it was created
-                        if (lastCreatedOrderId) {
+                        const orderIdToDelete = lastCreatedOrderIdRef.current || lastCreatedOrderId;
+                        if (orderIdToDelete) {
                           try {
-                            const deleteResponse = await fetch(`/api/orders/${lastCreatedOrderId}`, {
+                            const deleteResponse = await fetch(`/api/orders/${orderIdToDelete}`, {
                               method: 'DELETE',
                               headers: {
                                 'Authorization': `Bearer ${token}`,
@@ -3369,6 +3332,7 @@ Need help? Call us at +254 757 883 799`;
                             if (deleteData.success) {
                               console.log('Order deleted successfully after payment cancellation');
                               setLastCreatedOrderId(null);
+                              lastCreatedOrderIdRef.current = null;
                             } else {
                               console.error('Failed to delete order:', deleteData.error);
                             }
