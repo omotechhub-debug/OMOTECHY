@@ -13,11 +13,31 @@ export async function GET(request: NextRequest) {
     }
 
     const decoded = verifyToken(token);
-    if (!decoded || (decoded.role !== 'admin' && decoded.role !== 'superadmin')) {
+    if (!decoded || !['admin', 'superadmin', 'manager'].includes(decoded.role)) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
     await connectDB();
+
+    const countOnly = new URL(request.url).searchParams.get('countOnly') === 'true';
+    if (countOnly) {
+      const [pendingWithOrder, unmatched] = await Promise.all([
+        MpesaTransaction.countDocuments({
+          confirmationStatus: 'pending',
+          pendingOrderId: { $ne: null },
+        }).maxTimeMS(5000),
+        MpesaTransaction.countDocuments({
+          confirmationStatus: 'pending',
+          pendingOrderId: null,
+          isConnectedToOrder: false,
+        }).maxTimeMS(5000),
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        count: pendingWithOrder + unmatched,
+      });
+    }
 
     // Get pending transactions with potential matches
     const pendingTransactions = await MpesaTransaction.find({

@@ -366,12 +366,63 @@ const orderSchema = new mongoose.Schema<IOrder>({
   timestamps: true,
 });
 
+orderSchema.index({ createdAt: -1 });
+orderSchema.index({ status: 1, createdAt: -1 });
+orderSchema.index({ paymentStatus: 1, status: 1 });
+orderSchema.index({ 'station.stationId': 1, createdAt: -1 });
+orderSchema.index({ 'customer.phone': 1 });
+orderSchema.index({ 'customer.name': 1 });
+
 // Pre-save middleware to ensure remainingBalance is calculated correctly
 orderSchema.pre('save', function(next) {
   if (this.isNew && !this.remainingBalance) {
     this.remainingBalance = this.totalAmount;
   }
+  if (this.paymentStatus === 'paid' && this.status === 'pending') {
+    this.status = 'confirmed';
+  }
   next();
 });
+
+function getUpdatePaymentStatus(update: Record<string, any> | null) {
+  if (!update) return undefined;
+  return update.paymentStatus ?? update.$set?.paymentStatus;
+}
+
+function setUpdateStatus(update: Record<string, any>, status: string) {
+  const hasAtomic =
+    update.$set !== undefined ||
+    update.$push !== undefined ||
+    update.$unset !== undefined ||
+    update.$inc !== undefined ||
+    update.$pull !== undefined;
+
+  if (hasAtomic) {
+    update.$set = { ...(update.$set || {}), status };
+    if ('status' in update) delete update.status;
+    return;
+  }
+  update.status = status;
+}
+
+async function autoConfirmPaidOnUpdate(this: mongoose.Query<any, any>) {
+  const update = this.getUpdate() as Record<string, any> | null;
+  if (!update) return;
+
+  const paymentStatus = getUpdatePaymentStatus(update);
+  if (paymentStatus !== 'paid') return;
+
+  const explicitStatus = update.status ?? update.$set?.status;
+  if (explicitStatus && explicitStatus !== 'pending' && explicitStatus !== 'confirmed') return;
+
+  const current = await this.model.findOne(this.getQuery()).select('status').lean() as { status?: string } | null;
+  if (!current || current.status === 'pending') {
+    setUpdateStatus(update, 'confirmed');
+    this.setUpdate(update);
+  }
+}
+
+orderSchema.pre('findOneAndUpdate', autoConfirmPaidOnUpdate);
+orderSchema.pre('updateOne', autoConfirmPaidOnUpdate);
 
 export default mongoose.models.Order || mongoose.model<IOrder>('Order', orderSchema); 

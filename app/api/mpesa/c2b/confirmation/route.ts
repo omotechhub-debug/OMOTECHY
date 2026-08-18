@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
           total: amount,
           paymentMethod: 'mpesa_c2b',
           paymentStatus: 'paid',
-          status: 'pending', // Admin will need to process this
+          status: 'confirmed',
           c2bPayment: {
             transactionId: transID,
             mpesaReceiptNumber: transID,

@@ -6,6 +6,7 @@ import User from '@/lib/models/User';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
 import MpesaTransaction from '@/lib/models/MpesaTransaction';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+import { upsertCustomerFromPromptedPhone } from '@/lib/upsert-customer';
 
 export async function POST(request: NextRequest) {
   try {
@@ -160,6 +161,18 @@ export async function POST(request: NextRequest) {
           },
         },
       });
+
+      try {
+        await upsertCustomerFromPromptedPhone({
+          phone: normalizedLocal,
+          name: order.customer?.name,
+          email: order.customer?.email,
+          address: order.customer?.address,
+          incrementStats: false,
+        });
+      } catch (customerError) {
+        console.error('Failed to save prompted POS phone:', customerError);
+      }
 
       console.log(`💾 Stored pending payment data for order ${orderId}`);
 

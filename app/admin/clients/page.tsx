@@ -96,9 +96,11 @@ export default function ClientsPage() {
   const csvInputRef = useRef<HTMLInputElement>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const clientsPerPage = 15
+  const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false)
+  const [cleaningInvalidPhones, setCleaningInvalidPhones] = useState(false)
+  const [invalidPhonePreview, setInvalidPhonePreview] = useState<number | null>(null)
 
-  useEffect(() => {
-    async function fetchClients() {
+  async function fetchClients() {
       setLoading(true)
       try {
         // Fetch customers from database
@@ -141,10 +143,8 @@ export default function ClientsPage() {
         // Process orders and update customer data (prefer STK prompt / valid fields — not M-Pesa hash)
         orders.forEach((order: any) => {
           const resolvedPhone = resolvePhoneFromOrderFields(order)
-          const emailLower = (order.customer?.email || '').trim().toLowerCase()
-          if (!resolvedPhone && !emailLower) return
-
-          const key = resolvedPhone || `email:${emailLower}`
+          if (!resolvedPhone) return
+          const key = resolvedPhone
 
           const displayPhone =
             resolvedPhone || formatKenyaPhoneForDisplay(order.customer?.phone)
@@ -219,7 +219,9 @@ export default function ClientsPage() {
       } finally {
         setLoading(false)
       }
-    }
+  }
+
+  useEffect(() => {
     fetchClients()
   }, [])
 
@@ -421,6 +423,62 @@ export default function ClientsPage() {
     .finally(() => {
       setSubmitting(false)
     })
+  }
+
+  async function openCleanupInvalidPhonesDialog() {
+    setError("")
+    setInvalidPhonePreview(null)
+    setCleanupDialogOpen(true)
+    try {
+      const response = await fetch('/api/customers/cleanup-invalid-phones', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ confirm: false }),
+      })
+      const data = await response.json()
+      if (data.success) {
+        setInvalidPhonePreview(data.invalidCount || 0)
+      } else {
+        setError(data.message || data.error || 'Could not count clients without real numbers')
+      }
+    } catch (err) {
+      setError('Could not count clients without real numbers')
+    }
+  }
+
+  async function handleDeleteInvalidPhones() {
+    setCleaningInvalidPhones(true)
+    setError("")
+    try {
+      const response = await fetch('/api/customers/cleanup-invalid-phones', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ confirm: true }),
+      })
+      const data = await response.json()
+      if (!response.ok || !data.success) {
+        setError(data.message || data.error || 'Failed to delete clients without real numbers')
+        return
+      }
+      setCleanupDialogOpen(false)
+      toast({
+        title: 'Clients deleted',
+        description: data.deleted
+          ? `${data.deleted} client${data.deleted === 1 ? '' : 's'} without a real Kenyan number were deleted.`
+          : 'No clients without a real Kenyan number were found.',
+      })
+      await fetchClients()
+    } catch (err) {
+      setError('Failed to delete clients without real numbers. Please try again.')
+    } finally {
+      setCleaningInvalidPhones(false)
+    }
   }
 
   // Messaging functions
@@ -803,6 +861,16 @@ export default function ClientsPage() {
           >
             <RefreshCw className={`mr-2 w-4 h-4 ${repairingPhones ? 'animate-spin' : ''}`} />
             {repairingPhones ? 'Fixing…' : 'Fix order phones'}
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-xl border-red-300 text-red-700 hover:bg-red-50"
+            onClick={openCleanupInvalidPhonesDialog}
+            disabled={cleaningInvalidPhones}
+            title="Delete clients whose phone is not a real Kenyan number (07, 01, +2547, +2541)"
+          >
+            <Trash2 className="mr-2 w-4 h-4" />
+            Delete invalid numbers
           </Button>
           
           {/* Message Clients Dropdown */}
@@ -1393,6 +1461,39 @@ export default function ClientsPage() {
                 <Button type="button" variant="outline" className="w-full rounded-xl" onClick={() => setShowAddDialog(false)} disabled={adding}>Cancel</Button>
               </div>
             </form>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete invalid phone numbers */}
+      <Dialog open={cleanupDialogOpen} onOpenChange={setCleanupDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete clients without real numbers</DialogTitle>
+            <DialogDescription>
+              This permanently removes customers whose phone is not a real Kenyan mobile number.
+              Valid formats are 0712345678, 0112345678, +254712345678, and +254112345678.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-800">
+            {invalidPhonePreview === null
+              ? 'Counting clients without a real number…'
+              : invalidPhonePreview === 0
+                ? 'No clients without a real Kenyan number were found.'
+                : `${invalidPhonePreview} client${invalidPhonePreview === 1 ? '' : 's'} will be deleted. This cannot be undone.`}
+          </div>
+          {error && <div className="text-red-500 text-sm text-center">{error}</div>}
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setCleanupDialogOpen(false)} disabled={cleaningInvalidPhones}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteInvalidPhones}
+              disabled={cleaningInvalidPhones || invalidPhonePreview === null || invalidPhonePreview === 0}
+            >
+              {cleaningInvalidPhones ? 'Deleting...' : 'Delete all without real numbers'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

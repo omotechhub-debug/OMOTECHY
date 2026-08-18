@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AdminPageProtection from '@/components/AdminPageProtection';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -135,13 +135,22 @@ const statusIcons = {
   cancelled: XCircle,
 };
 
+interface OrdersPagination {
+  currentPage: number;
+  totalPages: number;
+  totalOrders: number;
+  limit: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
 function OrdersPageContent() {
   const { isAdmin, logout, isLoading, token, user } = useAuth();
   const { toast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -156,7 +165,16 @@ function OrdersPageContent() {
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [ordersPerPage] = useState(9);
+  const [ordersPerPage] = useState(12);
+  const [pagination, setPagination] = useState<OrdersPagination>({
+    currentPage: 1,
+    totalPages: 1,
+    totalOrders: 0,
+    limit: 12,
+    hasNextPage: false,
+    hasPrevPage: false,
+  });
+  const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   // M-Pesa payment states
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
@@ -176,6 +194,7 @@ function OrdersPageContent() {
   
   // Pending confirmations
   const [pendingConfirmationsCount, setPendingConfirmationsCount] = useState(0);
+  const fetchAbortRef = useRef<AbortController | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -184,68 +203,69 @@ function OrdersPageContent() {
     }
   }, [isAdmin, isLoading, logout]);
 
-  if (!isAdmin) return null;
+  useEffect(() => {
+    const timeoutId = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm]);
 
-  // Fetch orders
-  const fetchOrders = useCallback(async () => {
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, statusFilter, sortBy, sortOrder]);
+
+  const fetchOrders = useCallback(async (page = currentPage) => {
+    if (!token) return;
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
     try {
       setLoading(true);
-      // Fetching orders...
-      
-      const response = await fetch('/api/orders', {
+
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(ordersPerPage),
+        sortBy,
+        sortOrder,
+      });
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+
+      const response = await fetch(`/api/orders?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
         cache: 'no-store',
+        signal: controller.signal,
       });
-      
+
       if (response.ok) {
         const data = await response.json();
-        
-        let ordersToShow = data.orders || [];
-        
-        // Filter orders...
-        
-        // Filter out orders without station or creator information
-        ordersToShow = ordersToShow.filter((order: Order) => {
-          const hasStation = order.station?.stationId && order.station?.name;
-          const hasCreator = order.createdBy?.userId && order.createdBy?.name;
-          return hasStation && hasCreator;
-        });
-
-        // If user is a manager, filter orders by their station
-        // Admins and superadmins can view all orders from different stations
-        if (user?.role === 'manager' && (user?.stationId || (user?.managedStations && user.managedStations.length > 0))) {
-          const userStationId = user.stationId || user.managedStations?.[0];
-          
-          ordersToShow = ordersToShow.filter((order: Order) => {
-            const matches = order.station?.stationId === userStationId || 
-                          order.station?.stationId === userStationId?.toString();
-            return matches;
-          });
-        }
-        // Admins and superadmins can view all orders from all stations (no filtering)
-        
+        const ordersToShow = data.orders || [];
         setOrders(ordersToShow);
-        setFilteredOrders(ordersToShow);
+        setPendingOrdersCount(typeof data.pendingCount === 'number' ? data.pendingCount : 0);
+        if (data.pagination) {
+          setPagination(data.pagination);
+        }
       } else {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         console.error('Failed to fetch orders:', response.status, errorData);
         setOrders([]);
-        setFilteredOrders([]);
+        setPendingOrdersCount(0);
       }
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
       console.error('Error fetching orders:', error);
       setOrders([]);
-      setFilteredOrders([]);
+      setPendingOrdersCount(0);
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
     }
-  }, [token, user]);
+  }, [token, currentPage, ordersPerPage, sortBy, sortOrder, debouncedSearch, statusFilter]);
 
   const fetchPendingConfirmationsCount = useCallback(async () => {
     try {
-      const response = await fetch('/api/admin/payments/pending', {
+      const response = await fetch('/api/admin/payments/pending?countOnly=true', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -253,8 +273,7 @@ function OrdersPageContent() {
 
       if (response.ok) {
         const data = await response.json();
-        const totalPending = (data.pendingTransactions?.length || 0) + (data.unmatchedTransactions?.length || 0);
-        setPendingConfirmationsCount(totalPending);
+        setPendingConfirmationsCount(data.count || 0);
       }
     } catch (error) {
       console.error('Error fetching pending confirmations count:', error);
@@ -262,95 +281,60 @@ function OrdersPageContent() {
   }, [token]);
 
   useEffect(() => {
+    if (token && isAdmin) {
+      fetchOrders(currentPage);
+    }
+  }, [token, isAdmin, currentPage, fetchOrders]);
+
+  useEffect(() => {
     if (token) {
-      fetchOrders();
       fetchPendingConfirmationsCount();
     }
-  }, [token, fetchOrders, fetchPendingConfirmationsCount]);
+  }, [token, fetchPendingConfirmationsCount]);
 
-  // Filter and sort orders
-  useEffect(() => {
-    let filtered = orders;
-
-    // Apply search filter
-    if (searchTerm) {
-      filtered = filtered.filter(order =>
-        order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.customer.phone.includes(searchTerm) ||
-        order.customer.email?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    // Apply status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(order => order.status === statusFilter);
-    }
-
-
-    // Apply sorting
-    filtered.sort((a, b) => {
-      let aValue: any, bValue: any;
-      
-      switch (sortBy) {
-        case 'orderNumber':
-          aValue = a.orderNumber;
-          bValue = b.orderNumber;
-          break;
-        case 'customerName':
-          aValue = a.customer.name;
-          bValue = b.customer.name;
-          break;
-        case 'totalAmount':
-          aValue = a.totalAmount;
-          bValue = b.totalAmount;
-          break;
-        case 'status':
-          aValue = a.status;
-          bValue = b.status;
-          break;
-        default:
-          aValue = new Date(a.createdAt);
-          bValue = new Date(b.createdAt);
-      }
-
-      if (sortOrder === 'asc') {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
-      }
-    });
-
-    setFilteredOrders(filtered);
-    // Reset to first page when filters change
-    setCurrentPage(1);
-  }, [orders, searchTerm, statusFilter, sortBy, sortOrder]);
-
-  // Pagination logic
-  const indexOfLastOrder = currentPage * ordersPerPage;
-  const indexOfFirstOrder = indexOfLastOrder - ordersPerPage;
-  const currentOrders = filteredOrders.slice(indexOfFirstOrder, indexOfLastOrder);
-  const totalPages = Math.ceil(filteredOrders.length / ordersPerPage);
-
-  const pendingOrdersCount = useMemo(
-    () => orders.filter((o) => o.status === 'pending').length,
-    [orders]
-  );
+  const currentOrders = orders;
+  const totalPages = pagination.totalPages;
+  const indexOfFirstOrder = pagination.totalOrders === 0 ? 0 : (pagination.currentPage - 1) * pagination.limit;
+  const indexOfLastOrder = indexOfFirstOrder + currentOrders.length;
 
   const goToPage = (pageNumber: number) => {
     setCurrentPage(pageNumber);
   };
 
   const goToNextPage = () => {
-    if (currentPage < totalPages) {
+    if (pagination.hasNextPage) {
       setCurrentPage(currentPage + 1);
     }
   };
 
   const goToPreviousPage = () => {
-    if (currentPage > 1) {
+    if (pagination.hasPrevPage) {
       setCurrentPage(currentPage - 1);
     }
+  };
+
+  const fetchOrdersForExport = async (extraParams: Record<string, string> = {}) => {
+    const params = new URLSearchParams({
+      page: '1',
+      limit: '5000',
+      sortBy,
+      sortOrder,
+      ...extraParams,
+    });
+    if (!extraParams.search && debouncedSearch) params.set('search', debouncedSearch);
+    if (!extraParams.status && statusFilter !== 'all') params.set('status', statusFilter);
+
+    const response = await fetch(`/api/orders?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      throw new Error('Failed to fetch orders for export');
+    }
+    const data = await response.json();
+    return (data.orders || []) as Order[];
   };
 
   const handleViewOrder = (order: Order) => {
@@ -1005,7 +989,10 @@ function OrdersPageContent() {
       if (response.ok && data.success) {
         // Remove the order from the local state
         setOrders(prevOrders => prevOrders.filter(order => order._id !== orderToDelete._id));
-        setFilteredOrders(prevOrders => prevOrders.filter(order => order._id !== orderToDelete._id));
+        setPagination((prev) => ({
+          ...prev,
+          totalOrders: Math.max(prev.totalOrders - 1, 0),
+        }));
         setDeleteDialogOpen(false);
         setOrderToDelete(null);
         
@@ -1114,26 +1101,24 @@ function OrdersPageContent() {
     }
   };
 
-  const handleExportAll = () => {
-    if (filteredOrders.length === 0) {
-      toast({
-        title: "No Orders to Export",
-        description: "There are no orders to export.",
-        variant: "destructive",
-      });
-      return;
-    }
-
+  const handleExportAll = async () => {
     setExporting(true);
     try {
+      const ordersToExport = await fetchOrdersForExport();
+      if (ordersToExport.length === 0) {
+        toast({
+          title: "No Orders to Export",
+          description: "There are no orders to export.",
+          variant: "destructive",
+        });
+        return;
+      }
       const timestamp = new Date().toISOString().split('T')[0];
       const filename = `orders_export_${timestamp}.csv`;
-      exportToCSV(filteredOrders, filename);
-      
+      exportToCSV(ordersToExport, filename);
       toast({
         title: "Export Successful",
-        description: `${filteredOrders.length} orders exported to ${filename}`,
-        variant: "default",
+        description: `${ordersToExport.length} orders exported to ${filename}`,
       });
     } catch (error) {
       console.error('Export error:', error);
@@ -1162,11 +1147,9 @@ function OrdersPageContent() {
       const timestamp = new Date().toISOString().split('T')[0];
       const filename = `orders_page_${currentPage}_${timestamp}.csv`;
       exportToCSV(currentOrders, filename);
-      
       toast({
         title: "Export Successful",
         description: `${currentOrders.length} orders from page ${currentPage} exported to ${filename}`,
-        variant: "default",
       });
     } catch (error) {
       console.error('Export error:', error);
@@ -1180,55 +1163,36 @@ function OrdersPageContent() {
     }
   };
 
-  // Helper function to filter orders by time period
-  const filterOrdersByTimePeriod = (period: 'today' | 'week' | 'month' | 'all') => {
+  const getPeriodRange = (period: 'today' | 'week' | 'month') => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
-    return filteredOrders.filter(order => {
-      const orderDate = new Date(order.createdAt);
-      
-      switch (period) {
-        case 'today':
-          return orderDate >= today;
-        case 'week':
-          const weekAgo = new Date(today);
-          weekAgo.setDate(today.getDate() - 7);
-          return orderDate >= weekAgo;
-        case 'month':
-          const monthAgo = new Date(today);
-          monthAgo.setMonth(today.getMonth() - 1);
-          return orderDate >= monthAgo;
-        case 'all':
-        default:
-          return true;
+    const from = new Date(today);
+    if (period === 'week') from.setDate(today.getDate() - 7);
+    if (period === 'month') from.setMonth(today.getMonth() - 1);
+    const to = new Date();
+    to.setHours(23, 59, 59, 999);
+    return { from: from.toISOString(), to: to.toISOString() };
+  };
+
+  const exportByPeriod = async (period: 'today' | 'week' | 'month', label: string, filenamePrefix: string) => {
+    setExporting(true);
+    try {
+      const range = getPeriodRange(period);
+      const ordersToExport = await fetchOrdersForExport({ from: range.from, to: range.to });
+      if (ordersToExport.length === 0) {
+        toast({
+          title: "No Orders to Export",
+          description: `There are no orders from ${label} to export.`,
+          variant: "destructive",
+        });
+        return;
       }
-    });
-  };
-
-  // Export functions for different time periods
-  const handleExportToday = () => {
-    const todayOrders = filterOrdersByTimePeriod('today');
-    
-    if (todayOrders.length === 0) {
-      toast({
-        title: "No Orders to Export",
-        description: "There are no orders from today to export.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setExporting(true);
-    try {
       const timestamp = new Date().toISOString().split('T')[0];
-      const filename = `orders_today_${timestamp}.csv`;
-      exportToCSV(todayOrders, filename);
-      
+      const filename = `${filenamePrefix}_${timestamp}.csv`;
+      exportToCSV(ordersToExport, filename);
       toast({
         title: "Export Successful",
-        description: `${todayOrders.length} orders from today exported to ${filename}`,
-        variant: "default",
+        description: `${ordersToExport.length} orders from ${label} exported to ${filename}`,
       });
     } catch (error) {
       console.error('Export error:', error);
@@ -1242,75 +1206,9 @@ function OrdersPageContent() {
     }
   };
 
-  const handleExportThisWeek = () => {
-    const weekOrders = filterOrdersByTimePeriod('week');
-    
-    if (weekOrders.length === 0) {
-      toast({
-        title: "No Orders to Export",
-        description: "There are no orders from this week to export.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setExporting(true);
-    try {
-      const timestamp = new Date().toISOString().split('T')[0];
-      const filename = `orders_this_week_${timestamp}.csv`;
-      exportToCSV(weekOrders, filename);
-      
-      toast({
-        title: "Export Successful",
-        description: `${weekOrders.length} orders from this week exported to ${filename}`,
-        variant: "default",
-      });
-    } catch (error) {
-      console.error('Export error:', error);
-      toast({
-        title: "Export Failed",
-        description: "Failed to export orders. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const handleExportThisMonth = () => {
-    const monthOrders = filterOrdersByTimePeriod('month');
-    
-    if (monthOrders.length === 0) {
-      toast({
-        title: "No Orders to Export",
-        description: "There are no orders from this month to export.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setExporting(true);
-    try {
-      const timestamp = new Date().toISOString().split('T')[0];
-      const filename = `orders_this_month_${timestamp}.csv`;
-      exportToCSV(monthOrders, filename);
-      
-      toast({
-        title: "Export Successful",
-        description: `${monthOrders.length} orders from this month exported to ${filename}`,
-        variant: "default",
-      });
-    } catch (error) {
-      console.error('Export error:', error);
-      toast({
-        title: "Export Failed",
-        description: "Failed to export orders. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setExporting(false);
-    }
-  };
+  const handleExportToday = () => exportByPeriod('today', 'today', 'orders_today');
+  const handleExportThisWeek = () => exportByPeriod('week', 'this week', 'orders_this_week');
+  const handleExportThisMonth = () => exportByPeriod('month', 'this month', 'orders_this_month');
 
 
   const isValidPhone = (phone: string | undefined) => {
@@ -1678,16 +1576,7 @@ function OrdersPageContent() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-          <p>Loading orders...</p>
-        </div>
-      </div>
-    );
-  }
+  if (!isAdmin) return null;
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -1697,10 +1586,10 @@ function OrdersPageContent() {
           <h1 className="text-4xl font-bold text-gray-900 mb-2">Orders</h1>
           <p className="text-gray-600 text-lg">
             Manage and track all customer orders
-            {filteredOrders.length > 0 && (
+            {pagination.totalOrders > 0 && (
               <span className="ml-2 text-sm bg-primary/10 text-primary px-2 py-1 rounded-full">
-                {filteredOrders.length} order{filteredOrders.length !== 1 ? 's' : ''}
-                {filteredOrders.length > ordersPerPage && (
+                {pagination.totalOrders} order{pagination.totalOrders !== 1 ? 's' : ''}
+                {pagination.totalPages > 1 && (
                   <span className="ml-1">
                     (Page {currentPage} of {totalPages})
                   </span>
@@ -1712,7 +1601,7 @@ function OrdersPageContent() {
         <div className="flex flex-wrap gap-3">
           <Button
             variant="outline"
-            onClick={fetchOrders}
+            onClick={() => fetchOrders(currentPage)}
             className="flex items-center gap-2 border-gray-300 hover:bg-gray-50"
           >
             <RefreshCw className="w-4 h-4" />
@@ -1738,7 +1627,7 @@ function OrdersPageContent() {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  disabled={exporting || filteredOrders.length === 0}
+                  disabled={exporting || pagination.totalOrders === 0}
                   className="flex items-center gap-2 border-blue-300 text-blue-600 hover:bg-blue-50"
                 >
                   {exporting ? (
@@ -1752,13 +1641,13 @@ function OrdersPageContent() {
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem 
                   onClick={handleExportAll}
-                  disabled={exporting || filteredOrders.length === 0}
+                  disabled={exporting || pagination.totalOrders === 0}
                   className="flex items-center gap-2"
                 >
                   <Download className="w-4 h-4" />
                   Export All Orders
                   <span className="ml-auto text-xs text-gray-500">
-                    ({filteredOrders.length})
+                    ({pagination.totalOrders})
                   </span>
                 </DropdownMenuItem>
                 
@@ -1778,38 +1667,29 @@ function OrdersPageContent() {
                 
                 <DropdownMenuItem 
                   onClick={handleExportToday}
-                  disabled={exporting || filterOrdersByTimePeriod('today').length === 0}
+                  disabled={exporting}
                   className="flex items-center gap-2"
                 >
                   <CalendarCheck className="w-4 h-4" />
                   Export Today's Orders
-                  <span className="ml-auto text-xs text-gray-500">
-                    ({filterOrdersByTimePeriod('today').length})
-                  </span>
                 </DropdownMenuItem>
                 
                 <DropdownMenuItem 
                   onClick={handleExportThisWeek}
-                  disabled={exporting || filterOrdersByTimePeriod('week').length === 0}
+                  disabled={exporting}
                   className="flex items-center gap-2"
                 >
                   <CalendarRange className="w-4 h-4" />
                   Export This Week's Orders
-                  <span className="ml-auto text-xs text-gray-500">
-                    ({filterOrdersByTimePeriod('week').length})
-                  </span>
                 </DropdownMenuItem>
                 
                 <DropdownMenuItem 
                   onClick={handleExportThisMonth}
-                  disabled={exporting || filterOrdersByTimePeriod('month').length === 0}
+                  disabled={exporting}
                   className="flex items-center gap-2"
                 >
                   <CalendarDays className="w-4 h-4" />
                   Export This Month's Orders
-                  <span className="ml-auto text-xs text-gray-500">
-                    ({filterOrdersByTimePeriod('month').length})
-                  </span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1941,14 +1821,15 @@ function OrdersPageContent() {
       </Card>
 
       {/* Orders Display */}
+      <div className={`relative ${loading ? 'opacity-60 pointer-events-none' : ''}`}>
       {viewMode === 'grid' ? (
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <AnimatePresence>
+          <AnimatePresence initial={false}>
             {currentOrders.map((order) => (
               <motion.div
                 key={order._id}
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.2 }}
@@ -2377,11 +2258,11 @@ function OrdersPageContent() {
       ) : (
         /* List View */
         <div className="space-y-4">
-          <AnimatePresence>
+          <AnimatePresence initial={false}>
             {currentOrders.map((order) => (
               <motion.div
                 key={order._id}
-                initial={{ opacity: 0, x: -20 }}
+                initial={false}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
                 transition={{ duration: 0.2 }}
@@ -2623,13 +2504,14 @@ function OrdersPageContent() {
           </AnimatePresence>
         </div>
       )}
+      </div>
 
       {/* Pagination Controls */}
-      {filteredOrders.length > ordersPerPage && (
+      {pagination.totalPages > 1 && (
         <div className="flex items-center justify-between bg-white rounded-lg shadow-lg p-4 border border-gray-200">
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-600">
-              Showing {indexOfFirstOrder + 1} to {Math.min(indexOfLastOrder, filteredOrders.length)} of {filteredOrders.length} orders
+              Showing {indexOfFirstOrder + 1} to {indexOfLastOrder} of {pagination.totalOrders} orders
             </span>
           </div>
           
@@ -2688,7 +2570,7 @@ function OrdersPageContent() {
       )}
 
       {/* Loading State */}
-      {loading && (
+      {loading && currentOrders.length === 0 && (
         <div className="text-center py-12">
           <Loader2 className="w-16 h-16 text-primary mx-auto mb-4 animate-spin" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">Loading orders...</h3>

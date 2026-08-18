@@ -11,175 +11,175 @@ import { smsService } from '@/lib/sms';
 import Promotion from '@/lib/models/Promotion';
 import { applyLockedInPromotion, updatePromotionStatuses } from '@/lib/promotion-utils';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+import { confirmExistingPaidPendingOrders } from '@/lib/order-auto-confirm';
+import { upsertCustomerFromPromptedPhone } from '@/lib/upsert-customer';
 
-// GET all orders
+const SORT_FIELDS: Record<string, string> = {
+  createdAt: 'createdAt',
+  orderNumber: 'orderNumber',
+  customerName: 'customer.name',
+  totalAmount: 'totalAmount',
+  status: 'status',
+};
+
+const LIST_EXCLUSIONS = '-pendingMpesaPayment -c2bPayment.orgAccountBalance';
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function toIdString(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && value !== null && '_id' in (value as object)) {
+    return String((value as { _id: unknown })._id);
+  }
+  return String(value);
+}
+
+function serializeOrder(order: any) {
+  const createdBy = order.createdBy
+    ? {
+        userId: toIdString(order.createdBy.userId) || order.createdBy.userId,
+        name: order.createdBy.name,
+        role: order.createdBy.role,
+      }
+    : order.createdBy;
+
+  const station = order.station
+    ? {
+        stationId: toIdString(order.station.stationId) || order.station.stationId,
+        name: order.station.name,
+        location: order.station.location,
+      }
+    : order.station;
+
+  return {
+    ...order,
+    _id: toIdString(order._id) || order._id,
+    createdBy,
+    station,
+  };
+}
+
+async function buildOrdersQuery(request: NextRequest) {
+  const searchParams = new URL(request.url).searchParams;
+  const search = (searchParams.get('search') || '').trim();
+  const status = searchParams.get('status') || 'all';
+  const from = searchParams.get('from');
+  const to = searchParams.get('to');
+
+  const query: Record<string, unknown> = {
+    'station.stationId': { $exists: true, $ne: null },
+    'station.name': { $exists: true, $nin: [null, ''] },
+    'createdBy.userId': { $exists: true, $ne: null },
+    'createdBy.name': { $exists: true, $nin: [null, ''] },
+  };
+
+  const token = getTokenFromRequest(request);
+  const decoded = token ? verifyToken(token) : null;
+
+  if (decoded?.role === 'manager') {
+    const userDoc = await User.findById(decoded.userId).select('stationId managedStations').lean();
+    const stationId = userDoc?.stationId ?? userDoc?.managedStations?.[0];
+    if (stationId) {
+      const stationIdStr = String(stationId);
+      query.$or = [
+        { 'station.stationId': stationIdStr },
+        ...(mongoose.Types.ObjectId.isValid(stationIdStr)
+          ? [{ 'station.stationId': new mongoose.Types.ObjectId(stationIdStr) }]
+          : []),
+      ];
+    }
+  }
+
+  const scopeQuery = { ...query };
+
+  if (status && status !== 'all') {
+    query.status = status;
+  }
+
+  if (from || to) {
+    const createdAt: Record<string, Date> = {};
+    if (from) createdAt.$gte = new Date(from);
+    if (to) createdAt.$lte = new Date(to);
+    query.createdAt = createdAt;
+  }
+
+  if (search) {
+    const escaped = escapeRegex(search);
+    query.$and = [
+      {
+        $or: [
+          { orderNumber: { $regex: escaped, $options: 'i' } },
+          { 'customer.name': { $regex: escaped, $options: 'i' } },
+          { 'customer.phone': { $regex: escaped, $options: 'i' } },
+          { 'customer.email': { $regex: escaped, $options: 'i' } },
+        ],
+      },
+    ];
+  }
+
+  const sortBy = SORT_FIELDS[searchParams.get('sortBy') || ''] || 'createdAt';
+  const sortOrder = searchParams.get('sortOrder') === 'asc' ? 1 : -1;
+
+  return { query, scopeQuery, sortBy, sortOrder, searchParams };
+}
+
+// GET orders (paginated when page/limit is provided)
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
-    console.log('Fetching orders...');
-    
-    // First try without populate to see if basic query works
-    const orders = await Order.find({}).sort({ createdAt: -1 });
-    console.log(`Found ${orders.length} orders`);
-    
-    // Log details of each order for debugging
-    orders.forEach((order, index) => {
-      console.log(`Order ${index + 1}:`, {
-        orderNumber: order.orderNumber,
-        hasStation: !!(order.station?.stationId && order.station?.name),
-        hasCreator: !!(order.createdBy?.userId && order.createdBy?.name),
-        station: order.station,
-        createdBy: order.createdBy,
-        createdAt: order.createdAt
+    await confirmExistingPaidPendingOrders();
+
+    const { query, scopeQuery, sortBy, sortOrder, searchParams } = await buildOrdersQuery(request);
+    const paginated = searchParams.has('page') || searchParams.has('limit');
+    const page = Math.max(parseInt(searchParams.get('page') || '1', 10) || 1, 1);
+    const requestedLimit = parseInt(searchParams.get('limit') || (paginated ? '12' : '0'), 10);
+    const limit = paginated ? Math.min(Math.max(requestedLimit || 12, 1), 5000) : 0;
+
+    const findQuery = Order.find(query)
+      .select(LIST_EXCLUSIONS)
+      .sort({ [sortBy]: sortOrder })
+      .lean();
+
+    if (!paginated) {
+      const orders = await findQuery.maxTimeMS(15000);
+      return NextResponse.json({
+        success: true,
+        orders: orders.map(serializeOrder),
       });
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [orders, totalOrders, pendingCount] = await Promise.all([
+      findQuery.skip(skip).limit(limit).maxTimeMS(8000),
+      Order.countDocuments(query).maxTimeMS(8000),
+      Order.countDocuments({ ...scopeQuery, status: 'pending' }).maxTimeMS(8000),
+    ]);
+
+    const totalPages = Math.max(Math.ceil(totalOrders / limit), 1);
+
+    return NextResponse.json({
+      success: true,
+      orders: orders.map(serializeOrder),
+      pendingCount,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalOrders,
+        limit,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
     });
-    
-    // If no orders found, check if there are any orders at all
-    if (orders.length === 0) {
-      console.log('No orders found in database. Checking if Order model is working...');
-      const totalOrders = await Order.countDocuments({});
-      console.log(`Total orders in database: ${totalOrders}`);
-      
-      // Try to find the specific order that was just created
-      const recentOrder = await Order.findOne({}).sort({ createdAt: -1 });
-      if (recentOrder) {
-        console.log('Most recent order found:', {
-          orderNumber: recentOrder.orderNumber,
-          createdAt: recentOrder.createdAt,
-          hasStation: !!(recentOrder.station?.stationId && recentOrder.station?.name),
-          hasCreator: !!(recentOrder.createdBy?.userId && recentOrder.createdBy?.name),
-          station: recentOrder.station,
-          createdBy: recentOrder.createdBy
-        });
-      } else {
-        console.log('No recent order found');
-      }
-      
-      // Check if there are any orders without station/creator info
-      const ordersWithoutStation = await Order.find({ 
-        $or: [
-          { 'station.stationId': { $exists: false } },
-          { 'station.stationId': null },
-          { 'createdBy.userId': { $exists: false } },
-          { 'createdBy.userId': null }
-        ]
-      });
-      console.log(`Orders without station/creator info: ${ordersWithoutStation.length}`);
-      if (ordersWithoutStation.length > 0) {
-        ordersWithoutStation.forEach((order, index) => {
-          console.log(`Order without station/creator ${index + 1}:`, {
-            orderNumber: order.orderNumber,
-            createdAt: order.createdAt,
-            station: order.station,
-            createdBy: order.createdBy
-          });
-        });
-      }
-    }
-    
-    // Try to populate the fields, but don't fail if it doesn't work
-    try {
-      console.log('Attempting to populate orders...');
-      const populatedOrders = await Order.find({})
-        .populate('createdBy.userId', 'name email role')
-        .populate('station.stationId', 'name location')
-        .sort({ createdAt: -1 });
-      console.log(`Successfully populated ${populatedOrders.length} orders`);
-      
-      // Log each populated order
-      populatedOrders.forEach((order, index) => {
-        console.log(`Populated Order ${index + 1}:`, {
-          orderNumber: order.orderNumber,
-          hasStation: !!(order.station?.stationId && order.station?.name),
-          hasCreator: !!(order.createdBy?.userId && order.createdBy?.name),
-          station: order.station,
-          createdBy: order.createdBy,
-          createdAt: order.createdAt
-        });
-      });
-      
-      // Transform populated data to match frontend expectations
-      const transformedOrders = populatedOrders.map(order => {
-        // Transform createdBy structure
-        let createdBy = order.createdBy;
-        if (createdBy && createdBy.userId && typeof createdBy.userId === 'object') {
-          // If userId was populated, extract the data
-          createdBy = {
-            userId: createdBy.userId._id || createdBy.userId,
-            name: createdBy.userId.name || createdBy.name,
-            role: createdBy.userId.role || createdBy.role
-          };
-        }
-        
-        // Transform station structure
-        let station = order.station;
-        if (station && station.stationId && typeof station.stationId === 'object') {
-          // If stationId was populated, extract the data
-          station = {
-            stationId: station.stationId._id || station.stationId,
-            name: station.stationId.name || station.name,
-            location: station.stationId.location || station.location
-          };
-        }
-        
-        return {
-          ...order.toObject(),
-          createdBy,
-          station
-        };
-      });
-      
-      // Filter out orders without complete station and creator information
-      const validOrders = transformedOrders.filter(order => {
-        const hasStation = order.station?.stationId && order.station?.name;
-        const hasCreator = order.createdBy?.userId && order.createdBy?.name;
-        const isValid = hasStation && hasCreator;
-        
-        if (!isValid) {
-          console.log('Filtering out order without station/creator info:', {
-            orderNumber: order.orderNumber,
-            hasStation,
-            hasCreator,
-            station: order.station,
-            createdBy: order.createdBy
-          });
-        }
-        
-        return isValid;
-      });
-      
-      console.log(`Valid orders with station and creator info: ${validOrders.length}`);
-      console.log(`Total orders before filtering: ${populatedOrders.length}`);
-      console.log(`Orders filtered out: ${populatedOrders.length - validOrders.length}`);
-      
-      return NextResponse.json({ success: true, orders: validOrders });
-    } catch (populateError) {
-      console.warn('Populate failed, returning orders without populated fields:', populateError);
-      
-      // Filter out orders without basic station and creator info
-      const validOrders = orders.filter(order => {
-        const hasStation = order.station?.stationId && order.station?.name;
-        const hasCreator = order.createdBy?.userId && order.createdBy?.name;
-        return hasStation && hasCreator;
-      });
-      
-      console.log(`Valid orders (unpopulated): ${validOrders.length}`);
-      
-      // Transform unpopulated data to match frontend expectations
-      const transformedOrders = validOrders.map(order => ({
-        ...order.toObject(),
-        createdBy: order.createdBy,
-        station: order.station
-      }));
-      
-      return NextResponse.json({ success: true, orders: transformedOrders });
-    }
   } catch (error) {
     console.error('Get orders error:', error);
-    return NextResponse.json({ 
-      success: false, 
+    return NextResponse.json({
+      success: false,
       error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 500 });
   }
 }
@@ -488,7 +488,9 @@ export async function POST(request: NextRequest) {
       partialAmount: partialAmount,
       remainingAmount: orderData.remainingAmount || 0,
       remainingBalance: remainingBalance,
-      status: orderData.status || 'pending',
+      status: orderData.paymentStatus === 'paid' && (!orderData.status || orderData.status === 'pending')
+        ? 'confirmed'
+        : (orderData.status || 'pending'),
       orderNumber: generateOrderNumber(),
       promoCode: promoCode || '',
       promoDiscount: promoDiscount || 0,
@@ -538,6 +540,18 @@ export async function POST(request: NextRequest) {
 
     await order.save();
     console.log('✅ Order saved successfully:', order.orderNumber);
+
+    try {
+      await upsertCustomerFromPromptedPhone({
+        phone: order.customer?.phone,
+        name: order.customer?.name,
+        email: order.customer?.email,
+        address: order.customer?.address,
+        orderAmount: order.totalAmount,
+      });
+    } catch (customerError) {
+      console.error('Failed to save POS customer phone:', customerError);
+    }
     
     // Verify the saved order has the correct data
     const savedOrder = await Order.findById(order._id);

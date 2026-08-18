@@ -41,11 +41,7 @@ type ActionId =
   | "repair_invalid_phones"
   | "reconcile_mpesa"
   | "generate_weekly_report"
-  | "daily_summary"
-  | "detect_suspicious_transactions"
-  | "flag_duplicate_orders"
-  | "suggest_inventory_restock"
-  | "detect_inactive_managers";
+  | "daily_summary";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -87,23 +83,11 @@ const actionButtons: Array<{ label: string; actionId?: ActionId }> = [
   { label: "Repair invalid customer phone numbers", actionId: "repair_invalid_phones" },
   { label: "Generate weekly report", actionId: "generate_weekly_report" },
   { label: "Daily summary report", actionId: "daily_summary" },
-  { label: "Detect suspicious transactions", actionId: "detect_suspicious_transactions" },
-  { label: "Flag duplicate orders", actionId: "flag_duplicate_orders" },
-  { label: "Suggest inventory restock", actionId: "suggest_inventory_restock" },
-  { label: "Detect inactive managers", actionId: "detect_inactive_managers" },
+  { label: "Detect suspicious transactions" },
+  { label: "Flag duplicate orders" },
+  { label: "Suggest inventory restock" },
+  { label: "Detect inactive managers" },
 ];
-
-const actionIdByLabel: Record<string, ActionId> = {
-  "accept all pending orders": "accept_pending_orders",
-  "reconcile payments": "reconcile_mpesa",
-  "repair invalid customer phone numbers": "repair_invalid_phones",
-  "generate weekly report": "generate_weekly_report",
-  "daily summary report": "daily_summary",
-  "detect suspicious transactions": "detect_suspicious_transactions",
-  "flag duplicate orders": "flag_duplicate_orders",
-  "suggest inventory restock": "suggest_inventory_restock",
-  "detect inactive managers": "detect_inactive_managers",
-};
 
 function CommandCenterContent() {
   const { token, user } = useAuth();
@@ -480,18 +464,14 @@ function CommandCenterContent() {
   };
 
   const runAction = async (actionId?: ActionId, fallbackLabel?: string) => {
-    const resolvedActionId =
-      actionId ||
-      (fallbackLabel ? actionIdByLabel[fallbackLabel.toLowerCase()] : undefined);
-
-    if (!resolvedActionId) {
+    if (!actionId) {
       setChatMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `Action not recognized: ${fallbackLabel || "unknown action"}.` },
+        { role: "assistant", content: `${fallbackLabel || "This action"} is queued for backend integration.` },
       ]);
       return;
     }
-    await callAssistant({ actionId: resolvedActionId, message: `Run action ${resolvedActionId}` });
+    await callAssistant({ actionId, message: `Run action ${actionId}` });
   };
 
   const downloadPdfInsights = () => {
@@ -583,7 +563,7 @@ function CommandCenterContent() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3">
-        <Card className="min-w-0 xl:col-span-2 border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
+        <Card className="xl:col-span-2 border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Bot className="h-5 w-5 text-primary" />
@@ -604,7 +584,7 @@ function CommandCenterContent() {
                   className={`rounded-lg p-2 text-sm ${message.role === "assistant" ? "bg-primary/10" : "bg-slate-100 dark:bg-slate-800"}`}
                 >
                   <p className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">{message.role}</p>
-                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                  <p>{message.content}</p>
                 </div>
               ))}
               {sending && <p className="text-xs text-muted-foreground">AI is thinking...</p>}
@@ -616,7 +596,7 @@ function CommandCenterContent() {
                 </Button>
               ))}
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex gap-2">
               <Textarea
                 placeholder="Type your command to AI..."
                 value={chatInput}
@@ -624,7 +604,7 @@ function CommandCenterContent() {
                 className="min-h-[90px]"
               />
             </div>
-            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center justify-between">
               <Badge variant="outline" className="rounded-full">Voice-ready layout</Badge>
               <div className="flex gap-2">
                 <Button variant="outline" size="icon" className="rounded-xl">
@@ -639,19 +619,19 @@ function CommandCenterContent() {
           </CardContent>
         </Card>
 
-        <Card className="min-w-0 border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
+        <Card className="border-white/20 bg-white/70 backdrop-blur-xl dark:bg-slate-900/60">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Zap className="h-5 w-5 text-amber-500" />
               Automation Action Center
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+          <CardContent className="space-y-2">
             {actionButtons.map((action) => (
               <Button
                 key={action.label}
                 variant="outline"
-                className="h-11 w-full justify-start rounded-xl text-left text-sm"
+                className="w-full justify-start rounded-xl"
                 disabled={sending}
                 onClick={() => runAction(action.actionId, action.label)}
               >

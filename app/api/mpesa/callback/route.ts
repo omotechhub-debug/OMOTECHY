@@ -188,16 +188,12 @@ export async function POST(request: NextRequest) {
 
       const localFromPrompt = normalizeKenyaPhoneLocal(order.pendingMpesaPayment?.phoneNumber);
       const localFromExistingCustomer = normalizeKenyaPhoneLocal(order.customer?.phone);
-      const localFromCallback =
-        phoneNumber && !isLikelyMpesaPhoneHashOrGarbage(phoneNumber)
-          ? normalizeKenyaPhoneLocal(phoneNumber)
-          : null;
-      const phoneForOrder =
-        localFromPrompt || localFromExistingCustomer || localFromCallback || undefined;
+      // Keep the POS/prompt number on the order. Never copy M-Pesa callback MSISDN/hash onto customer.phone.
+      const promptedCustomerPhone = localFromPrompt || localFromExistingCustomer || undefined;
       const phoneForStorage =
-        phoneForOrder ||
-        localFromCallback ||
-        (!isLikelyMpesaPhoneHashOrGarbage(phoneNumber) ? phoneNumber : 'Unknown');
+        (!isLikelyMpesaPhoneHashOrGarbage(phoneNumber) ? phoneNumber : null) ||
+        promptedCustomerPhone ||
+        'Unknown';
       
       if (isExactAmountMatch) {
         // EXACT AMOUNT MATCH: Auto-process the payment and subtract from balance
@@ -262,7 +258,7 @@ export async function POST(request: NextRequest) {
               'mpesaPayment.resultDescription': resultDesc,
               'mpesaPayment.paymentCompletedAt': new Date(),
               'pendingMpesaPayment.status': 'completed',
-              ...(phoneForOrder ? { 'customer.phone': phoneForOrder } : {}),
+              ...(promptedCustomerPhone ? { 'customer.phone': promptedCustomerPhone } : {}),
             }
           };
 
@@ -309,7 +305,7 @@ export async function POST(request: NextRequest) {
               ...orderForSms,
               customer: {
                 ...orderForSms.customer,
-                phone: phoneForOrder || orderForSms.customer?.phone,
+                phone: promptedCustomerPhone || orderForSms.customer?.phone,
               },
             },
             amountPaid,
@@ -370,7 +366,7 @@ export async function POST(request: NextRequest) {
               'mpesaPayment.resultDescription': resultDesc,
               'mpesaPayment.paymentCompletedAt': new Date(),
               'pendingMpesaPayment.status': 'failed',
-              ...(phoneForOrder ? { 'customer.phone': phoneForOrder } : {}),
+              ...(promptedCustomerPhone ? { 'customer.phone': promptedCustomerPhone } : {}),
             }
           });
 

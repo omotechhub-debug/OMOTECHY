@@ -58,7 +58,7 @@ export function normalizeKenyaPhoneLocal(input: unknown): string | null {
   return null;
 }
 
-/** Prefer STK prompt / order fields; avoid M-Pesa callback hash. */
+/** Prefer the POS / STK prompt number. Never treat M-Pesa callback MSISDN as the customer phone. */
 export function resolvePhoneFromOrderFields(order: {
   customer?: { phone?: unknown };
   pendingMpesaPayment?: { phoneNumber?: unknown } | null;
@@ -69,26 +69,11 @@ export function resolvePhoneFromOrderFields(order: {
 }): string | null {
   const tryNormalize = (v: unknown) => normalizeKenyaPhoneLocal(v);
 
-  const fromPending = tryNormalize(order.pendingMpesaPayment?.phoneNumber);
-  if (fromPending) return fromPending;
-
-  const fromTop = tryNormalize(order.phoneNumber);
-  if (fromTop) return fromTop;
-
   const fromCustomer = tryNormalize(order.customer?.phone);
   if (fromCustomer) return fromCustomer;
 
-  const fromMpesa = tryNormalize(order.mpesaPayment?.phoneNumber);
-  if (fromMpesa) return fromMpesa;
-
-  const partials = order.partialPayments || [];
-  for (let i = partials.length - 1; i >= 0; i--) {
-    const n = tryNormalize(partials[i]?.phoneNumber);
-    if (n) return n;
-  }
-
-  const fromC2b = tryNormalize(order.c2bPayment?.phoneNumber);
-  if (fromC2b) return fromC2b;
+  const fromPending = tryNormalize(order.pendingMpesaPayment?.phoneNumber);
+  if (fromPending) return fromPending;
 
   return null;
 }
