@@ -466,9 +466,12 @@ export async function POST(request: NextRequest) {
     // Calculate remaining balance for partial payments
     const totalAmount = orderData.totalAmount || 0;
     const partialAmount = orderData.partialAmount || 0;
-    const remainingBalance = orderData.paymentStatus === 'partial' 
-      ? Math.max(0, totalAmount - partialAmount)
-      : totalAmount;
+    const remainingBalance = orderData.paymentStatus === 'paid'
+      ? 0
+      : orderData.paymentStatus === 'partial'
+        ? Math.max(0, totalAmount - partialAmount)
+        : totalAmount;
+    const paymentMethod = orderData.paymentMethod || (orderData.paymentStatus === 'paid' ? 'cash' : undefined);
 
     // Create new order
     const order = new Order({
@@ -488,8 +491,10 @@ export async function POST(request: NextRequest) {
       totalAmount: totalAmount,
       paymentStatus: orderData.paymentStatus || 'unpaid',
       partialAmount: partialAmount,
-      remainingAmount: orderData.remainingAmount || 0,
+      remainingAmount: remainingBalance,
       remainingBalance: remainingBalance,
+      amountPaid: paymentMethod === 'cash' && orderData.paymentStatus === 'paid' ? totalAmount : 0,
+      paymentMethod,
       status: orderData.paymentStatus === 'paid' && (!orderData.status || orderData.status === 'pending')
         ? 'confirmed'
         : (orderData.status || 'pending'),
@@ -542,6 +547,12 @@ export async function POST(request: NextRequest) {
 
     await order.save();
 
+    if (order.paymentMethod === 'cash' && order.paymentStatus === 'paid') {
+      void import('@/lib/cash-sale-sms')
+        .then(({ sendCashSaleAdminSms }) => sendCashSaleAdminSms(order.toObject()))
+        .catch((error) => console.error('Cash sale admin SMS failed:', error));
+    }
+
     void upsertCustomerFromPromptedPhone({
       phone: order.customer?.phone,
       name: order.customer?.name,
@@ -556,9 +567,11 @@ export async function POST(request: NextRequest) {
       .then(({ sendPurchaseConfirmationIfNeeded }) => sendPurchaseConfirmationIfNeeded(order._id))
       .catch((smsError) => console.error('Purchase confirmation SMS failed:', smsError));
 
-    void smsService.sendAdminNewOrderNotification(order).catch((adminSmsError) => {
-      console.error('Admin SMS sending failed:', adminSmsError);
-    });
+    if (!(order.paymentMethod === 'cash' && order.paymentStatus === 'paid')) {
+      void smsService.sendAdminNewOrderNotification(order).catch((adminSmsError) => {
+        console.error('Admin SMS sending failed:', adminSmsError);
+      });
+    }
 
     return NextResponse.json({
       success: true,

@@ -39,6 +39,7 @@ import {
   Gift,
   RefreshCw,
   Clock,
+  Banknote,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -215,6 +216,11 @@ function POSPageContent() {
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
   const [lastCreatedOrderId, setLastCreatedOrderId] = useState<string | null>(null);
   const [initiatingPayment, setInitiatingPayment] = useState(false);
+  const [sendingManualPay, setSendingManualPay] = useState(false);
+  const [recordingCash, setRecordingCash] = useState(false);
+  const [paybillNumber, setPaybillNumber] = useState('');
+  const [manualPayInfo, setManualPayInfo] = useState<{ paybill: string; account: string; amount: number } | null>(null);
+  const [paymentWaitMode, setPaymentWaitMode] = useState<'stk' | 'manual' | null>(null);
   const [checkingPayment, setCheckingPayment] = useState(false);
   const [paymentStatusDialogOpen, setPaymentStatusDialogOpen] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'failed' | null>(null);
@@ -406,6 +412,14 @@ function POSPageContent() {
       fetch('/api/mpesa/initiate', {
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => undefined);
+      fetch('/api/mpesa/manual-paybill', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          if (data?.paybill) setPaybillNumber(String(data.paybill));
+        })
+        .catch(() => undefined);
       fetchCategories().catch(err => console.error('Error fetching categories:', err));
       
       setServicesLoading(true);
@@ -884,6 +898,8 @@ function POSPageContent() {
     
     // Clear last created order ID
     setLastCreatedOrderId(null);
+    setManualPayInfo(null);
+    setPaymentWaitMode(null);
     
     // Reset station selection for superadmin when cart is cleared
     if (user?.role === 'superadmin') {
@@ -1101,7 +1117,7 @@ Need help? Call us at +254 757 883 799`;
   };
 
   // Payment polling function - checks database first, then M-Pesa if needed
-  const startPaymentPolling = (checkoutRequestId: string, orderId: string) => {
+  const startPaymentPolling = (checkoutRequestId: string | null, orderId: string, waitMode: 'stk' | 'manual' = checkoutRequestId ? 'stk' : 'manual') => {
     // Clear any existing polling
     if (paymentPollIntervalRef.current) {
       clearInterval(paymentPollIntervalRef.current);
@@ -1256,8 +1272,8 @@ Need help? Call us at +254 757 883 799`;
                 return;
               }
               
-              // If still pending after 2 minutes, show cancel option (only once)
-              if (order.paymentStatus === 'pending' && !showCancelOption && attempts > dbOnlyPeriod) {
+              // If still pending after 2 minutes, show cancel option (STK only)
+              if (waitMode === 'stk' && order.paymentStatus === 'pending' && !showCancelOption && attempts > dbOnlyPeriod) {
                 setShowCancelOption(true);
                 setCheckingPayment(false);
                 setPaymentStatus('failed');
@@ -1275,7 +1291,10 @@ Need help? Call us at +254 757 883 799`;
             }
           }
 
-          // Also check M-Pesa status API (for more detailed status)
+          // Also check M-Pesa status API (for STK only)
+          if (!checkoutRequestId) {
+            return;
+          }
           const response = await fetch(`/api/mpesa/status/${checkoutRequestId}`, {
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -1477,6 +1496,219 @@ Need help? Call us at +254 757 883 799`;
       }
     } catch (error) {
       console.error('Error reducing inventory:', error);
+    }
+  };
+
+  const getPosStationId = () => {
+    if (user?.role === 'superadmin') return selectedStationId;
+    return user?.stationId || user?.managedStations?.[0] || null;
+  };
+
+  const getPosPaymentSplit = () => {
+    const total = calculateFinalTotal();
+    if (customerInfo.paymentStatus === 'partial' && customerInfo.partialAmount) {
+      const partialAmount = parseInt(customerInfo.partialAmount) || 0;
+      if (partialAmount > 0 && partialAmount < total) {
+        return { total, paymentAmount: partialAmount, paymentType: 'partial' as const };
+      }
+    }
+    return { total, paymentAmount: total, paymentType: 'full' as const };
+  };
+
+  const createPosOrder = async (overrides: Record<string, unknown> = {}) => {
+    const { total, paymentAmount, paymentType } = getPosPaymentSplit();
+    const paymentStatus = String(overrides.paymentStatus || customerInfo.paymentStatus || 'unpaid');
+    const isPaid = paymentStatus === 'paid';
+    const isPartial = paymentStatus === 'partial' || paymentType === 'partial';
+
+    const orderData = {
+      customer: {
+        name: customerInfo.name,
+        phone: customerInfo.phone,
+      },
+      services: cart.map((item) => ({
+        serviceId: item.item._id,
+        serviceName: item.item.name,
+        quantity: item.quantity,
+        price: item.price,
+      })),
+      location: selectedLocation,
+      totalAmount: total,
+      paymentStatus,
+      partialAmount: isPaid ? total : (isPartial ? (parseInt(customerInfo.partialAmount) || 0) : 0),
+      remainingAmount: isPaid ? 0 : (isPartial ? Math.max(0, total - (parseInt(customerInfo.partialAmount) || 0)) : total),
+      status: isPaid ? 'confirmed' : 'pending',
+      promoCode: promoCode.trim() || undefined,
+      promotionDetails: lockedPromotion || undefined,
+      stationId: getPosStationId(),
+      ...overrides,
+    };
+
+    const response = await fetch('/api/orders', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(orderData),
+    });
+    const data = await response.json();
+    if (!data.success || !data.order?._id) {
+      throw new Error(data.error || 'Failed to create order');
+    }
+
+    setLastCreatedOrderId(data.order._id);
+    const currentStationId = getPosStationId();
+    if (currentStationId) {
+      void reduceInventory(cart, currentStationId, data.order?.orderNumber);
+    }
+    return data.order;
+  };
+
+  const ensureUnpaidPosOrder = async () => {
+    if (lastCreatedOrderId) return lastCreatedOrderId;
+    if (cart.length === 0) {
+      throw new Error('Add items to the cart first');
+    }
+    const order = await createPosOrder({ paymentStatus: 'unpaid' });
+    return String(order._id);
+  };
+
+  const handleInitiateStkPayment = async () => {
+    if (!customerInfo.phone) {
+      alert('Please enter customer phone number first');
+      return;
+    }
+
+    setInitiatingPayment(true);
+    try {
+      const orderId = await ensureUnpaidPosOrder();
+      const { paymentAmount, paymentType } = getPosPaymentSplit();
+
+      const stkResponse = await fetch('/api/mpesa/initiate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderId,
+          phoneNumber: customerInfo.phone,
+          amount: paymentAmount,
+          paymentType,
+        }),
+      });
+
+      const stkData = await stkResponse.json();
+      if (stkData.success && stkData.checkoutRequestId) {
+        setPaymentWaitMode('stk');
+        setManualPayInfo(null);
+        setCurrentCheckoutRequestId(stkData.checkoutRequestId);
+        setCustomerInfo((prev) => ({ ...prev, paymentStatus: 'pending' }));
+        startPaymentPolling(stkData.checkoutRequestId, orderId);
+      } else {
+        alert(`Payment request failed: ${stkData.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error initiating payment:', error);
+      alert(error instanceof Error ? error.message : 'Failed to initiate payment. Please try again.');
+    } finally {
+      setInitiatingPayment(false);
+    }
+  };
+
+  const handleSendManualPaybill = async () => {
+    if (!customerInfo.phone) {
+      alert('Please enter customer phone number first');
+      return;
+    }
+
+    setSendingManualPay(true);
+    try {
+      const orderId = await ensureUnpaidPosOrder();
+      const response = await fetch('/api/mpesa/manual-paybill', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ orderId }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.error || 'Failed to send Paybill instructions');
+        return;
+      }
+
+      const info = {
+        paybill: String(data.paybill || paybillNumber),
+        account: String(data.account),
+        amount: Number(data.amount) || calculateFinalTotal(),
+      };
+      setManualPayInfo(info);
+      setPaymentWaitMode('manual');
+      setCustomerInfo((prev) => ({ ...prev, paymentStatus: 'pending' }));
+      startPaymentPolling(null, orderId);
+    } catch (error) {
+      console.error('Error sending Paybill SMS:', error);
+      alert(error instanceof Error ? error.message : 'Failed to send Paybill instructions.');
+    } finally {
+      setSendingManualPay(false);
+    }
+  };
+
+  const handleRecordCashSale = async () => {
+    if (!customerInfo.phone) {
+      alert('Please enter customer phone number first');
+      return;
+    }
+    if (cart.length === 0 && !lastCreatedOrderId) {
+      alert('Add items to the cart first');
+      return;
+    }
+
+    setRecordingCash(true);
+    try {
+      const total = calculateFinalTotal();
+      if (lastCreatedOrderId) {
+        const response = await fetch(`/api/orders/${lastCreatedOrderId}`, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            paymentStatus: 'paid',
+            paymentMethod: 'cash',
+            amountPaid: total,
+            remainingBalance: 0,
+            remainingAmount: 0,
+            status: 'confirmed',
+          }),
+        });
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to record cash sale');
+        }
+      } else {
+        await createPosOrder({
+          paymentStatus: 'paid',
+          paymentMethod: 'cash',
+          remainingAmount: 0,
+        });
+      }
+
+      setCustomerInfo((prev) => ({ ...prev, paymentStatus: 'paid' }));
+      setPaymentWaitMode(null);
+      setManualPayInfo(null);
+      setPaymentStatus('success');
+      setPaymentMessage('Cash sale recorded. The admin has been notified by SMS.');
+      setPaymentStatusDialogOpen(true);
+    } catch (error) {
+      console.error('Error recording cash sale:', error);
+      alert(error instanceof Error ? error.message : 'Failed to record cash sale.');
+    } finally {
+      setRecordingCash(false);
     }
   };
 
@@ -2857,7 +3089,9 @@ Need help? Call us at +254 757 883 799`;
                       <Alert className="border-blue-200 bg-blue-50">
                         <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                         <AlertDescription className="text-blue-600">
-                          Waiting for payment confirmation... Please check the customer's phone to complete the M-Pesa payment.
+                          {paymentWaitMode === 'manual'
+                            ? 'Waiting for Paybill payment... Ask the customer to pay using the Paybill and Account number sent to their phone.'
+                            : "Waiting for payment confirmation... Please check the customer's phone to complete the M-Pesa STK payment."}
                         </AlertDescription>
                       </Alert>
                       <Button
@@ -2873,9 +3107,13 @@ Need help? Call us at +254 757 883 799`;
                           setPaymentMessage('');
                           setShowCancelOption(false);
                           setCurrentCheckoutRequestId(null);
+                          setPaymentWaitMode(null);
                           setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
-                          
-                          // Delete the order if it was created
+
+                          if (paymentWaitMode === 'manual') {
+                            return;
+                          }
+
                           if (lastCreatedOrderId) {
                             try {
                               const deleteResponse = await fetch(`/api/orders/${lastCreatedOrderId}`, {
@@ -2902,139 +3140,77 @@ Need help? Call us at +254 757 883 799`;
                         className="w-full border-orange-300 text-orange-700 hover:bg-orange-50 hover:border-orange-400"
                       >
                         <XCircle className="w-4 h-4 mr-2" />
-                        Cancel Payment Check
+                        {paymentWaitMode === 'manual' ? 'Stop Waiting' : 'Cancel Payment Check'}
                       </Button>
                     </div>
                   )}
                   
-                  {/* Initiate Payment Button */}
-                  <Button
-                    onClick={async () => {
-                      if (!customerInfo.phone) {
-                        alert('Please enter customer phone number first');
-                        return;
-                      }
+                  {manualPayInfo && (
+                    <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-center">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Paybill details sent to customer</p>
+                      <p className="mt-2 text-sm text-blue-900">Paybill</p>
+                      <p className="text-2xl font-bold tracking-wide text-blue-950">{manualPayInfo.paybill}</p>
+                      <p className="mt-3 text-sm text-blue-900">Account number</p>
+                      <p className="text-4xl font-black tracking-[0.2em] text-blue-950">{manualPayInfo.account}</p>
+                      <p className="mt-3 text-sm text-blue-900">
+                        Amount: <span className="font-semibold">Ksh {manualPayInfo.amount.toLocaleString()}</span>
+                      </p>
+                    </div>
+                  )}
 
-                      setInitiatingPayment(true);
-                      try {
-                        let orderId = lastCreatedOrderId;
-
-                        if (!orderId && cart.length > 0) {
-                          const orderData = {
-                            customer: {
-                              name: customerInfo.name,
-                              phone: customerInfo.phone,
-                            },
-                            services: cart.map(item => ({
-                              serviceId: item.item._id,
-                              serviceName: item.item.name,
-                              quantity: item.quantity,
-                              price: item.price,
-                            })),
-                            location: selectedLocation,
-                            totalAmount: calculateFinalTotal(),
-                            paymentStatus: customerInfo.paymentStatus || 'unpaid',
-                            partialAmount: customerInfo.paymentStatus === 'partial' ? (parseInt(customerInfo.partialAmount) || 0) : 0,
-                            remainingAmount: customerInfo.paymentStatus === 'partial' ? Math.max(0, calculateFinalTotal() - (parseInt(customerInfo.partialAmount) || 0)) : calculateFinalTotal(),
-                            status: customerInfo.paymentStatus === 'paid' ? 'confirmed' : 'pending',
-                            promoCode: promoCode.trim() || undefined,
-                            promotionDetails: lockedPromotion || undefined,
-                            stationId: user?.role === 'superadmin'
-                              ? selectedStationId
-                              : (user?.stationId || user?.managedStations?.[0] || null),
-                          };
-
-                          const response = await fetch('/api/orders', {
-                            method: 'POST',
-                            headers: {
-                              'Authorization': `Bearer ${token}`,
-                              'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify(orderData),
-                          });
-
-                          const data = await response.json();
-                          if (!data.success || !data.order?._id) {
-                            alert(`Failed to create order: ${data.error || 'Unknown error'}`);
-                            return;
-                          }
-
-                          orderId = data.order._id;
-                          setLastCreatedOrderId(orderId);
-                          const currentStationId = user?.role === 'superadmin'
-                            ? selectedStationId
-                            : (user?.stationId || user?.managedStations?.[0]);
-                          if (currentStationId) {
-                            void reduceInventory(cart, currentStationId, data.order?.orderNumber);
-                          }
-                        }
-
-                        if (!orderId) {
-                          alert('No order found. Please create an order first.');
-                          return;
-                        }
-
-                        let paymentAmount = calculateFinalTotal();
-                        let paymentType = 'full';
-
-                        if (customerInfo.paymentStatus === 'partial' && customerInfo.partialAmount) {
-                          const partialAmount = parseInt(customerInfo.partialAmount) || 0;
-                          if (partialAmount > 0 && partialAmount < calculateFinalTotal()) {
-                            paymentAmount = partialAmount;
-                            paymentType = 'partial';
-                          }
-                        }
-
-                        const stkResponse = await fetch('/api/mpesa/initiate', {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`,
-                          },
-                          body: JSON.stringify({
-                            orderId: orderId,
-                            phoneNumber: customerInfo.phone,
-                            amount: paymentAmount,
-                            paymentType: paymentType,
-                          }),
-                        });
-
-                        const stkData = await stkResponse.json();
-
-                        if (stkData.success && stkData.checkoutRequestId) {
-                          setCurrentCheckoutRequestId(stkData.checkoutRequestId);
-                          setCustomerInfo(prev => ({ ...prev, paymentStatus: 'pending' }));
-                          startPaymentPolling(stkData.checkoutRequestId, orderId);
-                        } else {
-                          alert(`⚠️ Payment request failed: ${stkData.error || 'Unknown error'}`);
-                        }
-                      } catch (error) {
-                        console.error('Error initiating payment:', error);
-                        alert('Failed to initiate payment. Please try again.');
-                      } finally {
-                        setInitiatingPayment(false);
-                      }
-                    }}
-                    disabled={isProcessingOrder || initiatingPayment || checkingPayment || !customerInfo.phone || customerInfo.paymentStatus === 'paid' || cart.length === 0}
-                    className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white h-12 flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {initiatingPayment ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Initiating Payment...
-                      </>
-                    ) : checkingPayment ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Checking Payment Status...
-                      </>
-                    ) : (
-                      <>
-                        <CreditCard className="w-4 h-4" />
-                        Initiate Payment (M-Pesa)
-                      </>
-                    )}
-                  </Button>
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <Button
+                      onClick={handleInitiateStkPayment}
+                      disabled={isProcessingOrder || initiatingPayment || sendingManualPay || recordingCash || checkingPayment || !customerInfo.phone || customerInfo.paymentStatus === 'paid' || cart.length === 0}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white h-12 flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                      {initiatingPayment ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Sending STK...
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard className="w-4 h-4" />
+                          Initiate Payment (M-Pesa)
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={handleSendManualPaybill}
+                      disabled={isProcessingOrder || initiatingPayment || sendingManualPay || recordingCash || checkingPayment || !customerInfo.phone || customerInfo.paymentStatus === 'paid' || cart.length === 0}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white h-12 flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                      {sendingManualPay ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Sending Paybill SMS...
+                        </>
+                      ) : (
+                        <>
+                          <Phone className="w-4 h-4" />
+                          Pay Manually (Paybill SMS)
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={handleRecordCashSale}
+                      disabled={isProcessingOrder || initiatingPayment || sendingManualPay || recordingCash || checkingPayment || !customerInfo.phone || customerInfo.paymentStatus === 'paid' || cart.length === 0}
+                      className="w-full bg-amber-600 hover:bg-amber-700 text-white h-12 flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                      {recordingCash ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Recording cash...
+                        </>
+                      ) : (
+                        <>
+                          <Banknote className="w-4 h-4" />
+                          Pay with Cash
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

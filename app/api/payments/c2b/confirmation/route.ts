@@ -7,6 +7,7 @@ import mongoose from 'mongoose';
 import { normalizeKenyaPhoneLocal, resolvePhoneFromOrderFields } from '@/lib/phone-utils';
 import { upsertCustomerFromPaymentContext } from '@/lib/upsert-customer';
 import { sendPurchaseConfirmationIfNeeded } from '@/lib/purchase-confirmation-sms';
+import { findOrderByPaybillAccount } from '@/lib/paybill-account';
 
 // SMS notification function
 const sendPaymentConfirmationSMS = async (order: any, amountPaid: number, isFullyPaid: boolean, mpesaReceiptNumber: string) => {
@@ -144,20 +145,7 @@ export async function POST(request: NextRequest) {
     // Try to find and update existing order
     if (billRefNumber && billRefNumber !== '') {
       try {
-        // Build query - only use _id if billRefNumber is a valid ObjectId
-        // This prevents CastError when billRefNumber is not a valid MongoDB ObjectId
-        const queryConditions: any[] = [
-          { orderNumber: billRefNumber }
-        ];
-        
-        // Only add _id to query if billRefNumber is a valid MongoDB ObjectId
-        if (mongoose.Types.ObjectId.isValid(billRefNumber)) {
-          queryConditions.push({ _id: billRefNumber });
-        }
-        
-        const order = await Order.findOne({
-          $or: queryConditions
-        });
+        const order = await findOrderByPaybillAccount(billRefNumber);
 
         if (order) {
           linkedOrder = order;

@@ -4,6 +4,7 @@ import Order from '@/lib/models/Order';
 import { C2BConfirmationRequest, C2BConfirmationResponse } from '@/lib/mpesa';
 import { normalizeKenyaPhoneLocal, resolvePhoneFromOrderFields } from '@/lib/phone-utils';
 import { upsertCustomerFromPaymentContext } from '@/lib/upsert-customer';
+import { findOrderByPaybillAccount } from '@/lib/paybill-account';
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,12 +70,7 @@ export async function POST(request: NextRequest) {
     // Try to find and update existing order
     if (billRefNumber && billRefNumber !== '') {
       try {
-        const order = await Order.findOne({
-          $or: [
-            { orderNumber: billRefNumber },
-            { _id: billRefNumber }
-          ]
-        });
+        const order = await findOrderByPaybillAccount(billRefNumber);
 
         if (order) {
           linkedOrder = order;

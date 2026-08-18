@@ -5,7 +5,9 @@ export type SmsTemplateId =
   | 'stock_alert'
   | 'stock_otp'
   | 'deficit_orders'
-  | 'pending_confirmations';
+  | 'pending_confirmations'
+  | 'paybill_instructions'
+  | 'cash_sale_admin';
 
 export type SmsTemplateField = {
   key: string;
@@ -224,6 +226,71 @@ Review: {{review_url}}`,
       count: '10',
       count_label: '10 M-Pesa payments need verification before they are linked to orders.',
       review_url: 'https://www.omotech.co.ke/admin/mpesa-transactions',
+    },
+  },
+  {
+    id: 'paybill_instructions',
+    name: 'Manual Paybill instructions',
+    description: 'Sent to the customer from POS when paying via Paybill instead of STK',
+    recipient: 'Customer',
+    fields: [
+      { key: 'paybill', label: 'Paybill number', example: '123456', required: true },
+      { key: 'account', label: 'Account number', example: '0992', required: true },
+      { key: 'amount', label: 'Amount', example: 'KSh 10', required: true },
+      { key: 'items', label: 'Items / services', example: 'A4 Normal Printing' },
+      { key: 'order_no', label: 'Order number', example: 'A1B2C3' },
+    ],
+    defaultBody: `OMOTECH HUB COMPUTERS
+
+Pay via M-Pesa Paybill
+
+Paybill: {{paybill}}
+Account: {{account}}
+Amount: {{amount}}
+
+Purchase: {{items}}
+
+Enter these details on your phone to complete payment.
+
+Call/WhatsApp: 0740 802 704`,
+    sample: {
+      paybill: '123456',
+      account: '0992',
+      amount: 'KSh 10',
+      items: 'A4 Normal Printing',
+      order_no: 'A1B2C3',
+    },
+  },
+  {
+    id: 'cash_sale_admin',
+    name: 'Cash sale alert',
+    description: 'Sent to the superadmin number immediately when POS records a cash sale',
+    recipient: 'Superadmin',
+    fields: [
+      { key: 'items', label: 'Items / services', example: 'A4 Normal Printing', required: true },
+      { key: 'amount', label: 'Amount', example: 'KSh 10', required: true },
+      { key: 'order_no', label: 'Order number', example: 'A1B2C3', required: true },
+      { key: 'customer', label: 'Customer name', example: 'Jane Mwangi' },
+      { key: 'phone', label: 'Customer phone', example: '0796030992' },
+      { key: 'station', label: 'Station', example: 'Kutus Store' },
+    ],
+    defaultBody: `OMOTECH HUB COMPUTERS
+
+Cash sale
+
+Items: {{items}}
+Amount: {{amount}}
+Order No: #{{order_no}}
+Customer: {{customer}}
+Phone: {{phone}}
+Station: {{station}}`,
+    sample: {
+      items: 'A4 Normal Printing',
+      amount: 'KSh 10',
+      order_no: 'A1B2C3',
+      customer: 'Jane Mwangi',
+      phone: '0796030992',
+      station: 'Kutus Store',
     },
   },
 ];
