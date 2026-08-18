@@ -18,6 +18,9 @@ yarn-error.log*
 
 # env files
 .env*
+*.env
+ENV_CONFIG_FOR_ECONURU.env
+PRODUCTION_ENV_EXAMPLE.txt
 
 # vercel
 .vercel
