@@ -50,9 +50,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "@/hooks/use-toast"
 import {
-  formatKenyaPhoneForDisplay,
   normalizeKenyaPhoneLocal,
-  resolvePhoneFromOrderFields,
 } from "@/lib/phone-utils"
 import { getPaginationPageItems } from "@/lib/pagination"
 
@@ -80,7 +78,11 @@ export default function ClientsPage() {
   const [showMessageDialog, setShowMessageDialog] = useState(false)
   const [messageType, setMessageType] = useState<'all' | 'new' | 'specific'>('all')
   const [messageContent, setMessageContent] = useState('')
-  const [selectedClients, setSelectedClients] = useState<string[]>([])
+  const [selectedClientMap, setSelectedClientMap] = useState<Record<string, any>>({})
+  const selectedClients = Object.keys(selectedClientMap)
+  const [messagePickerSearch, setMessagePickerSearch] = useState('')
+  const [messagePickerResults, setMessagePickerResults] = useState<any[]>([])
+  const [messagePickerSearching, setMessagePickerSearching] = useState(false)
   const [sendingMessage, setSendingMessage] = useState(false)
   const [messageSentCount, setMessageSentCount] = useState(0)
   const [messageFailedCount, setMessageFailedCount] = useState(0)
@@ -99,121 +101,71 @@ export default function ClientsPage() {
   const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false)
   const [cleaningInvalidPhones, setCleaningInvalidPhones] = useState(false)
   const [invalidPhonePreview, setInvalidPhonePreview] = useState<number | null>(null)
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    totalCustomers: 0,
+  })
+  const [stats, setStats] = useState({
+    total: 0,
+    newCount: 0,
+    premiumCount: 0,
+    activeCount: 0,
+  })
 
-  async function fetchClients() {
+  async function fetchClients(page = currentPage, search = debouncedSearch) {
       setLoading(true)
       try {
-        // Fetch customers from database
-        const customersRes = await fetch('/api/customers')
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: String(clientsPerPage),
+        })
+        if (search.trim()) params.set('search', search.trim())
+
+        const customersRes = await fetch(`/api/customers?${params.toString()}`)
         const customersData = await customersRes.json()
         const customers = customersData.customers || []
-        
-        // Fetch orders for additional data
-        const ordersRes = await fetch('/api/orders')
-        const ordersData = await ordersRes.json()
-        const orders = ordersData.orders || []
-        
-        // Create a map of customers from database (key = normalized 07… or db:_id for bad rows)
-        const customerMap = new Map<string, any>()
-        customers.forEach((customer: any) => {
-          const norm = normalizeKenyaPhoneLocal(customer.phone)
-          const emailLower = (customer.email || '').trim().toLowerCase()
-          const mapKey = norm || (emailLower ? `email:${emailLower}` : `db:${customer._id}`)
-          const displayPhone = norm || formatKenyaPhoneForDisplay(customer.phone)
-          customerMap.set(mapKey, {
-            id: customer._id,
-            clientNo: norm ? norm.slice(-6) : String(customer._id).slice(-6),
-            fullName: customer.name,
-            phone: displayPhone,
+
+        const twoWeeksAgo = new Date()
+        twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14)
+
+        const clientArr = customers.map((customer: any) => {
+          const join = new Date(customer.joinDate || customer.createdAt)
+          let status = customer.status || 'active'
+          if ((customer.totalSpent || 0) > 20000) {
+            status = 'vip'
+          } else if (join >= twoWeeksAgo) {
+            status = 'new'
+          } else if ((customer.totalSpent || 0) > 1000) {
+            status = 'premium'
+          }
+          return {
+            ...customer,
+            id: customer.id || customer._id,
+            clientNo: customer.clientNo,
+            fullName: customer.fullName || customer.name,
+            phone: customer.phone || '',
             email: customer.email || '',
             address: customer.address || '',
-            joinDate: customer.createdAt,
-            lastOrder: customer.lastOrder || customer.createdAt,
+            joinDate: customer.joinDate || customer.createdAt,
+            lastOrder: customer.lastOrder,
             totalOrders: customer.totalOrders || 0,
-            totalSpent: customer.totalSpent || 0,
-            status: customer.status || 'active',
-            avatar: '',
-            monthlySpent: {},
-            preferences: customer.preferences || [],
-            notes: customer.notes || '',
+            totalSpent: `Ksh ${Number(customer.totalSpent || 0).toLocaleString()}`,
+            status,
             isFromDatabase: true,
-          })
-        })
-        
-        // Process orders and update customer data (prefer STK prompt / valid fields — not M-Pesa hash)
-        orders.forEach((order: any) => {
-          const resolvedPhone = resolvePhoneFromOrderFields(order)
-          if (!resolvedPhone) return
-          const key = resolvedPhone
-
-          const displayPhone =
-            resolvedPhone || formatKenyaPhoneForDisplay(order.customer?.phone)
-
-          if (customerMap.has(key)) {
-            const customer = customerMap.get(key)
-            customer.totalOrders += 1
-            customer.totalSpent += order.totalAmount || 0
-            if (new Date(order.createdAt) > new Date(customer.lastOrder)) {
-              customer.lastOrder = order.createdAt
-            }
-            if (resolvedPhone && (!customer.phone || customer.phone === "—")) {
-              customer.phone = resolvedPhone
-              customer.clientNo = resolvedPhone.slice(-6)
-            }
-          } else {
-            customerMap.set(key, {
-              id: key,
-              clientNo: resolvedPhone ? resolvedPhone.slice(-6) : String(key).slice(-6),
-              fullName:
-                order.customer?.name || order.customer?.email || displayPhone || "Unknown",
-              phone: displayPhone,
-              email: order.customer?.email || "",
-              address: order.customer?.address || "",
-              joinDate: order.createdAt,
-              lastOrder: order.createdAt,
-              totalOrders: 1,
-              totalSpent: order.totalAmount || 0,
-              status: "active",
-              avatar: "",
-              monthlySpent: {},
-              preferences: [],
-              notes: "",
-              isFromDatabase: false,
-            })
+            notes: customer.notes || '',
+            preferences: customer.preferences || [],
           }
+        })
 
-          const customer = customerMap.get(key)
-          const d = new Date(order.createdAt)
-          const ym = `${d.getFullYear()}-${d.getMonth()}`
-          if (!customer.monthlySpent[ym]) customer.monthlySpent[ym] = 0
-          customer.monthlySpent[ym] += order.totalAmount || 0
-        })
-        
-        // Assign status and format data
-        const now = new Date()
-        const twoWeeksAgo = new Date()
-        twoWeeksAgo.setDate(now.getDate() - 14) // 2 weeks = 14 days
-        const thisMonth = now.getMonth()
-        const thisYear = now.getFullYear()
-        const thisYM = `${thisYear}-${thisMonth}`
-        
-        const clientArr = Array.from(customerMap.values()).map((c: any) => {
-          const join = new Date(c.joinDate)
-          if (c.monthlySpent[thisYM] > 20000) {
-            c.status = 'vip'
-          } else if (join >= twoWeeksAgo) {
-            c.status = 'new'
-          } else if (c.totalSpent > 1000) {
-            c.status = 'premium'
-          } else if (!c.isFromDatabase) {
-            c.status = 'active'
-          }
-          
-          c.totalSpent = `Ksh ${c.totalSpent.toLocaleString()}`
-          return c
-        })
-        
         setClients(clientArr)
+        if (customersData.pagination) {
+          setPagination(customersData.pagination)
+        }
+        if (customersData.stats) {
+          setStats(customersData.stats)
+        }
       } catch (error) {
         console.error('Error fetching clients:', error)
       } finally {
@@ -222,8 +174,52 @@ export default function ClientsPage() {
   }
 
   useEffect(() => {
-    fetchClients()
-  }, [])
+    const timeoutId = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300)
+    return () => clearTimeout(timeoutId)
+  }, [searchTerm])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [debouncedSearch])
+
+  useEffect(() => {
+    fetchClients(currentPage, debouncedSearch)
+  }, [currentPage, debouncedSearch])
+
+  useEffect(() => {
+    if (!showMessageDialog || messageType !== 'specific') return
+    const query = messagePickerSearch.trim()
+    if (query.length < 2) {
+      setMessagePickerResults([])
+      setMessagePickerSearching(false)
+      return
+    }
+    const timeoutId = setTimeout(async () => {
+      setMessagePickerSearching(true)
+      try {
+        const params = new URLSearchParams({
+          search: query,
+          page: '1',
+          limit: '50',
+        })
+        const response = await fetch(`/api/customers?${params.toString()}`)
+        const data = await response.json()
+        setMessagePickerResults((data.customers || []).map((customer: any) => ({
+          ...customer,
+          id: String(customer.id || customer._id),
+          fullName: customer.fullName || customer.name || 'Unknown',
+          phone: customer.phone || '',
+          status: customer.status || 'active',
+        })))
+      } catch (err) {
+        console.error('Error searching clients for messaging:', err)
+        setMessagePickerResults([])
+      } finally {
+        setMessagePickerSearching(false)
+      }
+    }, 300)
+    return () => clearTimeout(timeoutId)
+  }, [messagePickerSearch, showMessageDialog, messageType])
 
   const canMessagePhone = (phone: string | undefined) => !!normalizeKenyaPhoneLocal(phone)
 
@@ -244,52 +240,43 @@ export default function ClientsPage() {
     }
   }
 
-  const filteredClients = clients.filter(
-    (client) =>
-      client.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      client.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (client.phone && client.phone.includes(searchTerm)) ||
-      client.clientNo.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const filteredClients = clients
+  const totalPages = pagination.totalPages
+  const page = pagination.currentPage || currentPage
+  const paginatedClients = clients
+  const indexOfFirst = pagination.totalCustomers === 0 ? 0 : (page - 1) * clientsPerPage
+  const indexOfLast = indexOfFirst + clients.length
 
-  const totalPages = Math.max(1, Math.ceil(filteredClients.length / clientsPerPage))
+  async function exportClientsToCSV() {
+    try {
+      const response = await fetch('/api/customers?page=1&limit=5000')
+      const data = await response.json()
+      const rows = data.customers || []
+      const csvContent = [
+        ['Client No', 'Full Name', 'Phone', 'Email', 'Address', 'Status', 'Total Orders', 'Total Spent', 'Join Date'],
+        ...rows.map((client: any) => [
+          client.clientNo,
+          client.fullName || client.name,
+          client.phone,
+          client.email,
+          client.address,
+          client.status,
+          client.totalOrders,
+          client.totalSpent,
+          new Date(client.joinDate || client.createdAt).toLocaleDateString()
+        ])
+      ].map(row => row.map((field: any) => `"${field}"`).join(',')).join('\n')
 
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [searchTerm])
-
-  useEffect(() => {
-    setCurrentPage((p) => Math.min(p, totalPages))
-  }, [totalPages])
-
-  const page = Math.min(currentPage, totalPages)
-  const indexOfLast = page * clientsPerPage
-  const indexOfFirst = indexOfLast - clientsPerPage
-  const paginatedClients = filteredClients.slice(indexOfFirst, indexOfLast)
-
-  function exportClientsToCSV() {
-    const csvContent = [
-      ['Client No', 'Full Name', 'Phone', 'Email', 'Address', 'Status', 'Total Orders', 'Total Spent', 'Join Date'],
-      ...clients.map(client => [
-        client.clientNo,
-        client.fullName,
-        client.phone,
-        client.email,
-        client.address,
-        client.status,
-        client.totalOrders,
-        client.totalSpent,
-        new Date(client.joinDate).toLocaleDateString()
-      ])
-    ].map(row => row.map(field => `"${field}"`).join(',')).join('\n')
-
-    const blob = new Blob([csvContent], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'clients.csv'
-    a.click()
-    window.URL.revokeObjectURL(url)
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'clients.csv'
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      setError('Failed to export clients')
+    }
   }
 
   async function syncCustomers() {
@@ -482,10 +469,22 @@ export default function ClientsPage() {
   }
 
   // Messaging functions
+  function mapPickerClient(customer: any) {
+    return {
+      ...customer,
+      id: String(customer.id || customer._id),
+      fullName: customer.fullName || customer.name || 'Unknown',
+      phone: customer.phone || '',
+      status: customer.status || 'active',
+    }
+  }
+
   function openMessageDialog(type: 'all' | 'new' | 'specific') {
     setMessageType(type)
     setShowMessageDialog(true)
-    setSelectedClients([])
+    setSelectedClientMap({})
+    setMessagePickerSearch('')
+    setMessagePickerResults([])
     setMessageContent('')
     setError('')
     setMessageSentCount(0)
@@ -493,21 +492,42 @@ export default function ClientsPage() {
     setSendingComplete(false)
   }
 
-  function toggleClientSelection(clientId: string) {
-    setSelectedClients(prev => 
-      prev.includes(clientId) 
-        ? prev.filter(id => id !== clientId)
-        : [...prev, clientId]
-    )
+  function preselectClientForMessage(client: any) {
+    const mapped = mapPickerClient(client)
+    setMessageType('specific')
+    setSelectedClientMap({ [mapped.id]: mapped })
+    setMessagePickerSearch('')
+    setMessagePickerResults([])
+    setShowMessageDialog(true)
+  }
+
+  function toggleClientSelection(client: any) {
+    const mapped = mapPickerClient(client)
+    setSelectedClientMap(prev => {
+      if (prev[mapped.id]) {
+        const next = { ...prev }
+        delete next[mapped.id]
+        return next
+      }
+      return { ...prev, [mapped.id]: mapped }
+    })
   }
 
   function selectAllClients() {
-    const allClientIds = filteredClients.map(client => client.id)
-    setSelectedClients(allClientIds)
+    const source = messagePickerResults.length > 0 ? messagePickerResults : filteredClients
+    setSelectedClientMap(prev => {
+      const next = { ...prev }
+      for (const client of source) {
+        if (canMessagePhone(client.phone)) {
+          next[client.id] = mapPickerClient(client)
+        }
+      }
+      return next
+    })
   }
 
   function deselectAllClients() {
-    setSelectedClients([])
+    setSelectedClientMap({})
   }
 
   async function sendMessage() {
@@ -523,16 +543,27 @@ export default function ClientsPage() {
 
     let targetClients = []
 
-    switch (messageType) {
-      case 'all':
-        targetClients = clients.filter(client => canMessagePhone(client.phone))
-        break
-      case 'new':
-        targetClients = clients.filter(client => client.status === 'new' && canMessagePhone(client.phone))
-        break
-      case 'specific':
-        targetClients = clients.filter(client => selectedClients.includes(client.id) && canMessagePhone(client.phone))
-        break
+    if (messageType === 'all' || messageType === 'new') {
+      const response = await fetch('/api/customers?page=1&limit=5000')
+      const data = await response.json()
+      const rows = (data.customers || []).map((customer: any) => ({
+        ...customer,
+        fullName: customer.fullName || customer.name,
+        phone: customer.phone,
+        status: customer.status,
+      }))
+      targetClients = messageType === 'new'
+        ? rows.filter((client: any) => {
+            const join = new Date(client.joinDate || client.createdAt)
+            const twoWeeksAgo = new Date()
+            twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14)
+            return join >= twoWeeksAgo && canMessagePhone(client.phone)
+          })
+        : rows.filter((client: any) => canMessagePhone(client.phone))
+    } else {
+      targetClients = Object.values(selectedClientMap).filter(
+        (client: any) => canMessagePhone(client.phone)
+      )
     }
 
     if (targetClients.length === 0) {
@@ -609,10 +640,10 @@ export default function ClientsPage() {
   function getMessageTargetInfo() {
     switch (messageType) {
       case 'all':
-        const allWithPhone = clients.filter(client => canMessagePhone(client.phone)).length
+        const allWithPhone = stats.total
         return `All clients with phone numbers (${allWithPhone})`
       case 'new':
-        const newWithPhone = clients.filter(client => client.status === 'new' && canMessagePhone(client.phone)).length
+        const newWithPhone = stats.newCount
         return `New clients (last 2 weeks) (${newWithPhone})`
       case 'specific':
         return `Selected clients (${selectedClients.length})`
@@ -888,7 +919,7 @@ export default function ClientsPage() {
                 <div className="flex flex-col">
                   <span>All Clients</span>
                   <span className="text-xs text-gray-500">
-                    {clients.filter(client => canMessagePhone(client.phone)).length} with phone numbers
+                    {stats.total} in database
                   </span>
                 </div>
               </DropdownMenuItem>
@@ -897,7 +928,7 @@ export default function ClientsPage() {
                 <div className="flex flex-col">
                   <span>New Clients</span>
                   <span className="text-xs text-gray-500">
-                    {clients.filter(client => client.status === 'new' && canMessagePhone(client.phone)).length} joined in last 2 weeks
+                    {stats.newCount} joined in last 2 weeks
                   </span>
                 </div>
               </DropdownMenuItem>
@@ -923,7 +954,7 @@ export default function ClientsPage() {
         <Card className="luxury-card">
           <CardContent className="p-6">
             <div className="text-center">
-              <p className="text-2xl font-bold">{clients.length}</p>
+              <p className="text-2xl font-bold">{stats.total}</p>
               <p className="text-sm text-text-light">Total Clients</p>
             </div>
           </CardContent>
@@ -931,7 +962,7 @@ export default function ClientsPage() {
         <Card className="luxury-card">
           <CardContent className="p-6">
             <div className="text-center">
-              <p className="text-2xl font-bold">{clients.filter((c) => c.status === "active").length}</p>
+              <p className="text-2xl font-bold">{stats.activeCount}</p>
               <p className="text-sm text-text-light">Active Clients</p>
             </div>
           </CardContent>
@@ -939,7 +970,7 @@ export default function ClientsPage() {
         <Card className="luxury-card">
           <CardContent className="p-6">
             <div className="text-center">
-              <p className="text-2xl font-bold">{clients.filter((c) => c.status === "premium").length}</p>
+              <p className="text-2xl font-bold">{stats.premiumCount}</p>
               <p className="text-sm text-text-light">Premium Clients</p>
             </div>
           </CardContent>
@@ -947,7 +978,7 @@ export default function ClientsPage() {
         <Card className="luxury-card">
           <CardContent className="p-6">
             <div className="text-center">
-              <p className="text-2xl font-bold">{clients.filter((c) => c.status === "new").length}</p>
+              <p className="text-2xl font-bold">{stats.newCount}</p>
               <p className="text-sm text-text-light">New in 2 Weeks</p>
             </div>
           </CardContent>
@@ -980,13 +1011,12 @@ export default function ClientsPage() {
       {/* Clients Table */}
       <Card className="luxury-card">
         <CardHeader>
-          <CardTitle>Clients ({filteredClients.length})</CardTitle>
+          <CardTitle>Clients ({pagination.totalCustomers})</CardTitle>
           <CardDescription>
             Manage your customer database
-            {filteredClients.length > clientsPerPage && (
+            {pagination.totalCustomers > clientsPerPage && (
               <span className="block mt-1 text-xs text-muted-foreground">
-                Showing {indexOfFirst + 1}–{Math.min(indexOfLast, filteredClients.length)} of{" "}
-                {filteredClients.length}
+                Showing {indexOfFirst + 1}–{indexOfLast} of {pagination.totalCustomers}
               </span>
             )}
           </CardDescription>
@@ -1019,9 +1049,7 @@ export default function ClientsPage() {
                       </DropdownMenuItem>
                       <DropdownMenuItem 
                         onClick={() => {
-                          setMessageType('specific')
-                          setSelectedClients([client.id])
-                          setShowMessageDialog(true)
+                          preselectClientForMessage(client)
                         }}
                         disabled={!canMessagePhone(client.phone)}
                       >
@@ -1115,7 +1143,7 @@ export default function ClientsPage() {
                       <TableCell>
                         <Checkbox
                           checked={selectedClients.includes(client.id)}
-                          onCheckedChange={() => toggleClientSelection(client.id)}
+                          onCheckedChange={() => toggleClientSelection(client)}
                           disabled={!canMessagePhone(client.phone)}
                         />
                       </TableCell>
@@ -1247,7 +1275,11 @@ export default function ClientsPage() {
                                         </div>
                                         <div className="flex justify-between">
                                           <span>Last Order:</span>
-                                          <span className="font-medium">{selectedClient.lastOrder}</span>
+                                          <span className="font-medium">
+                                            {selectedClient.lastOrder
+                                              ? new Date(selectedClient.lastOrder).toLocaleDateString()
+                                              : '—'}
+                                          </span>
                                         </div>
                                         <div className="flex justify-between">
                                           <span>Join Date:</span>
@@ -1271,11 +1303,7 @@ export default function ClientsPage() {
                                   </Button>
                                   <Button 
                                     className="bg-accent hover:bg-accent/90 text-white rounded-xl"
-                                    onClick={() => {
-                                      setMessageType('specific')
-                                      setSelectedClients([selectedClient.id])
-                                      setShowMessageDialog(true)
-                                    }}
+                                    onClick={() => preselectClientForMessage(selectedClient)}
                                     disabled={!canMessagePhone(selectedClient?.phone)}
                                   >
                                     <MessageSquare className="mr-2 w-4 h-4" />
@@ -1302,11 +1330,7 @@ export default function ClientsPage() {
                               Call Client
                             </DropdownMenuItem>
                             <DropdownMenuItem 
-                              onClick={() => {
-                                setMessageType('specific')
-                                setSelectedClients([client.id])
-                                setShowMessageDialog(true)
-                              }}
+                              onClick={() => preselectClientForMessage(client)}
                               disabled={!canMessagePhone(client.phone)}
                             >
                               <MessageSquare className="mr-2 w-4 h-4" />
@@ -1326,7 +1350,7 @@ export default function ClientsPage() {
             </Table>
           </div>
 
-          {filteredClients.length > clientsPerPage && (
+          {pagination.totalPages > 1 && (
             <div className="flex justify-center mt-8">
               <div className="flex flex-wrap items-center justify-center gap-2 max-w-full">
                 <Button
@@ -1584,6 +1608,8 @@ export default function ClientsPage() {
             setMessageSentCount(0)
             setMessageFailedCount(0)
             setError('')
+            setMessagePickerSearch('')
+            setMessagePickerResults([])
           }
           setShowMessageDialog(open)
         }}
@@ -1639,19 +1665,49 @@ export default function ClientsPage() {
                 <div className="flex items-center justify-between">
                   <Label>Select Clients ({selectedClients.length} selected)</Label>
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={selectAllClients}>
+                    <Button variant="outline" size="sm" onClick={selectAllClients} disabled={messagePickerResults.length === 0}>
                       <Check className="w-4 h-4 mr-1" />
-                      Select All
+                      Select results
                     </Button>
-                    <Button variant="outline" size="sm" onClick={deselectAllClients}>
+                    <Button variant="outline" size="sm" onClick={deselectAllClients} disabled={selectedClients.length === 0}>
                       <X className="w-4 h-4 mr-1" />
                       Clear All
                     </Button>
                   </div>
                 </div>
+
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Input
+                    value={messagePickerSearch}
+                    onChange={(e) => setMessagePickerSearch(e.target.value)}
+                    placeholder="Search phone number or name..."
+                    className="pl-9"
+                    autoComplete="off"
+                  />
+                </div>
                 
-                <div className="max-h-40 overflow-y-auto border rounded-lg p-2">
-                  {filteredClients.map((client) => (
+                <div className="max-h-56 overflow-y-auto border rounded-lg p-2">
+                  {messagePickerSearching && (
+                    <div className="flex items-center gap-2 p-3 text-sm text-gray-500">
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Searching...
+                    </div>
+                  )}
+                  {!messagePickerSearching && messagePickerSearch.trim().length < 2 && selectedClients.length === 0 && (
+                    <div className="p-3 text-sm text-gray-500 text-center">
+                      Type a phone number or name to find clients. Selected people stay here as you search.
+                    </div>
+                  )}
+                  {!messagePickerSearching && messagePickerSearch.trim().length >= 2 && messagePickerResults.length === 0 && (
+                    <div className="p-3 text-sm text-gray-500 text-center">
+                      No clients match “{messagePickerSearch.trim()}”.
+                    </div>
+                  )}
+                  {[
+                    ...Object.values(selectedClientMap),
+                    ...messagePickerResults.filter((client) => !selectedClientMap[client.id]),
+                  ].map((client: any) => (
                     <div
                       key={client.id}
                       className={`flex items-center gap-3 p-2 rounded hover:bg-gray-50 ${
@@ -1659,17 +1715,17 @@ export default function ClientsPage() {
                       }`}
                     >
                       <Checkbox
-                        checked={selectedClients.includes(client.id)}
-                        onCheckedChange={() => toggleClientSelection(client.id)}
+                        checked={!!selectedClientMap[client.id]}
+                        onCheckedChange={() => toggleClientSelection(client)}
                         disabled={!canMessagePhone(client.phone)}
                       />
                       <Avatar className="w-8 h-8">
                         <AvatarFallback className="text-xs">
-                          {client.fullName.split(" ").map((n) => n[0]).join("")}
+                          {(client.fullName || '?').split(" ").map((n: string) => n[0]).join("")}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="flex-1">
-                        <div className="font-medium text-sm">{client.fullName}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">{client.fullName}</div>
                         <div className="text-xs text-gray-500">{client.phone || 'No phone'}</div>
                       </div>
                       <Badge className={`${getStatusColor(client.status)} text-xs`}>

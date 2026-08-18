@@ -58,6 +58,24 @@ export function normalizeKenyaPhoneLocal(input: unknown): string | null {
   return null;
 }
 
+/** All common stored forms of a Kenyan mobile, for duplicate lookups. */
+export function kenyaPhoneLookupValues(input: unknown): string[] {
+  const values = new Set<string>();
+  if (typeof input === 'string') {
+    const raw = input.replace(/\s+/g, '').trim();
+    if (raw) values.add(raw);
+  }
+  const local = normalizeKenyaPhoneLocal(input);
+  if (local) {
+    const rest = local.slice(1);
+    values.add(local);
+    values.add(rest);
+    values.add(`254${rest}`);
+    values.add(`+254${rest}`);
+  }
+  return Array.from(values);
+}
+
 /** Prefer the POS / STK prompt number. Never treat M-Pesa callback MSISDN as the customer phone. */
 export function resolvePhoneFromOrderFields(order: {
   customer?: { phone?: unknown };

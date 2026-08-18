@@ -86,5 +86,7 @@ const customerSchema = new mongoose.Schema<ICustomer>({
 
 // Index for efficient queries
 customerSchema.index({ status: 1 });
+customerSchema.index({ createdAt: -1 });
+customerSchema.index({ totalSpent: -1 });
 
 export default mongoose.models.Customer || mongoose.model<ICustomer>('Customer', customerSchema); 

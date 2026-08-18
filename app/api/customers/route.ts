@@ -2,56 +2,122 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import Customer from '@/lib/models/Customer';
 import { requireAdmin } from '@/lib/auth';
-import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+import { kenyaPhoneLookupValues, normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+
+function mapCustomer(customer: any) {
+  const phone = normalizeKenyaPhoneLocal(customer.phone) || customer.phone || '';
+  return {
+    ...customer,
+    _id: customer._id,
+    id: String(customer._id),
+    clientNo: phone ? String(phone).slice(-6) : String(customer._id).slice(-6),
+    fullName: customer.name,
+    phone,
+    email: customer.email || '',
+    address: customer.address || '',
+    joinDate: customer.createdAt,
+    lastOrder: customer.lastOrder || customer.createdAt,
+    totalOrders: customer.totalOrders || 0,
+    totalSpent: customer.totalSpent || 0,
+    status: customer.status || 'active',
+    isFromDatabase: true,
+  };
+}
 
 export async function GET(request: NextRequest) {
   try {
     await dbConnect();
-    
-    // Safely parse URL parameters
+
     let searchParams;
     try {
       if (!request.url) {
-        console.error('Request URL is undefined in customers route');
         return NextResponse.json(
           { success: false, error: 'Request URL is undefined' },
           { status: 400 }
         );
       }
-      const url = new URL(request.url);
-      searchParams = url.searchParams;
+      searchParams = new URL(request.url).searchParams;
     } catch (error) {
       console.error('Error parsing URL in customers route:', error);
-      console.error('Request URL:', request.url);
       return NextResponse.json(
         { success: false, error: 'Invalid URL' },
         { status: 400 }
       );
     }
-    
-    const search = searchParams.get('search');
-    const phone = searchParams.get('phone');
-    
-    let query = {};
-    
-    if (search) {
-      // Search by name or phone number
-      query = {
-        $or: [
-          { name: { $regex: search, $options: 'i' } },
-          { phone: { $regex: search, $options: 'i' } }
-        ]
-      };
-    } else if (phone) {
-      // Search by exact phone number
-      query = { phone: phone };
+
+    const search = (searchParams.get('search') || '').trim();
+    const phone = (searchParams.get('phone') || '').trim();
+    const pageParam = searchParams.get('page');
+    const limitParam = searchParams.get('limit');
+
+    if (phone) {
+      const variants = kenyaPhoneLookupValues(phone);
+      const customers = await Customer.find(
+        variants.length ? { phone: { $in: variants } } : { phone }
+      )
+        .limit(5)
+        .lean()
+        .maxTimeMS(5000);
+      return NextResponse.json({ success: true, customers: customers.map(mapCustomer) });
     }
-    
-    const customers = await Customer.find(query)
-      .sort({ createdAt: -1 })
-      .limit(search ? 20 : 0); // Limit search results, but not regular fetch
-      
-    return NextResponse.json({ success: true, customers });
+
+    const query: Record<string, unknown> = {};
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const or: object[] = [
+        { name: { $regex: escaped, $options: 'i' } },
+        { phone: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+      ];
+      const variants = kenyaPhoneLookupValues(search);
+      if (variants.length) or.push({ phone: { $in: variants } });
+      query.$or = or;
+    }
+
+    if (search && !pageParam && !limitParam) {
+      const customers = await Customer.find(query)
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean()
+        .maxTimeMS(5000);
+      return NextResponse.json({ success: true, customers: customers.map(mapCustomer) });
+    }
+
+    const page = Math.max(parseInt(pageParam || '1', 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(limitParam || '15', 10) || 15, 1), 5000);
+    const skip = (page - 1) * limit;
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+
+    const [customers, filteredTotal, statsTotal, statsNew, statsPremium, statsActive] = await Promise.all([
+      Customer.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean().maxTimeMS(8000),
+      Customer.countDocuments(query).maxTimeMS(8000),
+      Customer.countDocuments({}).maxTimeMS(8000),
+      Customer.countDocuments({ createdAt: { $gte: twoWeeksAgo } }).maxTimeMS(8000),
+      Customer.countDocuments({ totalSpent: { $gt: 1000 } }).maxTimeMS(8000),
+      Customer.countDocuments({ status: { $in: ['active', 'vip', 'premium'] } }).maxTimeMS(8000),
+    ]);
+
+    const totalPages = Math.max(Math.ceil(filteredTotal / limit), 1);
+
+    return NextResponse.json({
+      success: true,
+      customers: customers.map(mapCustomer),
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalCustomers: filteredTotal,
+        limit,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+      stats: {
+        total: statsTotal,
+        newCount: statsNew,
+        premiumCount: statsPremium,
+        activeCount: statsActive,
+      },
+    });
   } catch (error) {
     console.error('Error fetching customers:', error);
     return NextResponse.json(
@@ -77,7 +143,7 @@ export const POST = requireAdmin(async (req: NextRequest) => {
     // Check for existing customer with same phone or email
     const existingCustomer = await Customer.findOne({
       $or: [
-        { phone: normalizedPhone },
+        { phone: { $in: kenyaPhoneLookupValues(normalizedPhone) } },
         ...(body.email ? [{ email: body.email }] : [])
       ]
     });
