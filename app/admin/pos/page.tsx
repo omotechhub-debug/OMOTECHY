@@ -247,6 +247,8 @@ function POSPageContent() {
   const [promoError, setPromoError] = useState("");
   const [lockedPromotion, setLockedPromotion] = useState<any>(null); // Store locked-in promotion details
 
+  const [showExtraOrderOptions, setShowExtraOrderOptions] = useState(false);
+
   // Station Selection for Superadmin
   const [stations, setStations] = useState<Array<{ _id: string; name: string; location: string }>>([]);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
@@ -900,6 +902,7 @@ function POSPageContent() {
     setLastCreatedOrderId(null);
     setManualPayInfo(null);
     setPaymentWaitMode(null);
+    setShowExtraOrderOptions(false);
     
     // Reset station selection for superadmin when cart is cleared
     if (user?.role === 'superadmin') {
@@ -2007,6 +2010,7 @@ Need help? Call us at +254 757 883 799`;
           console.log('Setting editing order ID:', editOrderId);
           setEditingOrderId(editOrderId);
           setIsEditing(true);
+          setShowExtraOrderOptions(true);
         }
       } catch (error) {
         console.error('Error parsing URL parameters:', error);
@@ -2721,7 +2725,29 @@ Need help? Call us at +254 757 883 799`;
                         Phone numbers are used to identify existing customers
                       </div>
                     </div>
+                  </div>
+                  </div>
 
+                  <div>
+                    <Label className="text-sm font-medium text-gray-600 mb-2 block">
+                      More options
+                    </Label>
+                    <Select
+                      value={showExtraOrderOptions ? 'show' : 'hide'}
+                      onValueChange={(value) => setShowExtraOrderOptions(value === 'show')}
+                    >
+                      <SelectTrigger className="h-11 focus:border-blue-500 focus:ring-blue-200">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="hide">Hidden</SelectItem>
+                        <SelectItem value="show">Show extra options</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {showExtraOrderOptions && (
+                    <div className="space-y-4">
                     {/* Station Selection for Superadmin */}
                     {user?.role === 'superadmin' && (
                       <div>
@@ -2764,8 +2790,6 @@ Need help? Call us at +254 757 883 799`;
                         </div>
                       </div>
                     )}
-                  </div>
-                  </div>
 
                   {/* Promo Code Section */}
                   <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg p-4 border border-purple-200">
@@ -2880,13 +2904,15 @@ Need help? Call us at +254 757 883 799`;
                       )}
                     </div>
                   </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Full-width sections */}
               <div className="mt-6 space-y-4">
                 {/* Partial Payment Amount */}
-                {customerInfo.paymentStatus === 'partial' && (
+                {showExtraOrderOptions && customerInfo.paymentStatus === 'partial' && (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                     <Label htmlFor="partialAmount" className="text-sm font-medium text-yellow-800">Amount Paid</Label>
                     <Input
