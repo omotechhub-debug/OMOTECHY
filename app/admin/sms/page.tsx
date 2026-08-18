@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Send, CheckCircle, XCircle, MessageSquare, Settings, Bell, Save, Eye, EyeOff, Phone } from 'lucide-react';
-import ProtectedRoute from '@/components/ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
 import SMSTest from '@/components/SMSTest';
 
@@ -250,7 +249,6 @@ export default function SMSAdminPage() {
   };
 
   return (
-    <ProtectedRoute requireAdmin={true}>
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
         <div className="max-w-6xl mx-auto">
           <div className="mb-8">
@@ -581,6 +579,5 @@ We appreciate your business.`}
           </div>
         </div>
       </div>
-    </ProtectedRoute>
   );
 }
