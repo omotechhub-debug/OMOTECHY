@@ -2,6 +2,8 @@ import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
 import { smsService } from '@/lib/sms';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+import { applySmsTemplate, DEFAULT_SMS_TEMPLATES } from '@/lib/sms-template-defs';
+import { renderSmsTemplate } from '@/lib/sms-templates';
 
 export function formatPurchaseItems(services: Array<{ serviceName?: string; name?: string; quantity?: number }> | undefined) {
   const parts = (services || []).map((service) => {
@@ -16,28 +18,26 @@ export function formatPurchaseItems(services: Array<{ serviceName?: string; name
   return `${parts.slice(0, 2).join(', ')} + ${parts.length - 2} more`;
 }
 
-export function formatPurchaseConfirmationMessage(params: {
+function purchaseVars(params: {
   items: string;
   amount: number;
   orderNumber: string;
 }) {
   const orderNo = String(params.orderNumber || '').replace(/^#/, '');
   const amount = Number(params.amount) || 0;
+  return {
+    items: params.items,
+    amount: `KSh ${amount.toLocaleString('en-KE')}`,
+    order_no: orderNo,
+  };
+}
 
-  return [
-    'OMOTECH HUB COMPUTERS',
-    '',
-    'Thank you for shopping with us.',
-    '',
-    `Purchase: ${params.items}`,
-    `Amount: KSh ${amount.toLocaleString('en-KE')}`,
-    `Order No: #${orderNo}`,
-    '',
-    'Your purchase has been confirmed successfully.',
-    '',
-    'Thank you for choosing Omotech Hub Computers.',
-    'We appreciate your business.',
-  ].join('\n');
+export function formatPurchaseConfirmationMessage(params: {
+  items: string;
+  amount: number;
+  orderNumber: string;
+}) {
+  return applySmsTemplate(DEFAULT_SMS_TEMPLATES.purchase_confirmation, purchaseVars(params));
 }
 
 export async function sendPurchaseConfirmationIfNeeded(orderId: unknown) {
@@ -68,11 +68,14 @@ export async function sendPurchaseConfirmationIfNeeded(orderId: unknown) {
     return { sent: false, reason: 'no_phone' };
   }
 
-  const message = formatPurchaseConfirmationMessage({
-    items: formatPurchaseItems(claimed.services),
-    amount: claimed.totalAmount || claimed.amountPaid || 0,
-    orderNumber: claimed.orderNumber,
-  });
+  const message = await renderSmsTemplate(
+    'purchase_confirmation',
+    purchaseVars({
+      items: formatPurchaseItems(claimed.services),
+      amount: claimed.totalAmount || claimed.amountPaid || 0,
+      orderNumber: claimed.orderNumber,
+    })
+  );
 
   try {
     await smsService.sendSMS(phone, message);

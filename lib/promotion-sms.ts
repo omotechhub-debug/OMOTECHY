@@ -2,6 +2,8 @@ import connectDB from '@/lib/mongodb';
 import Customer from '@/lib/models/Customer';
 import { smsService } from '@/lib/sms';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+import { applySmsTemplate, DEFAULT_SMS_TEMPLATES } from '@/lib/sms-template-defs';
+import { renderSmsTemplate } from '@/lib/sms-templates';
 
 function kenyaYearBounds(year: number) {
   const start = new Date(`${year}-01-01T00:00:00+03:00`);
@@ -40,7 +42,7 @@ function formatDiscount(promotion: {
   return `${amount}% off`;
 }
 
-export function formatPromotionAnnouncementMessage(promotion: {
+function promotionVars(promotion: {
   title?: string;
   promoCode?: string;
   description?: string;
@@ -63,37 +65,27 @@ export function formatPromotionAnnouncementMessage(promotion: {
         : description
       : '';
 
-  const lines = [
-    'OMOTECH HUB COMPUTERS',
-    '',
-    'New promotion for you.',
-    '',
+  return {
     title,
-  ];
+    description: shortDescription,
+    code,
+    discount: formatDiscount(promotion),
+    valid: start && end ? `${start} - ${end}` : start || end,
+    min_order: minOrder > 0 ? `KSh ${minOrder.toLocaleString('en-KE')}` : '',
+  };
+}
 
-  if (shortDescription) {
-    lines.push(shortDescription, '');
-  } else {
-    lines.push('');
-  }
-
-  if (code) lines.push(`Code: ${code}`);
-  lines.push(`Discount: ${formatDiscount(promotion)}`);
-  if (start && end) {
-    lines.push(`Valid: ${start} - ${end}`);
-  }
-  if (minOrder > 0) {
-    lines.push(`Min order: KSh ${minOrder.toLocaleString('en-KE')}`);
-  }
-
-  lines.push(
-    '',
-    'Use this code at checkout or POS.',
-    '',
-    'Thank you for choosing Omotech Hub Computers.',
-  );
-
-  return lines.join('\n');
+export function formatPromotionAnnouncementMessage(promotion: {
+  title?: string;
+  promoCode?: string;
+  description?: string;
+  discount?: number;
+  discountType?: string;
+  startDate?: Date | string;
+  endDate?: Date | string;
+  minOrderAmount?: number;
+}) {
+  return applySmsTemplate(DEFAULT_SMS_TEMPLATES.promotion, promotionVars(promotion));
 }
 
 export async function sendPromotionToYearClients(promotion: {
@@ -136,7 +128,7 @@ export async function sendPromotionToYearClients(promotion: {
     };
   }
 
-  const message = formatPromotionAnnouncementMessage(promotion);
+  const message = await renderSmsTemplate('promotion', promotionVars(promotion));
   const result = await smsService.sendBulkSMS(phones, message);
 
   return {

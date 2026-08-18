@@ -1,16 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireSuperAdmin } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
 import SmsSettings from '@/lib/models/SmsSettings';
 import { getSmsRuntimeConfig, isMaskedSecret, publicSmsConfig } from '@/lib/sms-config';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+import { getSmsTemplates, sanitizeSmsTemplates, validateSmsTemplates } from '@/lib/sms-templates';
 
-export const GET = requireAdmin(async () => {
+function rejectInvalidTemplates(templates: Record<string, string>) {
+  const errors = validateSmsTemplates(templates);
+  if (errors.length === 0) return null;
+  return NextResponse.json(
+    { success: false, error: errors[0], errors },
+    { status: 400 }
+  );
+}
+
+export const GET = requireSuperAdmin(async () => {
   try {
     const runtime = await getSmsRuntimeConfig();
+    const templates = await getSmsTemplates();
     return NextResponse.json({
       success: true,
       config: publicSmsConfig(runtime),
+      templates,
     });
   } catch (error) {
     console.error('SMS settings GET error:', error);
@@ -21,10 +33,29 @@ export const GET = requireAdmin(async () => {
   }
 });
 
-export const PUT = requireAdmin(async (request: NextRequest) => {
+export const PUT = requireSuperAdmin(async (request: NextRequest) => {
   try {
     await connectDB();
     const body = await request.json();
+    const hasConfigFields = ['apiKey', 'senderIdName', 'enabled', 'dailyReportPhone', 'dailyReportEnabled']
+      .some((key) => key in body);
+
+    if ('templates' in body && !hasConfigFields) {
+      const templates = sanitizeSmsTemplates(body.templates);
+      const invalid = rejectInvalidTemplates(templates);
+      if (invalid) return invalid;
+      await SmsSettings.findOneAndUpdate(
+        { key: 'txtlink' },
+        { $set: { templates } },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      return NextResponse.json({
+        success: true,
+        message: 'SMS templates saved',
+        templates,
+      });
+    }
+
     const senderIdName = String(body.senderIdName || '').trim();
     const enabled = body.enabled !== false;
     const incomingKey = String(body.apiKey || '').trim();
@@ -63,6 +94,12 @@ export const PUT = requireAdmin(async (request: NextRequest) => {
     if (nextApiKey) {
       update.apiKey = nextApiKey;
     }
+    if (body.templates && typeof body.templates === 'object') {
+      const templates = sanitizeSmsTemplates(body.templates);
+      const invalid = rejectInvalidTemplates(templates);
+      if (invalid) return invalid;
+      update.templates = templates;
+    }
 
     await SmsSettings.findOneAndUpdate(
       { key: 'txtlink' },
@@ -75,6 +112,7 @@ export const PUT = requireAdmin(async (request: NextRequest) => {
       success: true,
       message: 'SMS settings saved',
       config: publicSmsConfig(runtime),
+      templates: await getSmsTemplates(),
     });
   } catch (error) {
     console.error('SMS settings PUT error:', error);

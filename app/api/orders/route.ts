@@ -395,8 +395,10 @@ export async function POST(request: NextRequest) {
     let promoDiscount = 0;
     let promotionDetails = orderData.promotionDetails || null;
     
-    // Auto-update promotion statuses first
-    await updatePromotionStatuses();
+    // Auto-update promotion statuses only when a promo is being applied
+    if (promoCode || promotionDetails) {
+      await updatePromotionStatuses();
+    }
     
     if (promotionDetails && promotionDetails.lockedIn) {
       // Use locked-in promotion (honors promotion even if expired/limit reached)
@@ -539,59 +541,24 @@ export async function POST(request: NextRequest) {
     });
 
     await order.save();
-    console.log('✅ Order saved successfully:', order.orderNumber);
 
-    try {
-      await upsertCustomerFromPromptedPhone({
-        phone: order.customer?.phone,
-        name: order.customer?.name,
-        email: order.customer?.email,
-        address: order.customer?.address,
-        orderAmount: order.totalAmount,
-      });
-    } catch (customerError) {
+    void upsertCustomerFromPromptedPhone({
+      phone: order.customer?.phone,
+      name: order.customer?.name,
+      email: order.customer?.email,
+      address: order.customer?.address,
+      orderAmount: order.totalAmount,
+    }).catch((customerError) => {
       console.error('Failed to save POS customer phone:', customerError);
-    }
-    
-    // Verify the saved order has the correct data
-    const savedOrder = await Order.findById(order._id);
-    console.log('✅ Verified saved order:', {
-      orderNumber: savedOrder.orderNumber,
-      createdBy: savedOrder.createdBy,
-      station: savedOrder.station,
-      hasStation: !!(savedOrder.station?.stationId && savedOrder.station?.name),
-      hasCreator: !!(savedOrder.createdBy?.userId && savedOrder.createdBy?.name)
-    });
-    
-    // Additional debugging - check if the order object before saving had the data
-    console.log('🔍 Order object before saving:', {
-      orderNumber: order.orderNumber,
-      createdBy: order.createdBy,
-      station: order.station,
-      hasStation: !!(order.station?.stationId && order.station?.name),
-      hasCreator: !!(order.createdBy?.userId && order.createdBy?.name)
     });
 
-    // Note: Inventory reduction is now handled by the POS page's reduceInventory function
-    // to ensure proper station-specific inventory management and avoid double reduction
-    console.log('ℹ️ Inventory reduction skipped in order API - handled by POS page');
+    void import('@/lib/purchase-confirmation-sms')
+      .then(({ sendPurchaseConfirmationIfNeeded }) => sendPurchaseConfirmationIfNeeded(order._id))
+      .catch((smsError) => console.error('Purchase confirmation SMS failed:', smsError));
 
-    // Send purchase confirmation SMS only after the order is paid
-    try {
-      const { sendPurchaseConfirmationIfNeeded } = await import('@/lib/purchase-confirmation-sms');
-      await sendPurchaseConfirmationIfNeeded(order._id);
-    } catch (smsError) {
-      console.error('Purchase confirmation SMS failed:', smsError);
-    }
-
-    // Send admin notification SMS
-    try {
-      await smsService.sendAdminNewOrderNotification(order);
-      console.log('Admin SMS sent successfully');
-    } catch (adminSmsError) {
+    void smsService.sendAdminNewOrderNotification(order).catch((adminSmsError) => {
       console.error('Admin SMS sending failed:', adminSmsError);
-      // Don't fail the order creation if admin SMS fails
-    }
+    });
 
     return NextResponse.json({
       success: true,

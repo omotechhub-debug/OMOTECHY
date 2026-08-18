@@ -8,6 +8,8 @@ import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
 import { formatPurchaseItems } from '@/lib/purchase-confirmation-sms';
 import { kenyaDateKey } from '@/lib/daily-business-report';
 import { kenyaHour, publicAppUrl, sendStockAlertIfMorningLogin } from '@/lib/stock-alert';
+import { applySmsTemplate, DEFAULT_SMS_TEMPLATES, ensureRequiredPlaceholders } from '@/lib/sms-template-defs';
+import { getSmsTemplates, renderSmsTemplate } from '@/lib/sms-templates';
 
 const SMS_MAX_LENGTH = 1600;
 
@@ -28,52 +30,58 @@ function formatKes(amount: number) {
   return `KSh ${Math.round(amount).toLocaleString('en-KE')}`;
 }
 
+function deficitOrderLines(orders: Array<{
+  phone: string;
+  items: string;
+  remaining: number;
+}>) {
+  return orders.map((order) => {
+    const items = order.items.length > 42 ? `${order.items.slice(0, 39).trim()}...` : order.items;
+    return `${order.phone} | ${items} | ${formatKes(order.remaining)} left`;
+  });
+}
+
+function formatDeficitWithTemplate(
+  template: string,
+  orders: Array<{ phone: string; items: string; remaining: number }>
+) {
+  const safeTemplate = ensureRequiredPlaceholders('deficit_orders', template);
+  if (orders.length === 0) {
+    return applySmsTemplate(safeTemplate, {
+      orders_list: 'No orders with a remaining balance.',
+      count: '0',
+      total_left: formatKes(0),
+    });
+  }
+
+  const totalLeft = orders.reduce((sum, order) => sum + order.remaining, 0);
+  const lines = deficitOrderLines(orders);
+  let included = orders.length;
+  let message = applySmsTemplate(safeTemplate, {
+    orders_list: lines.join('\n'),
+    count: String(orders.length),
+    total_left: formatKes(totalLeft),
+  });
+
+  while (message.length > SMS_MAX_LENGTH && included > 1) {
+    included -= 1;
+    const hidden = orders.length - included;
+    message = applySmsTemplate(safeTemplate, {
+      orders_list: `${lines.slice(0, included).join('\n')}\n+${hidden} more`,
+      count: String(orders.length),
+      total_left: formatKes(totalLeft),
+    });
+  }
+
+  return message.slice(0, SMS_MAX_LENGTH);
+}
+
 export function formatDeficitOrdersMessage(orders: Array<{
   phone: string;
   items: string;
   remaining: number;
 }>) {
-  if (orders.length === 0) {
-    return [
-      'OMOTECH HUB COMPUTERS',
-      '',
-      'Partial payments due',
-      '',
-      'No orders with a remaining balance.',
-    ].join('\n');
-  }
-
-  const header = [
-    'OMOTECH HUB COMPUTERS',
-    '',
-    'Partial payments due',
-    '',
-  ];
-  const totalLeft = orders.reduce((sum, order) => sum + order.remaining, 0);
-  const footer = [
-    '',
-    `Orders: ${orders.length}`,
-    `Total left: ${formatKes(totalLeft)}`,
-  ];
-
-  const lines = orders.map((order) => {
-    const items = order.items.length > 42 ? `${order.items.slice(0, 39).trim()}...` : order.items;
-    return `${order.phone} | ${items} | ${formatKes(order.remaining)} left`;
-  });
-
-  let included = orders.length;
-  let body = lines.join('\n');
-  let message = [...header, body, ...footer].join('\n');
-
-  while (message.length > SMS_MAX_LENGTH && included > 1) {
-    included -= 1;
-    const visible = lines.slice(0, included);
-    const hidden = orders.length - included;
-    body = `${visible.join('\n')}\n+${hidden} more`;
-    message = [...header, body, ...footer].join('\n');
-  }
-
-  return message.slice(0, SMS_MAX_LENGTH);
+  return formatDeficitWithTemplate(DEFAULT_SMS_TEMPLATES.deficit_orders, orders);
 }
 
 export async function sendDeficitOrdersIfAfternoonLogin(options?: { force?: boolean }) {
@@ -137,7 +145,8 @@ export async function sendDeficitOrdersIfAfternoonLogin(options?: { force?: bool
       })
       .filter((order) => order.remaining > 0);
 
-    const message = formatDeficitOrdersMessage(orders);
+    const templates = await getSmsTemplates();
+    const message = formatDeficitWithTemplate(templates.deficit_orders, orders);
     await smsService.sendSMS(phone, message);
     if (force) {
       await SmsSettings.updateOne(
@@ -215,19 +224,14 @@ export async function sendPendingConfirmationsIfEveningLogin(options?: { force?:
 
   try {
     const reviewUrl = `${publicAppUrl()}/admin/mpesa-transactions`;
-    const message = [
-      'OMOTECH HUB COMPUTERS',
-      '',
-      'Payments awaiting confirmation',
-      '',
-      count === 1
-        ? '1 M-Pesa payment needs verification before it is linked to an order.'
-        : `${count} M-Pesa payments need verification before they are linked to orders.`,
-      '',
-      'Confirm them now so tonight\'s report stays accurate.',
-      '',
-      `Review: ${reviewUrl}`,
-    ].join('\n');
+    const countLabel = count === 1
+      ? '1 M-Pesa payment needs verification before it is linked to an order.'
+      : `${count} M-Pesa payments need verification before they are linked to orders.`;
+    const message = await renderSmsTemplate('pending_confirmations', {
+      count: String(count),
+      count_label: countLabel,
+      review_url: reviewUrl,
+    });
 
     await smsService.sendSMS(phone, message);
     if (force) {

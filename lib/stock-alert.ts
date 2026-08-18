@@ -8,6 +8,7 @@ import { smsService } from '@/lib/sms';
 import { getSmsRuntimeConfig } from '@/lib/sms-config';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
 import { kenyaDateKey } from '@/lib/daily-business-report';
+import { renderSmsTemplate } from '@/lib/sms-templates';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const LINK_TTL_MS = 18 * 60 * 60 * 1000;
@@ -93,37 +94,6 @@ export async function getStockAlertItems(): Promise<IStockAlertItem[]> {
   });
 }
 
-function formatMorningStockSms(params: {
-  dateKey: string;
-  outCount: number;
-  lowCount: number;
-  link?: string;
-}) {
-  const lines = [
-    'OMOTECH HUB COMPUTERS',
-    '',
-    'Morning stock alert',
-    '',
-    `Out of stock: ${params.outCount}`,
-    `Low stock: ${params.lowCount}`,
-  ];
-
-  if (params.link && (params.outCount > 0 || params.lowCount > 0)) {
-    lines.push(
-      '',
-      'Open the secure list:',
-      params.link,
-      '',
-      'An OTP will be sent to this number to view and download.',
-      'Do not share this link.',
-    );
-  } else {
-    lines.push('', 'All watched stock levels look fine.');
-  }
-
-  return lines.join('\n');
-}
-
 export async function sendMorningStockAlert(options?: { force?: boolean }) {
   const dateKey = kenyaDateKey();
   const force = Boolean(options?.force);
@@ -178,7 +148,12 @@ export async function sendMorningStockAlert(options?: { force?: boolean }) {
       link = `${publicAppUrl()}/stock-alert/${token}`;
     }
 
-    const message = formatMorningStockSms({ dateKey, outCount, lowCount, link });
+    const message = await renderSmsTemplate('stock_alert', {
+      date: dateKey,
+      out_count: String(outCount),
+      low_count: String(lowCount),
+      link: link || 'All watched stock levels look fine.',
+    });
     await smsService.sendSMS(phone, message);
     if (force) {
       await SmsSettings.updateOne(
@@ -267,14 +242,7 @@ export async function requestStockAlertOtp(token: string) {
 
   await smsService.sendSMS(
     link.phone,
-    [
-      'OMOTECH HUB COMPUTERS',
-      '',
-      `Your stock list OTP is ${otp}.`,
-      '',
-      'Valid for 10 minutes.',
-      'Do not share it.',
-    ].join('\n')
+    await renderSmsTemplate('stock_otp', { otp })
   );
 
   return { success: true, phoneMasked: maskPhone(link.phone) };

@@ -2,8 +2,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import AdminPageProtection from '@/components/AdminPageProtection';
-import { motion, AnimatePresence } from "framer-motion";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -404,13 +402,12 @@ function POSPageContent() {
   // Fetch services, products and categories - progressive loading (show page immediately)
   useEffect(() => {
     if (token && user) {
-      // Show page immediately - don't wait for data
       setLoading(false);
-      
-      // Load categories first (smallest, needed for filters)
+      fetch('/api/mpesa/initiate', {
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => undefined);
       fetchCategories().catch(err => console.error('Error fetching categories:', err));
       
-      // Load services and products independently - they'll populate as they load
       setServicesLoading(true);
       fetchServices()
         .then(() => setServicesLoading(false))
@@ -427,7 +424,6 @@ function POSPageContent() {
           setProductsLoading(false);
         });
       
-      // Fetch stations for superadmin (non-blocking)
       if (user.role === 'superadmin') {
         fetchStations().catch(err => console.error('Error fetching stations:', err));
       }
@@ -566,13 +562,18 @@ function POSPageContent() {
     } catch (error) {
       console.error("Error fetching demand intelligence:", error);
     }
-  }, [token, user?.role, user?.stationId, user?.managedStations, selectedStationId, services, products]);
+  }, [token, user?.role, user?.stationId, user?.managedStations, selectedStationId]);
 
   useEffect(() => {
     if (!token || !user) return;
-    fetchDemandIntelligence();
-    const interval = setInterval(fetchDemandIntelligence, 45000);
-    return () => clearInterval(interval);
+    const delay = setTimeout(() => {
+      fetchDemandIntelligence();
+    }, 8000);
+    const interval = setInterval(fetchDemandIntelligence, 120000);
+    return () => {
+      clearTimeout(delay);
+      clearInterval(interval);
+    };
   }, [token, user, fetchDemandIntelligence]);
 
   // Filter services based on search and category
@@ -659,29 +660,12 @@ function POSPageContent() {
 
   const fetchServices = async () => {
     try {
-      // Get station ID for filtering
       let stationId = null;
-      if (user?.role === 'manager') {
-        // For managers, get their assigned station
-        const stationRes = await fetch('/api/stations/my-station', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        if (stationRes.ok) {
-          const stationData = await stationRes.json();
-          if (stationData.success && stationData.station) {
-            stationId = stationData.station._id;
-          }
-        }
-      } else if (user?.stationId || (user?.managedStations && user.managedStations.length > 0)) {
-        // For admins/superadmins, use their station
-        stationId = user.stationId || user.managedStations?.[0];
+      if (user?.role !== 'superadmin') {
+        stationId = user?.stationId || user?.managedStations?.[0] || null;
       }
 
-      // Build URL with station filter
-      let url = '/api/services?limit=50';
+      let url = '/api/services?limit=200&lite=1&status=active';
       if (stationId) {
         url += `&stationId=${stationId}`;
       }
@@ -695,46 +679,25 @@ function POSPageContent() {
       const data = await response.json();
       
       if (data.success) {
-        console.log('📋 Services fetched for POS:', data.services?.map((s: any) => ({ name: s.name, unit: s.unit, turnaroundUnit: s.turnaroundUnit })) || 'No services');
         setServices(data.services || data.data || []);
       } else {
         console.error('Failed to fetch services:', data.error);
       }
     } catch (error) {
       console.error('Error fetching services:', error);
-      // Don't throw - let it fail gracefully
     }
   };
 
   const fetchProducts = async () => {
     try {
-      // Get station ID for filtering
       let stationId = null;
-      
-      // Superadmins see all products from all stations
       if (user?.role === 'superadmin') {
-        stationId = null; // Don't filter by station for superadmins
-      } else if (user?.role === 'manager') {
-        // For managers, get their assigned station
-        const stationRes = await fetch('/api/stations/my-station', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        if (stationRes.ok) {
-          const stationData = await stationRes.json();
-          if (stationData.success && stationData.station) {
-            stationId = stationData.station._id;
-          }
-        }
-      } else if (user?.stationId || (user?.managedStations && user.managedStations.length > 0)) {
-        // For admins, use their station
-        stationId = user.stationId || user.managedStations?.[0];
+        stationId = null;
+      } else {
+        stationId = user?.stationId || user?.managedStations?.[0] || null;
       }
 
-      // Build URL with station filter - load in batches for better performance
-      let url = '/api/inventory?limit=1000'; // Increased limit for superadmins to see all products
+      let url = '/api/inventory?limit=1000&lite=1&status=active';
       if (stationId) {
         url += `&stationId=${stationId}`;
       }
@@ -752,7 +715,6 @@ function POSPageContent() {
       }
     } catch (error) {
       console.error('Error fetching products:', error);
-      // Don't throw - let it fail gracefully
     }
   };
 
@@ -2095,15 +2057,10 @@ Need help? Call us at +254 757 883 799`;
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredServices.map((service, index) => {
+              {filteredServices.map((service) => {
                 const categoryInfo = getCategoryInfo(service.category);
                 return (
-                  <motion.div
-                    key={service._id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
+                  <div key={service._id}>
                     <Card className="h-full hover:shadow-lg transition-shadow duration-200 cursor-pointer group">
                       <CardContent className="p-4">
                         <div className="space-y-3">
@@ -2171,7 +2128,7 @@ Need help? Call us at +254 757 883 799`;
                         </div>
                       </CardContent>
                     </Card>
-                  </motion.div>
+                  </div>
                 );
               })}
             </div>
@@ -2202,13 +2159,8 @@ Need help? Call us at +254 757 883 799`;
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredProducts.map((product, index) => (
-                    <motion.div
-                      key={product._id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                    >
+                  {filteredProducts.map((product) => (
+                    <div key={product._id}>
                       <Card className="h-full hover:shadow-lg transition-shadow duration-200 cursor-pointer group">
                         <CardContent className="p-4">
                           <div className="space-y-3">
@@ -2304,7 +2256,7 @@ Need help? Call us at +254 757 883 799`;
                           </div>
                         </CardContent>
                       </Card>
-                    </motion.div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -2962,14 +2914,12 @@ Need help? Call us at +254 757 883 799`;
                         alert('Please enter customer phone number first');
                         return;
                       }
-                      
-                      // If we have a last created order, use it; otherwise, create order first
-                      let orderId = lastCreatedOrderId;
-                      
-                      if (!orderId && cart.length > 0) {
-                        // Create order first
-                        try {
-                          setIsProcessingOrder(true);
+
+                      setInitiatingPayment(true);
+                      try {
+                        let orderId = lastCreatedOrderId;
+
+                        if (!orderId && cart.length > 0) {
                           const orderData = {
                             customer: {
                               name: customerInfo.name,
@@ -2989,11 +2939,11 @@ Need help? Call us at +254 757 883 799`;
                             status: customerInfo.paymentStatus === 'paid' ? 'confirmed' : 'pending',
                             promoCode: promoCode.trim() || undefined,
                             promotionDetails: lockedPromotion || undefined,
-                            stationId: user?.role === 'superadmin' 
-                              ? selectedStationId 
+                            stationId: user?.role === 'superadmin'
+                              ? selectedStationId
                               : (user?.stationId || user?.managedStations?.[0] || null),
                           };
-                          
+
                           const response = await fetch('/api/orders', {
                             method: 'POST',
                             headers: {
@@ -3002,53 +2952,39 @@ Need help? Call us at +254 757 883 799`;
                             },
                             body: JSON.stringify(orderData),
                           });
-                          
+
                           const data = await response.json();
-                          if (data.success && data.order?._id) {
-                            orderId = data.order._id;
-                            setLastCreatedOrderId(orderId);
-                            // Reduce inventory
-                            const currentStationId = user?.role === 'superadmin' 
-                              ? selectedStationId 
-                              : (user?.stationId || user?.managedStations?.[0]);
-                            if (currentStationId) {
-                              await reduceInventory(cart, currentStationId, data.order?.orderNumber);
-                            }
-                          } else {
+                          if (!data.success || !data.order?._id) {
                             alert(`Failed to create order: ${data.error || 'Unknown error'}`);
-                            setIsProcessingOrder(false);
                             return;
                           }
-                        } catch (error) {
-                          console.error('Error creating order:', error);
-                          alert('Failed to create order. Please try again.');
-                          setIsProcessingOrder(false);
+
+                          orderId = data.order._id;
+                          setLastCreatedOrderId(orderId);
+                          const currentStationId = user?.role === 'superadmin'
+                            ? selectedStationId
+                            : (user?.stationId || user?.managedStations?.[0]);
+                          if (currentStationId) {
+                            void reduceInventory(cart, currentStationId, data.order?.orderNumber);
+                          }
+                        }
+
+                        if (!orderId) {
+                          alert('No order found. Please create an order first.');
                           return;
-                        } finally {
-                          setIsProcessingOrder(false);
                         }
-                      }
-                      
-                      if (!orderId) {
-                        alert('No order found. Please create an order first.');
-                        return;
-                      }
-                      
-                      // Determine payment amount and type based on payment status
-                      let paymentAmount = calculateFinalTotal();
-                      let paymentType = 'full';
-                      
-                      if (customerInfo.paymentStatus === 'partial' && customerInfo.partialAmount) {
-                        const partialAmount = parseInt(customerInfo.partialAmount) || 0;
-                        if (partialAmount > 0 && partialAmount < calculateFinalTotal()) {
-                          paymentAmount = partialAmount;
-                          paymentType = 'partial';
+
+                        let paymentAmount = calculateFinalTotal();
+                        let paymentType = 'full';
+
+                        if (customerInfo.paymentStatus === 'partial' && customerInfo.partialAmount) {
+                          const partialAmount = parseInt(customerInfo.partialAmount) || 0;
+                          if (partialAmount > 0 && partialAmount < calculateFinalTotal()) {
+                            paymentAmount = partialAmount;
+                            paymentType = 'partial';
+                          }
                         }
-                      }
-                      
-                      // Initiate STK push
-                      try {
-                        setInitiatingPayment(true);
+
                         const stkResponse = await fetch('/api/mpesa/initiate', {
                           method: 'POST',
                           headers: {
@@ -3062,18 +2998,13 @@ Need help? Call us at +254 757 883 799`;
                             paymentType: paymentType,
                           }),
                         });
-                        
+
                         const stkData = await stkResponse.json();
-                        
+
                         if (stkData.success && stkData.checkoutRequestId) {
-                          // Store checkout request ID for polling
                           setCurrentCheckoutRequestId(stkData.checkoutRequestId);
-                          // Update payment status in customer info
                           setCustomerInfo(prev => ({ ...prev, paymentStatus: 'pending' }));
-                          // Start polling for payment status
                           startPaymentPolling(stkData.checkoutRequestId, orderId);
-                          // Show initial message
-                          console.log(`✅ M-Pesa payment request sent to ${customerInfo.phone}. Waiting for payment confirmation...`);
                         } else {
                           alert(`⚠️ Payment request failed: ${stkData.error || 'Unknown error'}`);
                         }

@@ -116,10 +116,35 @@ export async function GET(request: NextRequest) {
       };
     }
 
+    const lite = searchParams.get('lite') === '1';
     const skip = (page - 1) * limit;
     const allowedSort = new Set(['createdAt', 'updatedAt', 'name', 'price', 'stock', 'sku']);
     const sortField = allowedSort.has(sortBy) ? sortBy : 'createdAt';
     const sort: Record<string, 1 | -1> = { [sortField]: sortOrder === 'asc' ? 1 : -1 };
+
+    if (lite) {
+      const inventory = await Inventory.find(filter)
+        .select('_id name description category sku price stock minStock unit status tags stationIds')
+        .populate({ path: 'stationIds', select: 'name location', options: { strictPopulate: false } })
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .maxTimeMS(6000);
+
+      return NextResponse.json({
+        success: true,
+        data: inventory,
+        pagination: {
+          page,
+          limit,
+          total: inventory.length,
+          pages: 1,
+        },
+      }, {
+        headers: { 'Cache-Control': 'private, max-age=20' },
+      });
+    }
 
     const [total, inventory] = await Promise.all([
       Inventory.countDocuments(filter).maxTimeMS(8000),

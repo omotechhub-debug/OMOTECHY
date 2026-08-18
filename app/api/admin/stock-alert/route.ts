@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireSuperAdmin } from '@/lib/auth';
 import { sendMorningStockAlert } from '@/lib/stock-alert';
 
-export const POST = requireAdmin(async () => {
+export const POST = requireSuperAdmin(async () => {
   try {
     const result = await sendMorningStockAlert({ force: true });
     return NextResponse.json({

@@ -40,6 +40,10 @@ export default function ProtectedRoute({
     if (path.startsWith('/admin/promotions')) return 'promotions';
     if (path.startsWith('/admin/banners')) return 'settings';
     if (path.startsWith('/admin/sms')) return 'sms';
+    if (path.startsWith('/admin/ai-command-center')) return 'ai-command-center';
+    if (path.startsWith('/admin/inventory-management')) return 'inventory-management';
+    if (path.startsWith('/admin/inventory')) return 'inventory';
+    if (path.startsWith('/admin/social-media')) return 'social-media';
     if (path.startsWith('/admin/settings')) return 'settings';
     // Only map /admin/dashboard to 'dashboard', not /admin itself
     if (path === '/admin' || path === '/admin/') return '';
@@ -129,7 +133,7 @@ export default function ProtectedRoute({
   }
 
   // Super admin requirement check
-  if (requireSuperAdmin && !isSuperAdminUser(user)) {
+  if ((requireSuperAdmin || currentPage === 'sms') && !isSuperAdminUser(user)) {
     console.log('🚫 Access denied - Super admin required');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">

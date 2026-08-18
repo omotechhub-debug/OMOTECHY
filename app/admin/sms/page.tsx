@@ -10,6 +10,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Send, CheckCircle, XCircle, MessageSquare, Settings, Bell, Save, Eye, EyeOff, Phone } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import SMSTest from '@/components/SMSTest';
+import SmsTemplateEditor from '@/components/SmsTemplateEditor';
+import AdminProtectedRoute from '@/components/AdminProtectedRoute';
 
 interface SmsConfig {
   provider: string;
@@ -249,6 +251,7 @@ export default function SMSAdminPage() {
   };
 
   return (
+    <AdminProtectedRoute requireSuperAdmin={true}>
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
         <div className="max-w-6xl mx-auto">
           <div className="mb-8">
@@ -542,42 +545,11 @@ export default function SMSAdminPage() {
             )}
 
             {activeTab === 'templates' && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Bell className="h-5 w-5" />
-                    SMS message templates
-                  </CardTitle>
-                  <CardDescription>
-                    Messages currently sent to customers
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="border rounded-lg p-4">
-                    <h4 className="font-medium text-gray-900 mb-2">Paid purchase confirmation</h4>
-                    <p className="text-sm text-gray-600 mb-2">
-                      Sent when a POS order is added and fully paid
-                    </p>
-                    <div className="bg-gray-50 p-3 rounded text-sm whitespace-pre-line">
-{`OMOTECH HUB COMPUTERS
-
-Thank you for shopping with us.
-
-Purchase: [Item/Service]
-Amount: KSh [Amount]
-Order No: #[Order No.]
-
-Your purchase has been confirmed successfully.
-
-Thank you for choosing Omotech Hub Computers.
-We appreciate your business.`}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <SmsTemplateEditor token={token} />
             )}
           </div>
         </div>
       </div>
+    </AdminProtectedRoute>
   );
 }

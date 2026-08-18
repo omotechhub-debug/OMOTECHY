@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Loader2, AlertTriangle, Lock, Shield, Clock, LogOut } from 'lucide-react';
-import { canViewPage, isAdminUser, isSuperAdminUser, isManagerUser, isAdminOrManagerUser } from '@/lib/permissions';
+import { canViewPage, isAdminUser, isSuperAdminUser, isManagerUser, isAdminOrManagerUser, MANAGER_PAGES } from '@/lib/permissions';
 
 interface AdminProtectedRouteProps {
   children: React.ReactNode;
@@ -47,6 +47,10 @@ export default function AdminProtectedRoute({
     if (path.startsWith('/admin/mpesa-transactions')) return 'mpesa-transactions';
     if (path.startsWith('/admin/banners')) return 'settings';
     if (path.startsWith('/admin/sms')) return 'sms';
+    if (path.startsWith('/admin/ai-command-center')) return 'ai-command-center';
+    if (path.startsWith('/admin/inventory-management')) return 'inventory-management';
+    if (path.startsWith('/admin/inventory')) return 'inventory';
+    if (path.startsWith('/admin/social-media')) return 'social-media';
     if (path.startsWith('/admin/settings')) return 'settings';
     // Only map /admin/dashboard to 'dashboard', not /admin itself
     if (path === '/admin' || path === '/admin/') return '';
@@ -75,10 +79,10 @@ export default function AdminProtectedRoute({
 
       // Manager users should only access specific pages (POS, Orders, Expenses)
       if (user && user.role === 'manager') {
-        const allowedPages = ['dashboard', 'orders', 'pos', 'expenses'];
+        const allowedPages = [...MANAGER_PAGES];
         const currentPage = getPageKey(pathname || '');
         
-        if (currentPage && !allowedPages.includes(currentPage)) {
+        if (currentPage && !allowedPages.includes(currentPage as typeof MANAGER_PAGES[number])) {
           console.log('🚫 Manager user attempted unauthorized access to:', currentPage);
           router.push('/admin');
           return;
@@ -173,8 +177,10 @@ export default function AdminProtectedRoute({
     );
   }
 
+  const pageRequiresSuperAdmin = requireSuperAdmin || currentPage === 'sms';
+
   // Super admin requirement check
-  if (requireSuperAdmin && !isSuperAdmin) {
+  if (pageRequiresSuperAdmin && !isSuperAdmin) {
     console.log('🚫 Access denied - Super admin required');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">

@@ -57,7 +57,9 @@ export default function AdminPageProtection({
       'banners': 'Banners',
       'payments': 'Payments',
       'mpesa-transactions': 'M-Pesa Transactions',
-      'dashboard': 'Dashboard'
+      'dashboard': 'Dashboard',
+      'ai-command-center': 'OMOTECH AI',
+      'sms': 'SMS Settings',
     }
     
     return pageNameMap[adminPage] || adminPage
@@ -72,6 +74,7 @@ export default function AdminPageProtection({
     if (adminPage === 'clients') return 'customers'
     if (adminPage === 'inventory-management') return 'inventory-management'
     if (adminPage === 'mpesa-transactions') return 'mpesa-transactions'
+    if (adminPage === 'ai-command-center') return 'ai-command-center'
     
     return adminPage
   }

@@ -262,7 +262,7 @@ export default function AdminPage() {
       color: "bg-gradient-to-br from-sky-500 to-sky-600",
       bgColor: "bg-sky-50",
       textColor: "text-sky-700",
-      roles: ['admin', 'superadmin']
+      roles: ['superadmin']
     }
   ]
 

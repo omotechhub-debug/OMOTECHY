@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import Link from "next/link"
 import { motion } from "framer-motion"
 import * as XLSX from 'xlsx'
 import {
@@ -924,11 +923,7 @@ export default function ClientsPage() {
           <div>
             <p className="font-medium">SMS is not configured yet</p>
             <p className="text-sm">
-              Add your TXTLINK API key in{' '}
-              <Link href="/admin/sms" className="underline font-semibold">
-                SMS Settings
-              </Link>{' '}
-              before sending messages to clients.
+              Ask a superadmin to add the TXTLINK API key in SMS Settings before sending messages to clients.
             </p>
           </div>
         </div>
@@ -1632,11 +1627,7 @@ export default function ClientsPage() {
           <div className="space-y-6">
             {smsReady === false && (
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-sm">
-                TXTLINK is not configured.{' '}
-                <Link href="/admin/sms" className="underline font-semibold">
-                  Open SMS Settings
-                </Link>{' '}
-                to add the API key.
+                TXTLINK is not configured. Ask a superadmin to add the API key in SMS Settings.
               </div>
             )}
             {/* Message Type Indicator */}

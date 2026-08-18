@@ -62,12 +62,36 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    // Calculate pagination
+    const lite = searchParams.get('lite') === '1';
     const skip = (page - 1) * limit;
 
     // Build sort object
     const sort: any = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    if (lite) {
+      const services = await Service.find(filter)
+        .select('_id name description category price unit turnaround turnaroundUnit active featured')
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .maxTimeMS(6000);
+
+      return NextResponse.json({
+        success: true,
+        services,
+        data: services,
+        pagination: {
+          page,
+          limit,
+          total: services.length,
+          pages: 1,
+        },
+      }, {
+        headers: { 'Cache-Control': 'private, max-age=20' },
+      });
+    }
 
     // Get total count for pagination
     const total = await Service.countDocuments(filter);

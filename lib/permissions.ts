@@ -15,6 +15,18 @@ interface IUser {
   pagePermissions: IPagePermission[];
 }
 
+export const SUPERADMIN_ONLY_PAGES = ['sms'] as const;
+export const MANAGER_PAGES = ['dashboard', 'orders', 'pos', 'expenses'] as const;
+export const ADMIN_CORE_PAGES = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations'] as const;
+
+function hasGrantedPagePermission(user: IUser, page: string) {
+  if (!user.pagePermissions || !Array.isArray(user.pagePermissions)) {
+    return false;
+  }
+  const pagePermission = user.pagePermissions.find((permission) => permission.page === page);
+  return Boolean(pagePermission?.canView);
+}
+
 /**
  * Check if user has permission to view a specific page
  */
@@ -23,29 +35,32 @@ export function canViewPage(user: IUser | null, page: string): boolean {
     return false;
   }
 
+  if (!page) {
+    return true;
+  }
+
   // Superadmin has access to all pages
   if (user.role === 'superadmin') {
     return true;
   }
 
-  // Regular users should not access admin pages at all
+  if (SUPERADMIN_ONLY_PAGES.includes(page as typeof SUPERADMIN_ONLY_PAGES[number])) {
+    return false;
+  }
+
   if (user.role === 'user') {
     return false;
   }
 
-  // Core pages that all admins should have access to by default
-  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations', 'sms'];
-  if (user.role === 'admin' && coreAdminPages.includes(page)) {
+  if (user.role === 'manager') {
+    return MANAGER_PAGES.includes(page as typeof MANAGER_PAGES[number]);
+  }
+
+  if (user.role === 'admin' && ADMIN_CORE_PAGES.includes(page as typeof ADMIN_CORE_PAGES[number])) {
     return true;
   }
 
-  // Check specific page permissions for admin users
-  if (user.pagePermissions && Array.isArray(user.pagePermissions)) {
-    const pagePermission = user.pagePermissions.find(p => p.page === page);
-    return pagePermission ? pagePermission.canView : false;
-  }
-
-  return false;
+  return hasGrantedPagePermission(user, page);
 }
 
 /**
@@ -106,44 +121,7 @@ export function canDeletePage(user: IUser | null, page: string): boolean {
  * Get all pages that user has view access to
  */
 export function getAccessiblePages(user: IUser | null): string[] {
-  if (!user || !user.isActive || !user.approved) {
-    return [];
-  }
-
-  // Superadmin has access to all pages
-  if (user.role === 'superadmin') {
-    return [
-      'dashboard', 'orders', 'pos', 'customers', 'services', 'reports', 
-      'mpesa-transactions', 'users', 'expenses', 'gallery', 'testimonials', 
-      'promotions', 'inventory', 'inventory-management', 'stations', 'settings', 'sms', 'social-media', 'ai-command-center'
-    ];
-  }
-
-  // Manager has very limited access - only POS, Orders, and Expenses
-  if (user.role === 'manager') {
-    return ['dashboard', 'orders', 'pos', 'expenses', 'ai-command-center'];
-  }
-
-  // Regular users should not access admin pages at all
-  if (user.role === 'user') {
-    return [];
-  }
-
-  // Core pages that all admins should have access to by default
-  const coreAdminPages = ['dashboard', 'orders', 'pos', 'customers', 'services', 'expenses', 'stations', 'sms', 'ai-command-center'];
-  
-  // Return pages that admin user can view
-  if (user.pagePermissions && Array.isArray(user.pagePermissions)) {
-    const permissionPages = user.pagePermissions
-      .filter(p => p.canView)
-      .map(p => p.page);
-    
-    // Merge with core pages and remove duplicates
-    return [...new Set([...coreAdminPages, ...permissionPages])];
-  }
-
-  // If no pagePermissions, return core pages
-  return coreAdminPages;
+  return Object.keys(ADMIN_PAGES).filter((page) => canViewPage(user, page));
 }
 
 /**
@@ -342,10 +320,8 @@ export const ADMIN_PAGES = {
  * Get navigation items that user has access to
  */
 export function getAccessibleNavigation(user: IUser | null) {
-  const accessiblePages = getAccessiblePages(user);
-  
   return Object.entries(ADMIN_PAGES)
-    .filter(([pageKey]) => accessiblePages.includes(pageKey))
+    .filter(([pageKey]) => canViewPage(user, pageKey))
     .map(([pageKey, pageData]) => ({
       key: pageKey,
       ...pageData

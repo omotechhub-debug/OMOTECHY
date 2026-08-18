@@ -87,6 +87,15 @@ export interface C2BConfirmationResponse {
 class MpesaService {
   private config: MpesaConfig;
 
+  private get tokenStore() {
+    const g = globalThis as typeof globalThis & {
+      __omotechMpesaToken?: { value: string; expiresAt: number };
+      __omotechMpesaTokenPromise?: Promise<string> | null;
+    };
+    if (!g.__omotechMpesaTokenPromise) g.__omotechMpesaTokenPromise = null;
+    return g;
+  }
+
   constructor() {
     this.config = {
       consumerKey: process.env.MPESA_CONSUMER_KEY || '',
@@ -142,59 +151,61 @@ class MpesaService {
   }
 
   private async generateAccessToken(): Promise<string> {
+    const store = this.tokenStore;
+    const now = Date.now();
+    if (store.__omotechMpesaToken && store.__omotechMpesaToken.expiresAt > now + 30_000) {
+      return store.__omotechMpesaToken.value;
+    }
+    if (store.__omotechMpesaTokenPromise) {
+      return store.__omotechMpesaTokenPromise;
+    }
+
+    store.__omotechMpesaTokenPromise = this.fetchAccessToken().finally(() => {
+      store.__omotechMpesaTokenPromise = null;
+    });
+    return store.__omotechMpesaTokenPromise;
+  }
+
+  async warmupAccessToken(): Promise<void> {
+    await this.generateAccessToken();
+  }
+
+  private async fetchAccessToken(): Promise<string> {
     try {
-      // Validate credentials are present
       if (!this.config.consumerKey || !this.config.consumerSecret) {
         throw new Error('M-Pesa consumer key or secret is missing. Please check your environment variables.');
       }
 
       const auth = Buffer.from(`${this.config.consumerKey}:${this.config.consumerSecret}`).toString('base64');
       const authUrl = `${this.getBaseUrl()}/oauth/v1/generate?grant_type=client_credentials`;
-      
-      console.log('Generating M-Pesa access token:', {
-        environment: this.config.environment,
-        baseUrl: this.getBaseUrl(),
-        authUrl: authUrl,
-        consumerKeyLength: this.config.consumerKey.length,
-        consumerSecretLength: this.config.consumerSecret.length
-      });
-      
       const response = await axios.get(authUrl, {
         headers: {
           'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/json'
         },
-        timeout: 30000
+        timeout: 8000,
       });
 
       if (!response.data || !response.data.access_token) {
-        console.error('Invalid token response:', response.data);
         throw new Error('M-Pesa API did not return a valid access token');
       }
 
       const accessToken = response.data.access_token;
-      console.log('✅ Access token generated successfully, length:', accessToken.length);
-      
+      const expiresIn = Number(response.data.expires_in) || 3599;
+      this.tokenStore.__omotechMpesaToken = {
+        value: accessToken,
+        expiresAt: Date.now() + Math.max(30, expiresIn - 90) * 1000,
+      };
       return accessToken;
     } catch (error: any) {
-      console.error('❌ Error generating M-Pesa access token:', {
-        message: error.message,
-        code: error.code,
-        response: error.response?.data,
-        status: error.response?.status,
-        statusText: error.response?.statusText
-      });
-      
+      this.tokenStore.__omotechMpesaToken = undefined;
       if (error.response) {
         const errorData = error.response.data;
-        const errorMessage = errorData?.error_description || 
-                           errorData?.errorMessage || 
-                           errorData?.error || 
+        const errorMessage = errorData?.error_description ||
+                           errorData?.errorMessage ||
+                           errorData?.error ||
                            `HTTP ${error.response.status}: ${error.response.statusText}`;
-        
         throw new Error(`Failed to generate M-Pesa access token: ${errorMessage}`);
       }
-      
       throw new Error(`Failed to generate M-Pesa access token: ${error.message}`);
     }
   }
@@ -259,16 +270,6 @@ class MpesaService {
         TransactionDesc: `Payment for Order ${request.orderId}`
       };
 
-      console.log('M-Pesa Configuration:', {
-        shortCode: this.config.shortCode,
-        tillNumber: this.config.tillNumber || 'Not set (using shortCode)',
-        partyB: this.config.shortCode,
-        environment: this.config.environment,
-        consumerKey: this.config.consumerKey?.substring(0, 10) + '...',
-        baseUrl: this.getBaseUrl()
-      });
-      console.log('STK Push payload:', JSON.stringify(payload, null, 2));
-
       const response = await axios.post(
         `${this.getBaseUrl()}/mpesa/stkpush/v1/processrequest`,
         payload,
@@ -277,11 +278,9 @@ class MpesaService {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
-          timeout: 60000
+          timeout: 15000
         }
       );
-
-      console.log('TEST DEV API: STK Push response:', response.data);
 
       if (response.data.ResponseCode === '0') {
         return {

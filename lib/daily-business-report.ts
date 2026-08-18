@@ -5,6 +5,8 @@ import SmsSettings from '@/lib/models/SmsSettings';
 import { smsService } from '@/lib/sms';
 import { getSmsRuntimeConfig } from '@/lib/sms-config';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+import { applySmsTemplate, DEFAULT_SMS_TEMPLATES } from '@/lib/sms-template-defs';
+import { renderSmsTemplate } from '@/lib/sms-templates';
 
 export function kenyaDateKey(date = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -80,25 +82,20 @@ export async function getDailyBusinessSummary(dateKey: string) {
   return { dateKey, orders, sales, collected, expenses, profit };
 }
 
-export function formatDailyBusinessSms(summary: Awaited<ReturnType<typeof getDailyBusinessSummary>>) {
-  const profitLabel = summary.profit >= 0 ? 'Profit' : 'Loss';
-  const profitValue = formatKes(Math.abs(summary.profit));
+function dailyReportVars(summary: Awaited<ReturnType<typeof getDailyBusinessSummary>>) {
+  return {
+    date: formatDisplayDate(summary.dateKey),
+    orders: String(summary.orders),
+    sales: formatKes(summary.sales),
+    collected: formatKes(summary.collected),
+    expenses: formatKes(summary.expenses),
+    profit_label: summary.profit >= 0 ? 'Profit' : 'Loss',
+    profit: formatKes(Math.abs(summary.profit)),
+  };
+}
 
-  return [
-    'OMOTECH HUB COMPUTERS',
-    '',
-    'Daily business report',
-    formatDisplayDate(summary.dateKey),
-    '',
-    `Orders: ${summary.orders}`,
-    `Sales: ${formatKes(summary.sales)}`,
-    `Collected: ${formatKes(summary.collected)}`,
-    `Expenses: ${formatKes(summary.expenses)}`,
-    '',
-    `${profitLabel}: ${profitValue}`,
-    '',
-    'End of day summary.',
-  ].join('\n');
+export function formatDailyBusinessSms(summary: Awaited<ReturnType<typeof getDailyBusinessSummary>>) {
+  return applySmsTemplate(DEFAULT_SMS_TEMPLATES.daily_report, dailyReportVars(summary));
 }
 
 export async function sendDailyBusinessReport(options?: {
@@ -141,7 +138,7 @@ export async function sendDailyBusinessReport(options?: {
 
   try {
     const summary = await getDailyBusinessSummary(dateKey);
-    const message = formatDailyBusinessSms(summary);
+    const message = await renderSmsTemplate('daily_report', dailyReportVars(summary));
     await smsService.sendSMS(phone, message);
     if (force) {
       await SmsSettings.updateOne(

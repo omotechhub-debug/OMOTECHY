@@ -64,7 +64,7 @@ const PAGE_DESCRIPTIONS: { [key: string]: string } = {
   promotions: 'Configure promotional offers',
   'mpesa-transactions': 'Manage M-Pesa payment transactions',
   settings: 'System configuration and settings',
-  sms: 'Configure TXTLINK SMS API key and sender ID',
+  sms: 'Configure TXTLINK SMS API key and sender ID (superadmin only)',
   'social-media': 'Manage social media links for website footer'
 };
 
@@ -84,7 +84,7 @@ const DEFAULT_PERMISSIONS: PagePermission[] = [
   { page: 'promotions', canView: true, canEdit: false, canDelete: false },
   { page: 'mpesa-transactions', canView: true, canEdit: true, canDelete: false },
   { page: 'settings', canView: false, canEdit: false, canDelete: false },
-  { page: 'sms', canView: true, canEdit: true, canDelete: false },
+  { page: 'sms', canView: false, canEdit: false, canDelete: false },
   { page: 'social-media', canView: true, canEdit: true, canDelete: false }
 ];
 
@@ -199,7 +199,7 @@ export default function UserPermissionsModal({ user, isOpen, onClose, onSave }: 
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {permissions.map((permission) => (
+            {permissions.filter((permission) => permission.page !== 'sms').map((permission) => (
               <Card key={permission.page} className="border-2">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium flex items-center space-x-2">

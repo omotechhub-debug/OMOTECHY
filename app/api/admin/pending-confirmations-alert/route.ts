@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireSuperAdmin } from '@/lib/auth';
 import { sendPendingConfirmationsIfEveningLogin } from '@/lib/login-alerts';
 
-export const POST = requireAdmin(async () => {
+export const POST = requireSuperAdmin(async () => {
   try {
     const result = await sendPendingConfirmationsIfEveningLogin({ force: true });
     return NextResponse.json({

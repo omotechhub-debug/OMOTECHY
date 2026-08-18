@@ -4,22 +4,37 @@ import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
 import User from '@/lib/models/User';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
-import MpesaTransaction from '@/lib/models/MpesaTransaction';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
 import { upsertCustomerFromPromptedPhone } from '@/lib/upsert-customer';
 
+function authorizeMpesa(request: NextRequest) {
+  const token = getTokenFromRequest(request);
+  if (!token) return null;
+  const decoded = verifyToken(token);
+  if (!decoded || !['admin', 'superadmin', 'manager', 'user'].includes(decoded.role)) {
+    return null;
+  }
+  return decoded;
+}
+
+export async function GET(request: NextRequest) {
+  const decoded = authorizeMpesa(request);
+  if (!decoded) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+  }
+  try {
+    await mpesaService.warmupAccessToken();
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ success: false }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // Verify admin authentication
-    const token = getTokenFromRequest(request);
-    if (!token) {
+    const decoded = authorizeMpesa(request);
+    if (!decoded) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-    }
-
-    const decoded = verifyToken(token);
-    // Allow admin, superadmin, manager, and regular users (for shop orders)
-    if (!decoded || !['admin', 'superadmin', 'manager', 'user'].includes(decoded.role)) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 403 });
     }
 
     const { orderId, phoneNumber, amount, paymentType = 'full' } = await request.json();
@@ -39,98 +54,55 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Connect to database
-    await connectDB();
+    const callbackUrl = process.env.MPESA_CALLBACK_URL ||
+      `${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.omotech.co.ke'}/api/mpesa/callback`;
 
-    // Find the order - populate station if needed
-    const order = await Order.findById(orderId).lean();
-    if (!order) {
-      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    }
-
-    // Check if payment is already completed
-    if (order.paymentStatus === 'paid') {
-      return NextResponse.json({ error: 'Order is already paid' }, { status: 400 });
-    }
-
-    // For managers, verify they can only initiate payments for orders in their station
-    if (decoded.role === 'manager') {
-      // Get manager's station from token, or fetch from database if not in token
-      let managerStationId = decoded.stationId || decoded.managedStations?.[0];
-      
-      // If station ID not in token, fetch from database
-      if (!managerStationId) {
-        try {
-          const manager = await User.findById(decoded.userId).select('stationId managedStations').lean();
-          if (manager) {
-            managerStationId = manager.stationId || manager.managedStations?.[0];
-            console.log('📥 Fetched manager station from database:', managerStationId);
-          }
-        } catch (error) {
-          console.error('Error fetching manager station:', error);
-        }
-      }
-      
-      console.log('🔍 Manager payment authorization check:', {
-        managerRole: decoded.role,
-        managerStationId: managerStationId,
-        orderStation: order.station,
-        orderStationId: order.station?.stationId || order.stationId
-      });
-      
-      // Get order's station ID - handle both populated and unpopulated cases
-      let orderStationId = null;
-      
-      if (order.station?.stationId) {
-        // Handle populated station (ObjectId object)
-        if (typeof order.station.stationId === 'object' && order.station.stationId._id) {
-          orderStationId = order.station.stationId._id.toString();
-        } else if (typeof order.station.stationId === 'string') {
-          orderStationId = order.station.stationId;
-        } else {
-          orderStationId = order.station.stationId.toString();
-        }
-      } else if (order.stationId) {
-        // Fallback to direct stationId field if it exists
-        orderStationId = order.stationId.toString();
-      }
-      
-      // Only enforce station check if both IDs are available
-      if (managerStationId && orderStationId) {
-        const managerStationIdStr = managerStationId.toString();
-        
-        if (managerStationIdStr !== orderStationId) {
-          console.log('❌ Station mismatch:', {
-            managerStation: managerStationIdStr,
-            orderStation: orderStationId
-          });
-          return NextResponse.json({ 
-            error: 'You can only initiate payments for orders in your assigned station' 
-          }, { status: 403 });
-        }
-        console.log('✅ Station match confirmed');
-      } else {
-        // Log warning but allow payment if station info is missing
-        console.warn('⚠️ Station information missing, allowing payment:', {
-          hasManagerStation: !!managerStationId,
-          hasOrderStation: !!orderStationId
-        });
-      }
-    }
-    
-    // Use callback URL from environment variables (prioritize explicit MPESA_CALLBACK_URL)
-    const callbackUrl = process.env.MPESA_CALLBACK_URL || 
-      `${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.econuru.co.ke'}/api/mpesa/callback`;
-    
-    console.log('Using M-Pesa callback URL:', callbackUrl);
-    
-    // Validate callback URL format
     if (!callbackUrl.startsWith('https://')) {
-      console.error('Invalid callback URL - must use HTTPS:', callbackUrl);
       return NextResponse.json({
         success: false,
         error: 'Invalid callback URL configuration - must use HTTPS'
       }, { status: 500 });
+    }
+
+    const [, order] = await Promise.all([
+      mpesaService.warmupAccessToken().catch(() => undefined),
+      connectDB().then(() =>
+        Order.findById(orderId).select('paymentStatus station stationId customer').lean()
+      ),
+    ]);
+
+    if (!order) {
+      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    }
+
+    if (order.paymentStatus === 'paid') {
+      return NextResponse.json({ error: 'Order is already paid' }, { status: 400 });
+    }
+
+    if (decoded.role === 'manager') {
+      const managerToken = decoded as typeof decoded & { stationId?: string; managedStations?: string[] };
+      let managerStationId = managerToken.stationId || managerToken.managedStations?.[0];
+      if (!managerStationId) {
+        const manager = await User.findById(decoded.userId).select('stationId managedStations').lean();
+        managerStationId = manager?.stationId || manager?.managedStations?.[0];
+      }
+
+      let orderStationId = null;
+      if (order.station?.stationId) {
+        if (typeof order.station.stationId === 'object' && order.station.stationId._id) {
+          orderStationId = order.station.stationId._id.toString();
+        } else {
+          orderStationId = order.station.stationId.toString();
+        }
+      } else if (order.stationId) {
+        orderStationId = order.stationId.toString();
+      }
+
+      if (managerStationId && orderStationId && managerStationId.toString() !== orderStationId) {
+        return NextResponse.json({
+          error: 'You can only initiate payments for orders in your assigned station'
+        }, { status: 403 });
+      }
     }
 
     const result = await mpesaService.initiateSTKPush({
@@ -141,8 +113,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (result.success && result.checkoutRequestId) {
-      // Update order with M-Pesa details
-      await Order.findByIdAndUpdate(orderId, {
+      const pendingUpdate = Order.findByIdAndUpdate(orderId, {
         $set: {
           paymentStatus: 'pending',
           paymentMethod: 'mpesa_stk',
@@ -162,19 +133,15 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      try {
-        await upsertCustomerFromPromptedPhone({
-          phone: normalizedLocal,
-          name: order.customer?.name,
-          email: order.customer?.email,
-          address: order.customer?.address,
-          incrementStats: false,
-        });
-      } catch (customerError) {
-        console.error('Failed to save prompted POS phone:', customerError);
-      }
+      void upsertCustomerFromPromptedPhone({
+        phone: normalizedLocal,
+        name: order.customer?.name,
+        email: order.customer?.email,
+        address: order.customer?.address,
+        incrementStats: false,
+      }).catch(() => undefined);
 
-      console.log(`💾 Stored pending payment data for order ${orderId}`);
+      await pendingUpdate;
 
       return NextResponse.json({
         success: true,
@@ -182,13 +149,12 @@ export async function POST(request: NextRequest) {
         checkoutRequestId: result.checkoutRequestId,
         customerMessage: result.customerMessage
       });
-    } else {
-      console.error('M-Pesa STK Push failed:', result);
-      return NextResponse.json({
-        success: false,
-        error: result.error || 'Failed to initiate payment'
-      }, { status: 400 });
     }
+
+    return NextResponse.json({
+      success: false,
+      error: result.error || 'Failed to initiate payment'
+    }, { status: 400 });
 
   } catch (error: any) {
     console.error('Error initiating M-Pesa payment:', error);
@@ -197,4 +163,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-} 
+}
