@@ -14,7 +14,7 @@ export interface STKPushRequest {
   amount: number;
   orderId: string;
   callbackUrl: string;
-  paymentType?: 'full' | 'partial';
+  accountReference?: string;
 }
 
 export interface STKPushResponse {
@@ -293,8 +293,8 @@ class MpesaService {
         PartyB: this.config.shortCode,
         PhoneNumber: formattedPhone,
         CallBackURL: request.callbackUrl,
-        AccountReference: request.orderId,
-        TransactionDesc: `Payment for Order ${request.orderId}`
+        AccountReference: String(request.accountReference || request.orderId).slice(0, 12),
+        TransactionDesc: `Order ${String(request.accountReference || request.orderId).slice(0, 7)}`.slice(0, 13)
       };
 
       const response = await axios.post(

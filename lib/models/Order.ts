@@ -54,6 +54,7 @@ export interface IOrder extends mongoose.Document {
     amount: number;
     phoneNumber: string;
     paymentType: 'full' | 'partial';
+    accountReference?: string;
     initiatedAt: Date;
     status: 'pending' | 'completed' | 'failed';
   };
@@ -281,6 +282,7 @@ const orderSchema = new mongoose.Schema<IOrder>({
       type: String,
       enum: ['full', 'partial']
     },
+    accountReference: String,
     initiatedAt: {
       type: Date,
       default: Date.now

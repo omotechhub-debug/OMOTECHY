@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 import { normalizeKenyaPhoneLocal, resolvePhoneFromOrderFields } from '@/lib/phone-utils';
 import { upsertCustomerFromPaymentContext } from '@/lib/upsert-customer';
 import { sendPurchaseConfirmationIfNeeded } from '@/lib/purchase-confirmation-sms';
-import { findOrderByPaybillAccount } from '@/lib/paybill-account';
+import { findOrderForC2BPayment } from '@/lib/paybill-account';
 
 // SMS notification function
 const sendPaymentConfirmationSMS = async (order: any, amountPaid: number, isFullyPaid: boolean, mpesaReceiptNumber: string) => {
@@ -142,139 +142,128 @@ export async function POST(request: NextRequest) {
     let customerUpdated = false;
     let linkedOrder: any = null;
 
-    // Try to find and update existing order
-    if (billRefNumber && billRefNumber !== '') {
-      try {
-        const order = await findOrderByPaybillAccount(billRefNumber);
+    const attachReceiptAndConnect = async (order: any, alreadyPaid: boolean) => {
+      const identityPhone =
+        resolvePhoneFromOrderFields(order) ||
+        normalizeKenyaPhoneLocal(formattedPhone) ||
+        undefined;
+      const customerName = [firstName, middleName, lastName].filter(Boolean).join(' ') || order.customer?.name || 'Unknown Customer';
+      const phoneForStorage = identityPhone || 'Unknown';
 
-        if (order) {
-          linkedOrder = order;
-          const identityPhone =
-            resolvePhoneFromOrderFields(order) ||
-            normalizeKenyaPhoneLocal(formattedPhone) ||
-            undefined;
-          // Check if payment amount matches order total exactly (strict comparison)
-          const orderTotal = order.totalAmount || 0;
-          const currentRemainingBalance = order.remainingBalance || orderTotal;
-          const isExactPayment = amount === currentRemainingBalance;
-          const isPartialPayment = amount < currentRemainingBalance && amount > 0;
-          const isOverPayment = amount > currentRemainingBalance;
-          
-          // Calculate new remaining balance
-          const newRemainingBalance = Math.max(0, currentRemainingBalance - amount);
-          const isFullyPaid = newRemainingBalance === 0;
-          
-          // Determine payment status
-          let paymentStatus = 'unpaid';
-          if (isFullyPaid) {
-            paymentStatus = 'paid';
-          } else if (isPartialPayment || isExactPayment) {
-            paymentStatus = 'partial';
-          }
+      const receiptFields: Record<string, unknown> = {
+        mpesaReceiptNumber: transID,
+        transactionDate,
+        'mpesaPayment.mpesaReceiptNumber': transID,
+        'mpesaPayment.transactionDate': transactionDate,
+        'mpesaPayment.amountPaid': amount,
+        'mpesaPayment.paymentCompletedAt': new Date(),
+        'pendingMpesaPayment.status': 'completed',
+        c2bPayment: {
+          transactionId: transID,
+          mpesaReceiptNumber: transID,
+          transactionDate,
+          phoneNumber: phoneForStorage,
+          amountPaid: amount,
+          transactionType,
+          billRefNumber: billRefNumber || order.paybillAccount || '',
+          thirdPartyTransID,
+          orgAccountBalance,
+          customerName,
+          paymentCompletedAt: new Date(),
+        },
+        ...(identityPhone ? { 'customer.phone': identityPhone } : {}),
+      };
 
-          // Create partial payment record
-          const partialPayment = {
-            amount: amount,
-            date: transactionDate,
-            mpesaReceiptNumber: transID,
-            phoneNumber: identityPhone || originalPhone,
-            method: 'mpesa_c2b' as const
-          };
-
-          // Update order with new balance and payment info
-          const updateData: any = {
-            remainingBalance: newRemainingBalance,
-            paymentStatus: paymentStatus,
-            paymentMethod: 'mpesa_c2b',
-            $push: {
-              partialPayments: partialPayment
+      if (alreadyPaid) {
+        await Order.findByIdAndUpdate(order._id, { $set: receiptFields });
+      } else {
+        const orderTotal = order.totalAmount || 0;
+        const currentRemainingBalance = order.remainingBalance ?? orderTotal;
+        const newRemainingBalance = Math.max(0, currentRemainingBalance - amount);
+        const isFullyPaid = newRemainingBalance === 0;
+        await Order.findByIdAndUpdate(order._id, {
+          $push: {
+            partialPayments: {
+              amount,
+              date: transactionDate,
+              mpesaReceiptNumber: transID,
+              phoneNumber: phoneForStorage,
+              method: 'mpesa_c2b',
             },
-            $set: {
-              ...(identityPhone ? { 'customer.phone': identityPhone } : {}),
-              'c2bPayment': {
-                transactionId: transID,
-                mpesaReceiptNumber: transID, // M-Pesa receipt is the transID for C2B
-                transactionDate: transactionDate,
-                phoneNumber: identityPhone || originalPhone,
-                amountPaid: amount,
-                transactionType: transactionType,
-                billRefNumber: billRefNumber,
-                thirdPartyTransID: thirdPartyTransID,
-                orgAccountBalance: orgAccountBalance,
-                customerName: [firstName, middleName, lastName].filter(Boolean).join(' '),
-                paymentCompletedAt: new Date()
-              }
-            }
-          };
-
-          // If fully paid, also update top-level payment fields
-          if (isFullyPaid) {
-            updateData.amountPaid = orderTotal;
-            updateData.mpesaReceiptNumber = transID;
-            updateData.transactionDate = transactionDate;
-            updateData.phoneNumber = identityPhone || originalPhone;
-          }
-
-          await Order.findByIdAndUpdate(order._id, updateData);
-
-          // Create M-Pesa transaction record for matched order
-          try {
-            const customerName = [firstName, middleName, lastName].filter(Boolean).join(' ') || order.customer?.name || 'Unknown Customer';
-            
-            // Check if this transaction already exists
-            const existingTransaction = await MpesaTransaction.findOne({ 
-              transactionId: transID 
-            });
-
-            if (!existingTransaction) {
-              const mpesaTransaction = new MpesaTransaction({
-                transactionId: transID,
-                mpesaReceiptNumber: transID,
-                transactionDate: transactionDate,
-                phoneNumber: originalPhone,
-                amountPaid: amount,
-                transactionType: transactionType,
-                billRefNumber: billRefNumber,
-                thirdPartyTransID: thirdPartyTransID,
-                orgAccountBalance: orgAccountBalance,
-                customerName: customerName,
-                paymentCompletedAt: new Date(),
-                isConnectedToOrder: true,
-                connectedOrderId: order._id,
-                connectedAt: new Date(),
-                connectedBy: 'SYSTEM',
-                confirmationStatus: 'confirmed',
-                confirmedBy: 'SYSTEM',
-                confirmedCustomerName: customerName,
-                confirmedAt: new Date(),
-                notes: `AUTO-CONFIRMED: C2B payment matched to order ${order.orderNumber}. Amount: KES ${amount}. ${isFullyPaid ? 'Order fully paid.' : `Remaining balance: KES ${newRemainingBalance}`}`
-              });
-
-              await mpesaTransaction.save();
-              console.log(`📝 M-Pesa transaction created for matched order ${order.orderNumber}: ${transID} (KES ${amount})`);
-            } else {
-              console.log(`⚠️ Transaction ${transID} already exists in database`);
-            }
-          } catch (error) {
-            console.error('Error creating M-Pesa transaction for matched order:', error);
-          }
-
-          orderUpdated = true;
-          
-          if (isFullyPaid) {
-            await sendPurchaseConfirmationIfNeeded(order._id);
-            console.log(`✅ FULL C2B payment for order ${order.orderNumber}: ${transID} (KES ${amount}) - Order fully paid`);
-          } else if (isExactPayment) {
-            console.log(`✅ EXACT C2B payment for order ${order.orderNumber}: ${transID} (KES ${amount}) - Remaining: KES ${newRemainingBalance}`);
-          } else if (isOverPayment) {
-            console.log(`💰 C2B OVERPAYMENT for order ${order.orderNumber}: KES ${amount} (remaining was KES ${currentRemainingBalance}) - ${transID}`);
-          } else if (isPartialPayment) {
-            console.log(`⚠️ PARTIAL C2B payment for order ${order.orderNumber}: KES ${amount} - Remaining: KES ${newRemainingBalance} (${transID})`);
-          }
+          },
+          $set: {
+            ...receiptFields,
+            remainingBalance: newRemainingBalance,
+            remainingAmount: newRemainingBalance,
+            paymentStatus: isFullyPaid ? 'paid' : 'partial',
+            paymentMethod: order.paymentMethod === 'mpesa_stk' ? 'mpesa_stk' : 'mpesa_c2b',
+            amountPaid: isFullyPaid ? orderTotal : Math.min(orderTotal, (Number(order.amountPaid) || 0) + amount),
+            ...(isFullyPaid ? { status: order.status === 'pending' ? 'confirmed' : order.status } : {}),
+          },
+        });
+        if (isFullyPaid) {
+          await sendPurchaseConfirmationIfNeeded(order._id);
         }
-      } catch (error) {
-        console.error('Error updating order:', error);
       }
+
+      const existingTransaction = await MpesaTransaction.findOne({
+        $or: [{ transactionId: transID }, { mpesaReceiptNumber: transID }],
+      });
+      const notes = `AUTO-CONFIRMED: C2B payment matched to order ${order.orderNumber} via account ${order.paybillAccount || billRefNumber || ''}. Amount: KES ${amount}.`;
+
+      if (existingTransaction) {
+        existingTransaction.isConnectedToOrder = true;
+        existingTransaction.connectedOrderId = order._id;
+        existingTransaction.connectedAt = new Date();
+        existingTransaction.connectedBy = 'SYSTEM';
+        existingTransaction.confirmationStatus = 'confirmed';
+        existingTransaction.confirmedBy = 'SYSTEM';
+        existingTransaction.confirmedCustomerName = customerName;
+        existingTransaction.confirmedAt = new Date();
+        existingTransaction.billRefNumber = billRefNumber || order.paybillAccount || existingTransaction.billRefNumber;
+        existingTransaction.phoneNumber = phoneForStorage;
+        existingTransaction.notes = notes;
+        await existingTransaction.save();
+      } else {
+        await MpesaTransaction.create({
+          transactionId: transID,
+          mpesaReceiptNumber: transID,
+          transactionDate,
+          phoneNumber: phoneForStorage,
+          amountPaid: amount,
+          transactionType: transactionType || 'Pay Bill',
+          billRefNumber: billRefNumber || order.paybillAccount || '',
+          thirdPartyTransID,
+          orgAccountBalance,
+          customerName,
+          paymentCompletedAt: new Date(),
+          isConnectedToOrder: true,
+          connectedOrderId: order._id,
+          connectedAt: new Date(),
+          connectedBy: 'SYSTEM',
+          confirmationStatus: 'confirmed',
+          confirmedBy: 'SYSTEM',
+          confirmedCustomerName: customerName,
+          confirmedAt: new Date(),
+          notes,
+        });
+      }
+
+      linkedOrder = order;
+      orderUpdated = true;
+      console.log(`✅ C2B ${transID} attached to order ${order.orderNumber} (account ${order.paybillAccount || billRefNumber || 'n/a'})`);
+    };
+
+    try {
+      const order = await findOrderForC2BPayment(billRefNumber, { amount, receipt: transID });
+      if (order) {
+        const alreadyHasReceipt = [order.mpesaReceiptNumber, order.mpesaPayment?.mpesaReceiptNumber, order.c2bPayment?.mpesaReceiptNumber]
+          .filter(Boolean)
+          .includes(transID);
+        await attachReceiptAndConnect(order, order.paymentStatus === 'paid' || alreadyHasReceipt);
+      }
+    } catch (error) {
+      console.error('Error matching C2B payment to order:', error);
     }
 
     // If no order was found by bill reference, try intelligent matching for till number payments

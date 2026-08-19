@@ -4,7 +4,7 @@ import Order from '@/lib/models/Order';
 import { C2BConfirmationRequest, C2BConfirmationResponse } from '@/lib/mpesa';
 import { normalizeKenyaPhoneLocal, resolvePhoneFromOrderFields } from '@/lib/phone-utils';
 import { upsertCustomerFromPaymentContext } from '@/lib/upsert-customer';
-import { findOrderByPaybillAccount } from '@/lib/paybill-account';
+import { findOrderForC2BPayment } from '@/lib/paybill-account';
 
 export async function POST(request: NextRequest) {
   try {
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     // Try to find and update existing order
     if (billRefNumber && billRefNumber !== '') {
       try {
-        const order = await findOrderByPaybillAccount(billRefNumber);
+        const order = await findOrderForC2BPayment(billRefNumber, { amount, receipt: transID });
 
         if (order) {
           linkedOrder = order;
@@ -78,25 +78,33 @@ export async function POST(request: NextRequest) {
             resolvePhoneFromOrderFields(order) ||
             normalizeKenyaPhoneLocal(formattedPhone) ||
             undefined;
-          // Update order with payment details
           await Order.findByIdAndUpdate(order._id, {
-            paymentStatus: 'paid',
-            paymentMethod: 'mpesa_c2b',
             $set: {
+              paymentStatus: 'paid',
+              paymentMethod: order.paymentMethod === 'mpesa_stk' ? 'mpesa_stk' : 'mpesa_c2b',
+              mpesaReceiptNumber: transID,
+              transactionDate,
+              remainingBalance: 0,
+              remainingAmount: 0,
+              amountPaid: order.totalAmount || amount,
               ...(identityPhone ? { 'customer.phone': identityPhone, phoneNumber: identityPhone } : {}),
-              'c2bPayment': {
+              c2bPayment: {
                 transactionId: transID,
-                mpesaReceiptNumber: transID, // M-Pesa receipt is the transID for C2B
+                mpesaReceiptNumber: transID,
                 transactionDate: transactionDate,
                 phoneNumber: identityPhone || originalPhone,
                 amountPaid: amount,
                 transactionType: transactionType,
-                billRefNumber: billRefNumber,
+                billRefNumber: billRefNumber || order.paybillAccount || '',
                 thirdPartyTransID: thirdPartyTransID,
                 orgAccountBalance: orgAccountBalance,
                 customerName: [firstName, middleName, lastName].filter(Boolean).join(' '),
                 paymentCompletedAt: new Date()
-              }
+              },
+              'mpesaPayment.mpesaReceiptNumber': transID,
+              'mpesaPayment.transactionDate': transactionDate,
+              'mpesaPayment.amountPaid': amount,
+              'pendingMpesaPayment.status': 'completed',
             }
           });
 

@@ -3,6 +3,7 @@ import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
 import { isStkCancelledCode, isStkFailureCode, isStkSuccessCode, mpesaService, parseStkResultCode, STK_PROMPT_WAIT_MS } from '@/lib/mpesa';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
+import { attachUniqueUnconnectedTransaction } from '@/lib/paybill-account';
 import { sendPurchaseConfirmationIfNeeded } from '@/lib/purchase-confirmation-sms';
 
 export async function GET(
@@ -48,8 +49,16 @@ export async function GET(
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
-    // If payment is already completed, return the stored status
+    // If payment is already completed, still try to attach a unique C2B receipt
     if (order.paymentStatus === 'paid' || order.paymentStatus === 'failed') {
+      if (order.paymentStatus === 'paid' && !(order.mpesaReceiptNumber || order.mpesaPayment?.mpesaReceiptNumber)) {
+        await attachUniqueUnconnectedTransaction(order);
+        const refreshed = await Order.findById(order._id);
+        if (refreshed) {
+          order.mpesaReceiptNumber = refreshed.mpesaReceiptNumber;
+          order.mpesaPayment = refreshed.mpesaPayment;
+        }
+      }
       return NextResponse.json({
         success: true,
         order: {
@@ -127,6 +136,12 @@ export async function GET(
         }
       });
       void sendPurchaseConfirmationIfNeeded(order._id).catch(() => undefined);
+      await attachUniqueUnconnectedTransaction({
+        ...order.toObject(),
+        pendingMpesaPayment: order.pendingMpesaPayment,
+        totalAmount: orderTotal,
+        amountPaid: paidAmount,
+      });
     } else if (isStkCancelledCode(resultCode) || isStkFailureCode(resultCode)) {
       // Safaricom often returns 1032 while the PIN prompt is still open.
       // Only trust cancel/fail from the query after the prompt has expired.
