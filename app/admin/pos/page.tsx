@@ -1157,7 +1157,7 @@ Need help? Call us at +254 757 883 799`;
     setShowCancelOption(false);
     let attempts = 0;
     const maxAttempts = 120;
-    const startTime = Date.now();
+    const startedAt = Date.now();
 
     const stopPolling = () => {
       if (paymentPollIntervalRef.current) {
@@ -1209,6 +1209,7 @@ Need help? Call us at +254 757 883 799`;
       }
 
       attempts++;
+      const elapsedMs = Date.now() - startedAt;
 
       try {
         const orderResponse = await fetch(`/api/orders/${orderId}`, {
@@ -1237,7 +1238,8 @@ Need help? Call us at +254 757 883 799`;
           }
         }
 
-        if (waitMode !== 'stk' || !checkoutRequestId) {
+        // Let the STK prompt stay open. Query M-Pesa only as a backup after a few seconds.
+        if (waitMode !== 'stk' || !checkoutRequestId || elapsedMs < 8000) {
           return;
         }
 
@@ -1248,7 +1250,7 @@ Need help? Call us at +254 757 883 799`;
           },
         });
         const data = await response.json();
-        if (!data.success || !data.order) {
+        if (!data.success || !data.order || data.isPending) {
           return;
         }
 
@@ -1257,7 +1259,7 @@ Need help? Call us at +254 757 883 799`;
           markSuccess(order);
           return;
         }
-        if (data.isPending || order.paymentStatus === 'pending') {
+        if (order.paymentStatus === 'pending') {
           return;
         }
         if (order.paymentStatus === 'failed') {
@@ -1276,8 +1278,8 @@ Need help? Call us at +254 757 883 799`;
 
     setTimeout(() => {
       poll();
-      paymentPollIntervalRef.current = setInterval(poll, 4000);
-    }, 2000);
+      paymentPollIntervalRef.current = setInterval(poll, 3000);
+    }, 2500);
   };
 
   // Cleanup polling on unmount

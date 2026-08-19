@@ -55,6 +55,14 @@ export function isStkFailureCode(code: string) {
   return true;
 }
 
+/** STK prompt stays on the phone ~60–90s. Querying before that often returns 1032 even if the customer has not cancelled. */
+export const STK_PROMPT_WAIT_MS = 80_000;
+
+export function isStkStillProcessingMessage(value: unknown) {
+  const text = String(value || '').toLowerCase();
+  return text.includes('being processed') || text.includes('the transaction is being processed');
+}
+
 // C2B Register URL interfaces
 export interface C2BRegisterURLRequest {
   shortCode: string;
@@ -372,21 +380,35 @@ class MpesaService {
       );
 
       console.log('STK status query response:', JSON.stringify(response.data, null, 2));
+      if (
+        response.data?.errorCode === '500.001.1001' ||
+        isStkStillProcessingMessage(response.data?.errorMessage) ||
+        isStkStillProcessingMessage(response.data?.ResultDesc) ||
+        isStkStillProcessingMessage(response.data?.ResponseDescription)
+      ) {
+        return {
+          success: true,
+          isPending: true,
+          message: 'Transaction is still being processed by Safaricom',
+        };
+      }
       return response.data;
     } catch (error: any) {
       console.error('STK status query error:', error);
       
-      // Check if this is the "transaction is being processed" response
-      if (error.response?.status === 500 && 
-          error.response?.data?.errorCode === '500.001.1001' &&
-          error.response?.data?.errorMessage === 'The transaction is being processed') {
-        
+      const errorData = error.response?.data || {};
+      if (
+        errorData.errorCode === '500.001.1001' ||
+        isStkStillProcessingMessage(errorData.errorMessage) ||
+        isStkStillProcessingMessage(errorData.ResultDesc) ||
+        error.response?.status === 500
+      ) {
         console.log('Transaction is still being processed by Safaricom - this is normal');
         return {
           success: true,
           isPending: true,
           resultDesc: 'Transaction is being processed',
-          requestId: error.response.data.requestId,
+          requestId: errorData.requestId,
           message: 'Transaction is still being processed by Safaricom'
         };
       }

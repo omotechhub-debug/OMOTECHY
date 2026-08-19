@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
-import { isStkCancelledCode, isStkFailureCode, isStkSuccessCode, mpesaService, parseStkResultCode } from '@/lib/mpesa';
+import { isStkCancelledCode, isStkFailureCode, isStkSuccessCode, mpesaService, parseStkResultCode, STK_PROMPT_WAIT_MS } from '@/lib/mpesa';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
 import { sendPurchaseConfirmationIfNeeded } from '@/lib/purchase-confirmation-sms';
 
@@ -68,86 +68,38 @@ export async function GET(
     // Calculate time since payment was initiated
     const paymentInitiatedAt = order.paymentInitiatedAt || order.createdAt || new Date();
     const timeSinceInitiation = Date.now() - new Date(paymentInitiatedAt).getTime();
-    const minutesSinceInitiation = timeSinceInitiation / (1000 * 60);
-    
-    // If payment was initiated less than 3 minutes ago, always treat as pending
-    // This prevents premature "failed" status when M-Pesa hasn't processed the request yet
-    const isVeryRecent = minutesSinceInitiation < 3;
+    const promptStillOpen = timeSinceInitiation < STK_PROMPT_WAIT_MS;
     
     // If payment is still pending, query M-Pesa for current status
     const statusResponse = await mpesaService.querySTKStatus(checkoutRequestId);
     const resultCode = parseStkResultCode(statusResponse);
     const resultDesc = String(statusResponse.ResultDesc || statusResponse.resultDesc || statusResponse.message || '');
 
-    // Check if the status query was successful
+    const pendingPayload = (message: string) => NextResponse.json({
+      success: true,
+      order: {
+        _id: order._id,
+        orderNumber: order.orderNumber,
+        paymentStatus: 'pending',
+        checkoutRequestId: order.checkoutRequestId,
+        phoneNumber: order.phoneNumber,
+        mpesaReceiptNumber: order.mpesaReceiptNumber,
+        amountPaid: order.amountPaid,
+        resultCode: order.resultCode,
+        resultDescription: order.resultDescription,
+        paymentInitiatedAt: order.paymentInitiatedAt,
+        paymentCompletedAt: order.paymentCompletedAt
+      },
+      message,
+      isPending: true
+    });
+
     if (statusResponse.success === false) {
-      console.error('M-Pesa status query failed:', statusResponse.error);
-      
-      // If payment was initiated very recently, keep it as pending even if query fails
-      // M-Pesa might not have the transaction in their system yet
-      if (isVeryRecent) {
-        console.log(`Payment initiated ${minutesSinceInitiation.toFixed(1)} minutes ago - keeping as pending despite query error`);
-        return NextResponse.json({
-          success: true,
-          order: {
-            _id: order._id,
-            orderNumber: order.orderNumber,
-            paymentStatus: 'pending',
-            checkoutRequestId: order.checkoutRequestId,
-            phoneNumber: order.phoneNumber,
-            mpesaReceiptNumber: order.mpesaReceiptNumber,
-            amountPaid: order.amountPaid,
-            resultCode: order.resultCode,
-            resultDescription: order.resultDescription,
-            paymentInitiatedAt: order.paymentInitiatedAt,
-            paymentCompletedAt: order.paymentCompletedAt
-          },
-          message: 'Transaction is still being processed. Please wait...',
-          isPending: true
-        });
-      }
-      
-      // Return current order status with error info (but don't update to failed if it's still pending)
-      return NextResponse.json({
-        success: true,
-        order: {
-          _id: order._id,
-          orderNumber: order.orderNumber,
-          paymentStatus: order.paymentStatus, // Keep existing status
-          checkoutRequestId: order.checkoutRequestId,
-          phoneNumber: order.phoneNumber,
-          mpesaReceiptNumber: order.mpesaReceiptNumber,
-          amountPaid: order.amountPaid,
-          resultCode: order.resultCode,
-          resultDescription: order.resultDescription,
-          paymentInitiatedAt: order.paymentInitiatedAt,
-          paymentCompletedAt: order.paymentCompletedAt
-        },
-        error: 'Failed to query M-Pesa status',
-        mpesaError: statusResponse.error
-      });
+      return pendingPayload('Transaction is still being processed. Please wait...');
     }
 
-    // Safaricom "still processing" (not a user cancel)
-    if (statusResponse.isPending && !resultCode) {
-      return NextResponse.json({
-        success: true,
-        order: {
-          _id: order._id,
-          orderNumber: order.orderNumber,
-          paymentStatus: 'pending',
-          checkoutRequestId: order.checkoutRequestId,
-          phoneNumber: order.phoneNumber,
-          mpesaReceiptNumber: order.mpesaReceiptNumber,
-          amountPaid: order.amountPaid,
-          resultCode: order.resultCode,
-          resultDescription: order.resultDescription,
-          paymentInitiatedAt: order.paymentInitiatedAt,
-          paymentCompletedAt: order.paymentCompletedAt
-        },
-        message: statusResponse.message || 'Transaction is still being processed',
-        isPending: true
-      });
+    if (statusResponse.isPending) {
+      return pendingPayload(statusResponse.message || 'Transaction is still being processed');
     }
 
     if (isStkSuccessCode(resultCode)) {
@@ -168,6 +120,12 @@ export async function GET(
       });
       void sendPurchaseConfirmationIfNeeded(order._id).catch(() => undefined);
     } else if (isStkCancelledCode(resultCode) || isStkFailureCode(resultCode)) {
+      // Safaricom often returns 1032 while the PIN prompt is still open.
+      // Only trust cancel/fail from the query after the prompt has expired.
+      // Real cancels still arrive immediately via the STK callback.
+      if (promptStillOpen) {
+        return pendingPayload('Waiting for the customer to complete or cancel the M-Pesa prompt...');
+      }
       await Order.findByIdAndUpdate(order._id, {
         $set: {
           paymentStatus: 'failed',
@@ -179,6 +137,8 @@ export async function GET(
           'pendingMpesaPayment.status': 'failed',
         }
       });
+    } else {
+      return pendingPayload('Waiting for M-Pesa confirmation...');
     }
 
     // Fetch updated order
