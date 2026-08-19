@@ -36,9 +36,12 @@ export async function GET(
       }, { status: 400 });
     }
 
-    // Find the order
     const order = await Order.findOne({
-      checkoutRequestId: checkoutRequestId
+      $or: [
+        { checkoutRequestId },
+        { 'pendingMpesaPayment.checkoutRequestId': checkoutRequestId },
+        { 'mpesaPayment.checkoutRequestId': checkoutRequestId },
+      ],
     });
 
     if (!order) {
@@ -55,7 +58,7 @@ export async function GET(
           paymentStatus: order.paymentStatus,
           checkoutRequestId: order.checkoutRequestId,
           phoneNumber: order.phoneNumber,
-          mpesaReceiptNumber: order.mpesaReceiptNumber,
+          mpesaReceiptNumber: order.mpesaReceiptNumber || order.mpesaPayment?.mpesaReceiptNumber,
           amountPaid: order.amountPaid,
           resultCode: order.resultCode,
           resultDescription: order.resultDescription,
@@ -103,12 +106,9 @@ export async function GET(
     }
 
     if (isStkSuccessCode(resultCode)) {
-      // stkpushquery does not return the M-Pesa receipt. Wait for the callback
-      // so the order gets the real transaction code. Only fall back after the
-      // prompt window so POS is not stuck if the callback never arrives.
-      if (promptStillOpen) {
-        return pendingPayload('M-Pesa reported success. Waiting for the confirmation callback...');
-      }
+      // Query ResultCode 0 means the customer already paid. Mark paid immediately
+      // so POS is not stuck waiting for a callback. The callback still attaches
+      // the M-Pesa receipt when it arrives.
       const paidAmount = Number(order.pendingMpesaPayment?.amount || order.totalAmount) || 0;
       const orderTotal = Number(order.totalAmount) || 0;
       const remaining = Math.max(0, orderTotal - paidAmount);
@@ -160,7 +160,7 @@ export async function GET(
         paymentStatus: updatedOrder.paymentStatus,
         checkoutRequestId: updatedOrder.checkoutRequestId,
         phoneNumber: updatedOrder.phoneNumber,
-        mpesaReceiptNumber: updatedOrder.mpesaReceiptNumber,
+        mpesaReceiptNumber: updatedOrder.mpesaReceiptNumber || updatedOrder.mpesaPayment?.mpesaReceiptNumber,
         amountPaid: updatedOrder.amountPaid,
         resultCode: updatedOrder.resultCode,
         resultDescription: updatedOrder.resultDescription,

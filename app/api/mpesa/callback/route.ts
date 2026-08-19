@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
       const matchesRemaining = Math.round(amountPaid) === Math.round(Number(currentRemainingBalance) || 0);
       const isExactAmountMatch = matchesRequested || matchesTotal || matchesRemaining;
       
-      console.log(`💰 Payment Analysis: Type=${paymentType}, Requested=${requestedAmount}, Paid=${amountPaid}, OrderTotal=${orderTotal}, RemainingBalance=${currentRemainingBalance}`);
+      console.log(`💰 Payment Analysis: Type=${paymentType}, Requested=${requestedAmount}, Paid=${amountPaid}, OrderTotal=${orderTotal}, RemainingBalance=${currentRemainingBalance}, match=${isExactAmountMatch}`);
 
       const receiptFields = mpesaReceiptNumber ? {
         mpesaReceiptNumber,
@@ -195,13 +195,30 @@ export async function POST(request: NextRequest) {
         : null;
 
       if (existingTransaction) {
-        console.log(`⚠️ Transaction ${mpesaReceiptNumber} already exists — still attaching receipt to order`);
-        if (mpesaReceiptNumber && !order.mpesaReceiptNumber && !order.mpesaPayment?.mpesaReceiptNumber) {
-          await Order.findByIdAndUpdate(order._id, { $set: receiptFields });
-        }
+        console.log(`⚠️ Transaction ${mpesaReceiptNumber} already exists — attaching receipt and confirming order`);
+        const previousPaid = (order.partialPayments || []).reduce(
+          (sum: number, payment: { amount?: number }) => sum + (Number(payment.amount) || 0),
+          0
+        );
+        const newAmountPaid = Math.max(previousPaid, amountPaid, Number(order.amountPaid) || 0);
+        const newRemainingBalance = Math.max(0, orderTotal - newAmountPaid);
+        const isFullyPaid = newRemainingBalance === 0 && newAmountPaid > 0;
+        await Order.findByIdAndUpdate(order._id, {
+          $set: {
+            ...receiptFields,
+            paymentStatus: isFullyPaid ? 'paid' : (newAmountPaid > 0 ? 'partial' : order.paymentStatus),
+            amountPaid: newAmountPaid,
+            remainingBalance: newRemainingBalance,
+            remainingAmount: newRemainingBalance,
+            paymentMethod: 'mpesa_stk',
+            paymentCompletedAt: new Date(),
+            'pendingMpesaPayment.status': 'completed',
+            ...(isFullyPaid ? { status: order.status === 'pending' ? 'confirmed' : order.status } : {}),
+          }
+        });
         return NextResponse.json({ 
           success: true, 
-          message: 'Duplicate transaction ignored' 
+          message: 'Duplicate transaction reconciled' 
         });
       }
 
@@ -218,8 +235,9 @@ export async function POST(request: NextRequest) {
       const promptedCustomerPhone = localFromPrompt || localFromExistingCustomer || undefined;
       const phoneForStorage = promptedCustomerPhone || 'Unknown';
       
-      if (isExactAmountMatch) {
-        // EXACT AMOUNT MATCH: Auto-process the payment and subtract from balance
+      // Any successful STK (ResultCode 0) is a real payment. Apply it even if
+      // the cart total changed after the first prompt, so POS can detect paid.
+      if (amountPaid > 0 || mpesaReceiptNumber) {
         try {
           const previousPaid = (order.partialPayments || []).reduce(
             (sum: number, payment: { amount?: number }) => sum + (Number(payment.amount) || 0),

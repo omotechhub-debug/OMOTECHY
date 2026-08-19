@@ -1158,7 +1158,6 @@ Need help? Call us at +254 757 883 799`;
     let attempts = 0;
     const maxAttempts = 120;
     const startedAt = Date.now();
-    let paidWithoutReceiptSince: number | null = null;
 
     const stopPolling = () => {
       if (paymentPollIntervalRef.current) {
@@ -1224,19 +1223,12 @@ Need help? Call us at +254 757 883 799`;
           const orderData = await orderResponse.json();
           const order = orderData.order;
           if (orderData.success && order) {
-            if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
-              const receipt =
-                order.mpesaReceiptNumber ||
-                order.mpesaPayment?.mpesaReceiptNumber ||
-                order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber;
-              if (receipt || waitMode !== 'stk') {
-                markSuccess(order);
-                return;
-              }
-              if (!paidWithoutReceiptSince) paidWithoutReceiptSince = Date.now();
-              if (Date.now() - paidWithoutReceiptSince > 20000) {
-                markSuccess(order);
-              }
+            const receipt =
+              order.mpesaReceiptNumber ||
+              order.mpesaPayment?.mpesaReceiptNumber ||
+              order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber;
+            if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial' || receipt) {
+              markSuccess(order);
               return;
             }
             if (order.paymentStatus === 'failed') {
@@ -1251,7 +1243,7 @@ Need help? Call us at +254 757 883 799`;
         }
 
         // Let the STK prompt stay open. Query M-Pesa only as a backup after a few seconds.
-        if (waitMode !== 'stk' || !checkoutRequestId || elapsedMs < 8000) {
+        if (waitMode !== 'stk' || !checkoutRequestId || elapsedMs < 4000) {
           return;
         }
 
@@ -1262,24 +1254,23 @@ Need help? Call us at +254 757 883 799`;
           },
         });
         const data = await response.json();
-        if (!data.success || !data.order || data.isPending) {
+        if (!data.success || !data.order) {
           return;
         }
 
         const order = data.order;
-        if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
-          const receipt = order.mpesaReceiptNumber || order.mpesaPayment?.mpesaReceiptNumber;
-          if (receipt) {
-            markSuccess(order);
-            return;
-          }
-          if (!paidWithoutReceiptSince) paidWithoutReceiptSince = Date.now();
-          if (Date.now() - paidWithoutReceiptSince > 20000) {
-            markSuccess(order);
-          }
+        const queryResultCode = String(data.mpesaResponse?.ResultCode ?? data.mpesaResponse?.resultCode ?? '');
+        const receipt = order.mpesaReceiptNumber || order.mpesaPayment?.mpesaReceiptNumber;
+        if (
+          order.paymentStatus === 'paid' ||
+          order.paymentStatus === 'partial' ||
+          receipt ||
+          queryResultCode === '0'
+        ) {
+          markSuccess(order);
           return;
         }
-        if (order.paymentStatus === 'pending') {
+        if (data.isPending || order.paymentStatus === 'pending') {
           return;
         }
         if (order.paymentStatus === 'failed') {
