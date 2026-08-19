@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
-import { assignPaybillAccount, getPaybillNumber } from '@/lib/paybill-account';
+import { getPaybillNumber } from '@/lib/paybill-account';
+import { isMongoObjectId, mpesaOrderIdFromOrder } from '@/lib/order-number';
 import { sendPaybillInstructionsSms } from '@/lib/paybill-sms';
 
 function authorizePos(request: NextRequest) {
@@ -56,8 +57,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Order is already paid' }, { status: 400 });
     }
 
-    if (!order.paybillAccount) {
-      order.paybillAccount = await assignPaybillAccount(order.customer?.phone, String(order._id));
+    if (!order.paybillAccount || isMongoObjectId(String(order.paybillAccount))) {
+      order.paybillAccount = mpesaOrderIdFromOrder(order);
     }
     order.paymentMethod = 'mpesa_c2b';
     if (order.paymentStatus === 'unpaid' || order.paymentStatus === 'failed') {

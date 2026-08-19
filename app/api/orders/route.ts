@@ -13,6 +13,7 @@ import { applyLockedInPromotion, updatePromotionStatuses } from '@/lib/promotion
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
 import { confirmExistingPaidPendingOrders } from '@/lib/order-auto-confirm';
 import { upsertCustomerFromPromptedPhone } from '@/lib/upsert-customer';
+import { generateOrderIds } from '@/lib/order-number';
 
 const SORT_FIELDS: Record<string, string> = {
   createdAt: 'createdAt',
@@ -472,6 +473,7 @@ export async function POST(request: NextRequest) {
         ? Math.max(0, totalAmount - partialAmount)
         : totalAmount;
     const paymentMethod = orderData.paymentMethod || (orderData.paymentStatus === 'paid' ? 'cash' : undefined);
+    const orderIds = generateOrderIds();
 
     // Create new order
     const order = new Order({
@@ -498,7 +500,8 @@ export async function POST(request: NextRequest) {
       status: orderData.paymentStatus === 'paid' && (!orderData.status || orderData.status === 'pending')
         ? 'confirmed'
         : (orderData.status || 'pending'),
-      orderNumber: generateOrderNumber(),
+      orderNumber: orderIds.orderNumber,
+      paybillAccount: orderIds.orderId,
       promoCode: promoCode || '',
       promoDiscount: promoDiscount || 0,
       promotionDetails: promotionDetails || undefined,
@@ -586,11 +589,4 @@ export async function POST(request: NextRequest) {
       error: 'Internal server error' 
     }, { status: 500 });
   }
-}
-
-// Generate unique order number
-function generateOrderNumber(): string {
-  const timestamp = Date.now().toString().slice(-6);
-  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-  return `ORD-${timestamp}-${random}`;
 } 

@@ -283,6 +283,14 @@ class MpesaService {
       // For CustomerBuyGoodsOnline, PartyB should typically match BusinessShortCode
 
 
+      const accountReference = String(request.accountReference || '').trim().slice(0, 12);
+      if (!accountReference) {
+        return {
+          success: false,
+          error: 'Missing order account reference for M-Pesa',
+        };
+      }
+
       const payload = {
         BusinessShortCode: this.config.shortCode,
         Password: password,
@@ -293,8 +301,8 @@ class MpesaService {
         PartyB: this.config.shortCode,
         PhoneNumber: formattedPhone,
         CallBackURL: request.callbackUrl,
-        AccountReference: String(request.accountReference || request.orderId).slice(0, 12),
-        TransactionDesc: `Order ${String(request.accountReference || request.orderId).slice(0, 7)}`.slice(0, 13)
+        AccountReference: accountReference,
+        TransactionDesc: `Order ${accountReference}`.slice(0, 13)
       };
 
       const response = await axios.post(

@@ -5,7 +5,8 @@ import Order from '@/lib/models/Order';
 import User from '@/lib/models/User';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
-import { assignPaybillAccount } from '@/lib/paybill-account';
+import { upsertCustomerFromPromptedPhone } from '@/lib/upsert-customer';
+import { mpesaOrderIdFromOrder } from '@/lib/order-number';
 
 function authorizeMpesa(request: NextRequest) {
   const token = getTokenFromRequest(request);
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
     const [, order] = await Promise.all([
       mpesaService.warmupAccessToken().catch(() => undefined),
       connectDB().then(() =>
-        Order.findById(orderId).select('paymentStatus station stationId customer paybillAccount').lean()
+        Order.findById(orderId).select('paymentStatus station stationId customer paybillAccount orderNumber pendingMpesaPayment').lean()
       ),
     ]);
 
@@ -105,14 +106,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const accountReference =
-      String(order.paybillAccount || '').trim() ||
-      await assignPaybillAccount(normalizedLocal, String(orderId));
+    const accountReference = mpesaOrderIdFromOrder(order);
 
     const result = await mpesaService.initiateSTKPush({
       phoneNumber: normalizedLocal,
       amount: parseFloat(amount),
-      orderId,
+      orderId: accountReference,
       accountReference,
       callbackUrl
     });

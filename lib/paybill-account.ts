@@ -1,6 +1,7 @@
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
+import { orderNumberFromShortId } from '@/lib/order-number';
 
 export function getPaybillNumber() {
   return (process.env.MPESA_SHORT_CODE || process.env.MPESA_PAYBILL || '').trim();
@@ -92,12 +93,14 @@ function missingReceiptQuery(receipt?: string) {
 
 async function findOpenOrderByAccount(raw: string) {
   const variants = accountVariants(raw);
+  const reconstructed = orderNumberFromShortId(raw);
   const order = await Order.findOne({
     paymentStatus: { $in: ['unpaid', 'pending', 'partial'] },
     $or: [
       { paybillAccount: { $in: variants } },
       { 'pendingMpesaPayment.accountReference': { $in: variants } },
       { orderNumber: raw },
+      ...(reconstructed ? [{ orderNumber: reconstructed }] : []),
     ],
   }).sort({ createdAt: -1 });
 
@@ -161,6 +164,7 @@ export async function findOrderForC2BPayment(
             { paybillAccount: { $in: variants } },
             { 'pendingMpesaPayment.accountReference': { $in: variants } },
             { orderNumber: raw },
+            ...(orderNumberFromShortId(raw) ? [{ orderNumber: orderNumberFromShortId(raw) }] : []),
           ],
         },
         missingReceiptQuery(options.receipt),
