@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
     console.log('Processing payment for order:', order.orderNumber);
 
     // Update payment status based on result code
-    if (resultCode === 0) {
+    if (Number(resultCode) === 0) {
       // Payment successful
       const callbackMetadata = stkCallback.CallbackMetadata?.Item || [];
       
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
       const amountPaid = parseFloat(amount) || 0;
       
       // Check if the payment matches what was requested exactly
-      const isExactAmountMatch = amountPaid === parseFloat(requestedAmount);
+      const isExactAmountMatch = Math.round(amountPaid) === Math.round(parseFloat(String(requestedAmount)) || 0);
       
       console.log(`💰 Payment Analysis: Type=${paymentType}, Requested=${requestedAmount}, Paid=${amountPaid}, OrderTotal=${orderTotal}, RemainingBalance=${currentRemainingBalance}`);
 
@@ -236,16 +236,17 @@ export async function POST(request: NextRequest) {
 
           // Update order with new balance and payment info
           const updateData: any = {
-            remainingBalance: newRemainingBalance,
-            paymentStatus: isFullyPaid ? 'paid' : 'partial',
-            paymentMethod: 'mpesa_stk',
-            resultCode: resultCode,
-            resultDescription: resultDesc,
-            paymentCompletedAt: new Date(),
             $push: {
               partialPayments: partialPayment
             },
             $set: {
+              remainingBalance: newRemainingBalance,
+              remainingAmount: newRemainingBalance,
+              paymentStatus: isFullyPaid ? 'paid' : 'partial',
+              paymentMethod: 'mpesa_stk',
+              resultCode: resultCode,
+              resultDescription: resultDesc,
+              paymentCompletedAt: new Date(),
               'mpesaPayment.checkoutRequestId': checkoutRequestId,
               'mpesaPayment.mpesaReceiptNumber': mpesaReceiptNumber,
               'mpesaPayment.transactionDate': transactionDateObj,
@@ -256,16 +257,17 @@ export async function POST(request: NextRequest) {
               'mpesaPayment.paymentCompletedAt': new Date(),
               'pendingMpesaPayment.status': 'completed',
               ...(promptedCustomerPhone ? { 'customer.phone': promptedCustomerPhone } : {}),
+              ...(isFullyPaid ? {
+                amountPaid: orderTotal,
+                remainingBalance: 0,
+                remainingAmount: 0,
+                status: 'confirmed',
+                mpesaReceiptNumber: mpesaReceiptNumber,
+                transactionDate: transactionDateObj,
+                phoneNumber: phoneForStorage,
+              } : {}),
             }
           };
-
-          // If fully paid, also update top-level payment fields
-          if (isFullyPaid) {
-            updateData.amountPaid = orderTotal;
-            updateData.mpesaReceiptNumber = mpesaReceiptNumber;
-            updateData.transactionDate = transactionDateObj;
-            updateData.phoneNumber = phoneForStorage;
-          }
 
           await Order.findByIdAndUpdate(order._id, updateData);
 
@@ -342,9 +344,9 @@ export async function POST(request: NextRequest) {
 
           // Update order basic payment info but keep payment status unchanged
           await Order.findByIdAndUpdate(order._id, {
-            resultCode: resultCode,
-            resultDescription: resultDesc,
             $set: {
+              resultCode: resultCode,
+              resultDescription: resultDesc,
               'mpesaPayment.resultCode': resultCode,
               'mpesaPayment.resultDescription': resultDesc,
               'mpesaPayment.paymentCompletedAt': new Date(),
@@ -385,12 +387,12 @@ export async function POST(request: NextRequest) {
     } else {
       // Payment failed or cancelled
       await Order.findByIdAndUpdate(order._id, {
-        paymentStatus: 'failed',
-        paymentMethod: 'mpesa_stk',
-        resultCode: resultCode,
-        resultDescription: resultDesc,
-        paymentCompletedAt: new Date(),
         $set: {
+          paymentStatus: 'failed',
+          paymentMethod: 'mpesa_stk',
+          resultCode: resultCode,
+          resultDescription: resultDesc,
+          paymentCompletedAt: new Date(),
           'mpesaPayment.resultCode': resultCode,
           'mpesaPayment.resultDescription': resultDesc,
           'mpesaPayment.paymentCompletedAt': new Date(),

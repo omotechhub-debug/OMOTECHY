@@ -1147,7 +1147,6 @@ Need help? Call us at +254 757 883 799`;
 
   // Payment polling function - checks database first, then M-Pesa if needed
   const startPaymentPolling = (checkoutRequestId: string | null, orderId: string, waitMode: 'stk' | 'manual' = checkoutRequestId ? 'stk' : 'manual') => {
-    // Clear any existing polling
     if (paymentPollIntervalRef.current) {
       clearInterval(paymentPollIntervalRef.current);
     }
@@ -1155,11 +1154,49 @@ Need help? Call us at +254 757 883 799`;
     paymentWaitModeRef.current = waitMode;
     setPaymentWaitMode(waitMode);
     setCheckingPayment(true);
-    setShowCancelOption(false); // Reset cancel option when starting new polling
+    setShowCancelOption(false);
     let attempts = 0;
-    const maxAttempts = 120; // Poll for up to 10 minutes (120 * 5 seconds)
-    const dbOnlyPeriod = 24; // Check database only for first 2 minutes (24 * 5 seconds = 2 minutes)
+    const maxAttempts = 120;
     const startTime = Date.now();
+
+    const stopPolling = () => {
+      if (paymentPollIntervalRef.current) {
+        clearInterval(paymentPollIntervalRef.current);
+        paymentPollIntervalRef.current = null;
+      }
+    };
+
+    const markSuccess = (order: any) => {
+      const isPartial = order.paymentStatus === 'partial';
+      const amountPaid = order.partialPayments?.length
+        ? order.partialPayments[order.partialPayments.length - 1].amount
+        : (order.amountPaid || 0);
+      const remainingBalance = order.remainingBalance || 0;
+      setCheckingPayment(false);
+      setPaymentStatus('success');
+      setPaymentMessage(isPartial
+        ? `Partial payment successful! Amount paid: Ksh ${amountPaid.toLocaleString()}, Remaining: Ksh ${remainingBalance.toLocaleString()}. Receipt: ${order.mpesaReceiptNumber || order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber || 'N/A'}`
+        : `Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`);
+      if (!isPartial) {
+        void sendPaidPurchaseSms(orderId);
+      }
+      setPaymentStatusDialogOpen(true);
+      setCustomerInfo((prev) => ({
+        ...prev,
+        paymentStatus: order.paymentStatus as 'paid' | 'partial',
+        partialAmount: isPartial ? String(amountPaid) : prev.partialAmount,
+      }));
+      stopPolling();
+    };
+
+    const markFailed = (message: string) => {
+      setCheckingPayment(false);
+      setPaymentStatus('failed');
+      setPaymentMessage(message);
+      setPaymentStatusDialogOpen(true);
+      setCustomerInfo((prev) => ({ ...prev, paymentStatus: 'unpaid' }));
+      stopPolling();
+    };
 
     const poll = async () => {
       if (attempts >= maxAttempts) {
@@ -1167,267 +1204,80 @@ Need help? Call us at +254 757 883 799`;
           finishManualPaybillOrder();
           return;
         }
-        // Timeout - stop polling
-        setCheckingPayment(false);
-        setPaymentStatus('failed');
-        setPaymentMessage('Payment verification timeout. The transaction may have been cancelled or is still processing. Please check the order manually.');
-        setPaymentStatusDialogOpen(true);
-        if (paymentPollIntervalRef.current) {
-          clearInterval(paymentPollIntervalRef.current);
-          paymentPollIntervalRef.current = null;
-        }
+        markFailed('Payment verification timeout. The transaction may have been cancelled or is still processing. Please check the order manually.');
         return;
       }
 
       attempts++;
-      const elapsedMinutes = (Date.now() - startTime) / (1000 * 60);
 
       try {
-        // For first 2 minutes, check database only (faster, no M-Pesa API calls)
-        // After 2 minutes, also check M-Pesa status
-        if (attempts <= dbOnlyPeriod) {
-          // Check database only
-          const orderResponse = await fetch(`/api/orders/${orderId}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          });
+        const orderResponse = await fetch(`/api/orders/${orderId}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
 
-          if (orderResponse.ok) {
-            const orderData = await orderResponse.json();
-            
-            if (orderData.success && orderData.order) {
-              const order = orderData.order;
-              
-              // Check if payment is completed (success) - includes both paid and partial
-              if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
-                // Payment successful (full or partial)
-                setCheckingPayment(false);
-                setPaymentStatus('success');
-                const isPartial = order.paymentStatus === 'partial';
-                const amountPaid = order.partialPayments && order.partialPayments.length > 0 
-                  ? order.partialPayments[order.partialPayments.length - 1].amount 
-                  : (order.amountPaid || 0);
-                const remainingBalance = order.remainingBalance || 0;
-                
-                const successMessage = isPartial
-                  ? `Partial payment successful! Amount paid: Ksh ${amountPaid.toLocaleString()}, Remaining: Ksh ${remainingBalance.toLocaleString()}. Receipt: ${order.mpesaReceiptNumber || order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber || 'N/A'}`
-                  : `Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`;
-                
-                if (!isPartial) {
-                  void sendPaidPurchaseSms(orderId);
-                }
-                setPaymentMessage(successMessage);
-                setPaymentStatusDialogOpen(true);
-                setCustomerInfo(prev => ({ 
-                  ...prev, 
-                  paymentStatus: order.paymentStatus as 'paid' | 'partial',
-                  partialAmount: isPartial ? amountPaid.toString() : prev.partialAmount
-                }));
-                
-                // Clear polling
-                if (paymentPollIntervalRef.current) {
-                  clearInterval(paymentPollIntervalRef.current);
-                  paymentPollIntervalRef.current = null;
-                }
-                return;
-              }
-              
-              // If still pending, continue polling
-              if (order.paymentStatus === 'pending') {
-                console.log(`⏳ Payment still pending in database... (attempt ${attempts}/${dbOnlyPeriod}, ${elapsedMinutes.toFixed(1)} min)`);
-                return;
-              }
-              
-              // If failed, show failed dialog
-              if (order.paymentStatus === 'failed') {
-                setCheckingPayment(false);
-                setPaymentStatus('failed');
-                setPaymentMessage(order.resultDescription || 'Payment failed. Please try again.');
-                setPaymentStatusDialogOpen(true);
-                setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
-                
-                // Clear polling
-                if (paymentPollIntervalRef.current) {
-                  clearInterval(paymentPollIntervalRef.current);
-                  paymentPollIntervalRef.current = null;
-                }
-                return;
-              }
-            }
-          }
-        } else {
-          // After 2 minutes, check both database and M-Pesa status
-          // First check database
-          const orderResponse = await fetch(`/api/orders/${orderId}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          });
-
-          if (orderResponse.ok) {
-            const orderData = await orderResponse.json();
-            
-            if (orderData.success && orderData.order) {
-              const order = orderData.order;
-              
-              // Check if payment is completed (success) - includes both paid and partial
-              if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
-                // Payment successful (full or partial)
-                setCheckingPayment(false);
-                setPaymentStatus('success');
-                const isPartial = order.paymentStatus === 'partial';
-                const amountPaid = order.partialPayments && order.partialPayments.length > 0 
-                  ? order.partialPayments[order.partialPayments.length - 1].amount 
-                  : (order.amountPaid || 0);
-                const remainingBalance = order.remainingBalance || 0;
-                
-                const successMessage = isPartial
-                  ? `Partial payment successful! Amount paid: Ksh ${amountPaid.toLocaleString()}, Remaining: Ksh ${remainingBalance.toLocaleString()}. Receipt: ${order.mpesaReceiptNumber || order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber || 'N/A'}`
-                  : `Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`;
-                
-                if (!isPartial) {
-                  void sendPaidPurchaseSms(orderId);
-                }
-                setPaymentMessage(successMessage);
-                setPaymentStatusDialogOpen(true);
-                setCustomerInfo(prev => ({ 
-                  ...prev, 
-                  paymentStatus: order.paymentStatus as 'paid' | 'partial',
-                  partialAmount: isPartial ? amountPaid.toString() : prev.partialAmount
-                }));
-                
-                // Clear polling
-                if (paymentPollIntervalRef.current) {
-                  clearInterval(paymentPollIntervalRef.current);
-                  paymentPollIntervalRef.current = null;
-                }
-                return;
-              }
-              
-              // If still pending after 2 minutes, show cancel option (STK only)
-              if (waitMode === 'stk' && order.paymentStatus === 'pending' && !showCancelOption && attempts > dbOnlyPeriod) {
-                setShowCancelOption(true);
-                setCheckingPayment(false);
-                setPaymentStatus('failed');
-                setPaymentMessage('Payment is still pending after 2 minutes. You can cancel and try again, or continue waiting.');
-                setPaymentStatusDialogOpen(true);
-                // Don't clear polling yet - admin can choose to continue waiting
-                return;
-              }
-              
-              // If still pending but cancel option already shown, continue polling silently
-              if (order.paymentStatus === 'pending') {
-                console.log(`⏳ Payment still pending... (attempt ${attempts}/${maxAttempts}, ${elapsedMinutes.toFixed(1)} min)`);
-                return;
-              }
-            }
-          }
-
-          // Also check M-Pesa status API (for STK only)
-          if (!checkoutRequestId) {
-            return;
-          }
-          const response = await fetch(`/api/mpesa/status/${checkoutRequestId}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          });
-
-          const data = await response.json();
-
-          if (data.success && data.order) {
-            const order = data.order;
-            const resultCode = order.resultCode?.toString() || data.mpesaResponse?.ResultCode?.toString() || '';
-            const isPending = data.isPending || resultCode === '1032' || order.paymentStatus === 'pending';
-
-            // Check if payment is completed (success) - includes both paid and partial
+        if (orderResponse.ok) {
+          const orderData = await orderResponse.json();
+          const order = orderData.order;
+          if (orderData.success && order) {
             if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
-              // Payment successful (full or partial)
-              setCheckingPayment(false);
-              setPaymentStatus('success');
-              const isPartial = order.paymentStatus === 'partial';
-              const amountPaid = order.partialPayments && order.partialPayments.length > 0 
-                ? order.partialPayments[order.partialPayments.length - 1].amount 
-                : (order.amountPaid || 0);
-              const remainingBalance = order.remainingBalance || 0;
-              
-              const successMessage = isPartial
-                ? `Partial payment successful! Amount paid: Ksh ${amountPaid.toLocaleString()}, Remaining: Ksh ${remainingBalance.toLocaleString()}. Receipt: ${order.mpesaReceiptNumber || order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber || 'N/A'}`
-                : `Payment successful! Receipt: ${order.mpesaReceiptNumber || 'N/A'}`;
-              
-              if (!isPartial) {
-                void sendPaidPurchaseSms(orderId);
-              }
-              setPaymentMessage(successMessage);
-              setPaymentStatusDialogOpen(true);
-              setCustomerInfo(prev => ({ 
-                ...prev, 
-                paymentStatus: order.paymentStatus as 'paid' | 'partial',
-                partialAmount: isPartial ? amountPaid.toString() : prev.partialAmount
-              }));
-              
-              // Clear polling
-              if (paymentPollIntervalRef.current) {
-                clearInterval(paymentPollIntervalRef.current);
-                paymentPollIntervalRef.current = null;
-              }
-              return;
-            } 
-            
-            // If still pending, continue polling
-            if (isPending || order.paymentStatus === 'pending') {
-              console.log(`⏳ Payment still processing... (attempt ${attempts}/${maxAttempts}, ${elapsedMinutes.toFixed(1)} min)`);
+              markSuccess(order);
               return;
             }
-            
-            // Payment failed (not pending, not paid) - only show if truly failed
-            if (order.paymentStatus === 'failed' && !data.error) {
-              const cancellationCodes = ['1037', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010'];
-              const isCancelled = cancellationCodes.includes(resultCode) || 
-                                 order.resultDescription?.toLowerCase().includes('cancelled') ||
-                                 order.resultDescription?.toLowerCase().includes('timeout') ||
-                                 order.resultDescription?.toLowerCase().includes('expired') ||
-                                 order.resultDescription?.toLowerCase().includes('user cancelled');
-              
-              setCheckingPayment(false);
-              setPaymentStatus('failed');
-              
-              if (isCancelled) {
-                setPaymentMessage('Transaction cancelled. The customer cancelled the payment or the request expired. Please try again.');
-              } else {
-                setPaymentMessage(order.resultDescription || 'Payment failed. Please try again.');
-              }
-              
-              setPaymentStatusDialogOpen(true);
-              setCustomerInfo(prev => ({ ...prev, paymentStatus: 'unpaid' }));
-              
-              // Clear polling
-              if (paymentPollIntervalRef.current) {
-                clearInterval(paymentPollIntervalRef.current);
-                paymentPollIntervalRef.current = null;
-              }
+            if (order.paymentStatus === 'failed') {
+              const desc = String(order.resultDescription || '').toLowerCase();
+              const cancelled = desc.includes('cancel') || desc.includes('timeout') || desc.includes('expired') || String(order.resultCode) === '1032' || String(order.resultCode) === '1037';
+              markFailed(cancelled
+                ? 'Transaction cancelled. The customer cancelled the payment or the request expired. Please try again.'
+                : (order.resultDescription || 'Payment failed. Please try again.'));
               return;
             }
-          } else if (data.error) {
-            // API returned an error, but continue polling
-            console.log(`M-Pesa status query error: ${data.error} - continuing to poll... (attempt ${attempts})`);
           }
+        }
+
+        if (waitMode !== 'stk' || !checkoutRequestId) {
+          return;
+        }
+
+        const response = await fetch(`/api/mpesa/status/${checkoutRequestId}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        const data = await response.json();
+        if (!data.success || !data.order) {
+          return;
+        }
+
+        const order = data.order;
+        if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
+          markSuccess(order);
+          return;
+        }
+        if (data.isPending || order.paymentStatus === 'pending') {
+          return;
+        }
+        if (order.paymentStatus === 'failed') {
+          const resultCode = String(order.resultCode || data.mpesaResponse?.ResultCode || '');
+          const desc = String(order.resultDescription || '').toLowerCase();
+          const cancelled = ['1032', '1037', '1034', '1035', '1036'].includes(resultCode) ||
+            desc.includes('cancel') || desc.includes('timeout') || desc.includes('expired');
+          markFailed(cancelled
+            ? 'Transaction cancelled. The customer cancelled the payment or the request expired. Please try again.'
+            : (order.resultDescription || 'Payment failed. Please try again.'));
         }
       } catch (error) {
         console.error('Error polling payment status:', error);
-        // Continue polling on error - don't give up immediately
       }
     };
 
-    // Start polling after 3 seconds, then every 5 seconds
     setTimeout(() => {
       poll();
-      paymentPollIntervalRef.current = setInterval(poll, 5000);
-    }, 3000);
+      paymentPollIntervalRef.current = setInterval(poll, 4000);
+    }, 2000);
   };
 
   // Cleanup polling on unmount

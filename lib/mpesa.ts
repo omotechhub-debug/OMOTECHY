@@ -36,6 +36,25 @@ export interface STKCallbackData {
   amount?: number;
 }
 
+export function parseStkResultCode(data: { ResultCode?: unknown; resultCode?: unknown } | null | undefined) {
+  const raw = data?.ResultCode ?? data?.resultCode;
+  if (raw === undefined || raw === null || raw === '') return '';
+  return String(raw);
+}
+
+export function isStkSuccessCode(code: string) {
+  return code === '0';
+}
+
+export function isStkCancelledCode(code: string) {
+  return ['1032', '1037', '1034', '1035', '1036'].includes(code);
+}
+
+export function isStkFailureCode(code: string) {
+  if (!code || code === '0') return false;
+  return true;
+}
+
 // C2B Register URL interfaces
 export interface C2BRegisterURLRequest {
   shortCode: string;
@@ -366,7 +385,6 @@ class MpesaService {
         return {
           success: true,
           isPending: true,
-          resultCode: '1032', // Pending status code
           resultDesc: 'Transaction is being processed',
           requestId: error.response.data.requestId,
           message: 'Transaction is still being processed by Safaricom'

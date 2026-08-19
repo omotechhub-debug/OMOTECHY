@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
-import { mpesaService } from '@/lib/mpesa';
+import { isStkCancelledCode, isStkFailureCode, isStkSuccessCode, mpesaService, parseStkResultCode } from '@/lib/mpesa';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
+import { sendPurchaseConfirmationIfNeeded } from '@/lib/purchase-confirmation-sms';
 
 export async function GET(
   request: NextRequest,
@@ -75,7 +76,9 @@ export async function GET(
     
     // If payment is still pending, query M-Pesa for current status
     const statusResponse = await mpesaService.querySTKStatus(checkoutRequestId);
-    
+    const resultCode = parseStkResultCode(statusResponse);
+    const resultDesc = String(statusResponse.ResultDesc || statusResponse.resultDesc || statusResponse.message || '');
+
     // Check if the status query was successful
     if (statusResponse.success === false) {
       console.error('M-Pesa status query failed:', statusResponse.error);
@@ -125,9 +128,8 @@ export async function GET(
       });
     }
 
-    // Handle pending transaction (still being processed)
-    if (statusResponse.isPending || statusResponse.resultCode === '1032') {
-      console.log('Transaction is still pending/being processed');
+    // Safaricom "still processing" (not a user cancel)
+    if (statusResponse.isPending && !resultCode) {
       return NextResponse.json({
         success: true,
         order: {
@@ -147,39 +149,36 @@ export async function GET(
         isPending: true
       });
     }
-    
-    // Update order based on M-Pesa response
-    if (statusResponse.ResultCode === '0') {
-      // Payment successful
+
+    if (isStkSuccessCode(resultCode)) {
+      const amountPaid = Number(order.pendingMpesaPayment?.amount || order.totalAmount) || 0;
       await Order.findByIdAndUpdate(order._id, {
-        paymentStatus: 'paid',
-        resultCode: 0,
-        resultDescription: statusResponse.ResultDesc,
-        paymentCompletedAt: new Date()
+        $set: {
+          paymentStatus: 'paid',
+          paymentMethod: 'mpesa_stk',
+          amountPaid,
+          remainingBalance: 0,
+          remainingAmount: 0,
+          status: order.status === 'pending' ? 'confirmed' : order.status,
+          resultCode: 0,
+          resultDescription: resultDesc || 'The service request is processed successfully.',
+          paymentCompletedAt: new Date(),
+          'pendingMpesaPayment.status': 'completed',
+        }
       });
-    } else if (statusResponse.ResultCode && statusResponse.ResultCode !== '1032') {
-      // Only mark as failed if:
-      // 1. Payment was initiated more than 3 minutes ago (not too recent)
-      // 2. We have a definitive failure code (not just an error querying)
-      // 3. The result code is a known failure code (not an unknown/query error)
-      
-      const definitiveFailureCodes = ['1037', '1034', '1035', '1036', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010'];
-      const isDefinitiveFailure = definitiveFailureCodes.includes(statusResponse.ResultCode);
-      
-      if (isDefinitiveFailure && !isVeryRecent) {
-        // Payment failed with a definitive failure code
-        console.log(`Payment failed with code ${statusResponse.ResultCode}: ${statusResponse.ResultDesc}`);
-        await Order.findByIdAndUpdate(order._id, {
+      void sendPurchaseConfirmationIfNeeded(order._id).catch(() => undefined);
+    } else if (isStkCancelledCode(resultCode) || isStkFailureCode(resultCode)) {
+      await Order.findByIdAndUpdate(order._id, {
+        $set: {
           paymentStatus: 'failed',
-          resultCode: parseInt(statusResponse.ResultCode),
-          resultDescription: statusResponse.ResultDesc,
-          paymentCompletedAt: new Date()
-        });
-      } else {
-        // Unknown result code or too recent - keep as pending
-        console.log(`Unknown result code ${statusResponse.ResultCode} or payment too recent - keeping as pending`);
-        // Don't update the order status, keep it as pending
-      }
+          resultCode: parseInt(resultCode, 10) || 0,
+          resultDescription: resultDesc || (isStkCancelledCode(resultCode)
+            ? 'The customer cancelled the M-Pesa request or it expired.'
+            : 'Payment failed'),
+          paymentCompletedAt: new Date(),
+          'pendingMpesaPayment.status': 'failed',
+        }
+      });
     }
 
     // Fetch updated order
@@ -200,6 +199,7 @@ export async function GET(
         paymentInitiatedAt: updatedOrder.paymentInitiatedAt,
         paymentCompletedAt: updatedOrder.paymentCompletedAt
       },
+      isPending: updatedOrder.paymentStatus === 'pending',
       mpesaResponse: statusResponse
     });
 
