@@ -1158,6 +1158,7 @@ Need help? Call us at +254 757 883 799`;
     let attempts = 0;
     const maxAttempts = 120;
     const startedAt = Date.now();
+    let paidWithoutReceiptSince: number | null = null;
 
     const stopPolling = () => {
       if (paymentPollIntervalRef.current) {
@@ -1224,7 +1225,18 @@ Need help? Call us at +254 757 883 799`;
           const order = orderData.order;
           if (orderData.success && order) {
             if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
-              markSuccess(order);
+              const receipt =
+                order.mpesaReceiptNumber ||
+                order.mpesaPayment?.mpesaReceiptNumber ||
+                order.partialPayments?.[order.partialPayments.length - 1]?.mpesaReceiptNumber;
+              if (receipt || waitMode !== 'stk') {
+                markSuccess(order);
+                return;
+              }
+              if (!paidWithoutReceiptSince) paidWithoutReceiptSince = Date.now();
+              if (Date.now() - paidWithoutReceiptSince > 20000) {
+                markSuccess(order);
+              }
               return;
             }
             if (order.paymentStatus === 'failed') {
@@ -1256,7 +1268,15 @@ Need help? Call us at +254 757 883 799`;
 
         const order = data.order;
         if (order.paymentStatus === 'paid' || order.paymentStatus === 'partial') {
-          markSuccess(order);
+          const receipt = order.mpesaReceiptNumber || order.mpesaPayment?.mpesaReceiptNumber;
+          if (receipt) {
+            markSuccess(order);
+            return;
+          }
+          if (!paidWithoutReceiptSince) paidWithoutReceiptSince = Date.now();
+          if (Date.now() - paidWithoutReceiptSince > 20000) {
+            markSuccess(order);
+          }
           return;
         }
         if (order.paymentStatus === 'pending') {
@@ -1402,6 +1422,46 @@ Need help? Call us at +254 757 883 799`;
     return { total, paymentAmount: total, paymentType: 'full' as const };
   };
 
+  const getPosCartServices = () => cart.map((item) => ({
+    serviceId: item.item._id,
+    serviceName: item.item.name,
+    quantity: item.quantity,
+    price: item.price,
+  }));
+
+  const syncExistingPosOrder = async (orderId: string) => {
+    const { total, paymentAmount, paymentType } = getPosPaymentSplit();
+    const remaining = paymentType === 'partial' ? Math.max(0, total - paymentAmount) : total;
+    const response = await fetch(`/api/orders/${orderId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        customer: {
+          name: customerInfo.name,
+          phone: customerInfo.phone,
+        },
+        services: getPosCartServices(),
+        totalAmount: total,
+        remainingAmount: remaining,
+        remainingBalance: remaining,
+        amountPaid: 0,
+        paymentStatus: 'unpaid',
+        resultDescription: '',
+        mpesaReceiptNumber: '',
+      }),
+    });
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to update the order');
+    }
+    setLastCreatedOrderId(orderId);
+    lastCreatedOrderIdRef.current = orderId;
+    return orderId;
+  };
+
   const createPosOrder = async (overrides: Record<string, unknown> = {}) => {
     const { total, paymentAmount, paymentType } = getPosPaymentSplit();
     const paymentStatus = String(overrides.paymentStatus || customerInfo.paymentStatus || 'unpaid');
@@ -1413,12 +1473,7 @@ Need help? Call us at +254 757 883 799`;
         name: customerInfo.name,
         phone: customerInfo.phone,
       },
-      services: cart.map((item) => ({
-        serviceId: item.item._id,
-        serviceName: item.item.name,
-        quantity: item.quantity,
-        price: item.price,
-      })),
+      services: getPosCartServices(),
       location: selectedLocation,
       totalAmount: total,
       paymentStatus,
@@ -1454,12 +1509,25 @@ Need help? Call us at +254 757 883 799`;
   };
 
   const ensureUnpaidPosOrder = async () => {
-    if (lastCreatedOrderIdRef.current || lastCreatedOrderId) {
-      return lastCreatedOrderIdRef.current || lastCreatedOrderId;
-    }
     if (cart.length === 0) {
       throw new Error('Add items to the cart first');
     }
+
+    const existingId = lastCreatedOrderIdRef.current || lastCreatedOrderId;
+    if (existingId) {
+      const existingResponse = await fetch(`/api/orders/${existingId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const existingData = await existingResponse.json();
+      const existing = existingData?.order;
+      if (existingData?.success && existing && existing.paymentStatus !== 'paid') {
+        return syncExistingPosOrder(String(existingId));
+      }
+    }
+
     const order = await createPosOrder({ paymentStatus: 'unpaid' });
     return String(order._id);
   };
@@ -1473,6 +1541,8 @@ Need help? Call us at +254 757 883 799`;
     setInitiatingPayment(true);
     try {
       const orderId = await ensureUnpaidPosOrder();
+      lastCreatedOrderIdRef.current = String(orderId);
+      setLastCreatedOrderId(String(orderId));
       const { paymentAmount, paymentType } = getPosPaymentSplit();
 
       const stkResponse = await fetch('/api/mpesa/initiate', {
@@ -1572,6 +1642,10 @@ Need help? Call us at +254 757 883 799`;
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
+            ...(cart.length > 0 ? {
+              services: getPosCartServices(),
+              totalAmount: total,
+            } : {}),
             paymentStatus: 'paid',
             paymentMethod: 'cash',
             amountPaid: total,

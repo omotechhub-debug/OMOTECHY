@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
           pendingMpesaPayment: {
             checkoutRequestId: result.checkoutRequestId,
             merchantRequestId: result.merchantRequestId,
-            amount: amount,
+            amount: Number(parseFloat(String(amount))) || 0,
             phoneNumber: normalizedLocal,
             paymentType: paymentType,
             initiatedAt: new Date(),

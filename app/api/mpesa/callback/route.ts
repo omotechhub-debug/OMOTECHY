@@ -113,10 +113,20 @@ export async function POST(request: NextRequest) {
 
     console.log('Processing payment for order:', order.orderNumber);
 
+    const currentCheckoutId =
+      order.checkoutRequestId ||
+      order.pendingMpesaPayment?.checkoutRequestId ||
+      order.mpesaPayment?.checkoutRequestId;
+    if (currentCheckoutId && currentCheckoutId !== checkoutRequestId) {
+      console.log(`Ignoring stale STK callback ${checkoutRequestId} for order ${order.orderNumber} (current ${currentCheckoutId})`);
+      return NextResponse.json({ success: true, message: 'Stale callback ignored' });
+    }
+
     // Update payment status based on result code
     if (Number(resultCode) === 0) {
-      // Payment successful
-      const callbackMetadata = stkCallback.CallbackMetadata?.Item || [];
+      // Payment successful — Safaricom sometimes sends Item as a single object
+      const rawMetadata = stkCallback.CallbackMetadata?.Item;
+      const callbackMetadata = Array.isArray(rawMetadata) ? rawMetadata : rawMetadata ? [rawMetadata] : [];
       
       // Extract payment details
       let mpesaReceiptNumber = '';
@@ -125,18 +135,20 @@ export async function POST(request: NextRequest) {
       let amount = 0;
 
       callbackMetadata.forEach((item: any) => {
-        switch (item.Name) {
+        const name = String(item?.Name || item?.name || '');
+        const value = item?.Value ?? item?.value;
+        switch (name) {
           case 'MpesaReceiptNumber':
-            mpesaReceiptNumber = item.Value;
+            mpesaReceiptNumber = String(value || '');
             break;
           case 'TransactionDate':
-            transactionDate = item.Value;
+            transactionDate = String(value || '');
             break;
           case 'PhoneNumber':
-            phoneNumber = item.Value;
+            phoneNumber = String(value || '');
             break;
           case 'Amount':
-            amount = item.Value;
+            amount = Number(value) || 0;
             break;
         }
       });
@@ -161,18 +173,32 @@ export async function POST(request: NextRequest) {
       const currentRemainingBalance = order.remainingBalance || orderTotal;
       const amountPaid = parseFloat(amount) || 0;
       
-      // Check if the payment matches what was requested exactly
-      const isExactAmountMatch = Math.round(amountPaid) === Math.round(parseFloat(String(requestedAmount)) || 0);
+      const matchesRequested = Math.round(amountPaid) === Math.round(Number(requestedAmount) || 0);
+      const matchesTotal = Math.round(amountPaid) === Math.round(Number(orderTotal) || 0);
+      const matchesRemaining = Math.round(amountPaid) === Math.round(Number(currentRemainingBalance) || 0);
+      const isExactAmountMatch = matchesRequested || matchesTotal || matchesRemaining;
       
       console.log(`💰 Payment Analysis: Type=${paymentType}, Requested=${requestedAmount}, Paid=${amountPaid}, OrderTotal=${orderTotal}, RemainingBalance=${currentRemainingBalance}`);
 
+      const receiptFields = mpesaReceiptNumber ? {
+        mpesaReceiptNumber,
+        'mpesaPayment.mpesaReceiptNumber': mpesaReceiptNumber,
+        'mpesaPayment.transactionDate': transactionDateObj,
+        'mpesaPayment.phoneNumber': phoneNumber || undefined,
+        'mpesaPayment.amountPaid': amountPaid,
+        transactionDate: transactionDateObj,
+      } : {};
+
       // Check for duplicate transactions
-      const existingTransaction = await MpesaTransaction.findOne({
-        mpesaReceiptNumber: mpesaReceiptNumber
-      });
+      const existingTransaction = mpesaReceiptNumber
+        ? await MpesaTransaction.findOne({ mpesaReceiptNumber })
+        : null;
 
       if (existingTransaction) {
-        console.log(`⚠️ Transaction ${mpesaReceiptNumber} already exists, skipping duplicate`);
+        console.log(`⚠️ Transaction ${mpesaReceiptNumber} already exists — still attaching receipt to order`);
+        if (mpesaReceiptNumber && !order.mpesaReceiptNumber && !order.mpesaPayment?.mpesaReceiptNumber) {
+          await Order.findByIdAndUpdate(order._id, { $set: receiptFields });
+        }
         return NextResponse.json({ 
           success: true, 
           message: 'Duplicate transaction ignored' 
@@ -195,9 +221,13 @@ export async function POST(request: NextRequest) {
       if (isExactAmountMatch) {
         // EXACT AMOUNT MATCH: Auto-process the payment and subtract from balance
         try {
-          // Calculate new remaining balance
-          const newRemainingBalance = Math.max(0, currentRemainingBalance - amountPaid);
-          const isFullyPaid = newRemainingBalance === 0;
+          const previousPaid = (order.partialPayments || []).reduce(
+            (sum: number, payment: { amount?: number }) => sum + (Number(payment.amount) || 0),
+            0
+          );
+          const newAmountPaid = previousPaid + amountPaid;
+          const newRemainingBalance = Math.max(0, orderTotal - newAmountPaid);
+          const isFullyPaid = newRemainingBalance === 0 && newAmountPaid > 0;
           
           // Create confirmed transaction record
           mpesaTransaction = new MpesaTransaction({
@@ -257,14 +287,14 @@ export async function POST(request: NextRequest) {
               'mpesaPayment.paymentCompletedAt': new Date(),
               'pendingMpesaPayment.status': 'completed',
               ...(promptedCustomerPhone ? { 'customer.phone': promptedCustomerPhone } : {}),
+              amountPaid: newAmountPaid,
+              mpesaReceiptNumber: mpesaReceiptNumber,
+              transactionDate: transactionDateObj,
+              phoneNumber: phoneForStorage,
               ...(isFullyPaid ? {
-                amountPaid: orderTotal,
                 remainingBalance: 0,
                 remainingAmount: 0,
                 status: 'confirmed',
-                mpesaReceiptNumber: mpesaReceiptNumber,
-                transactionDate: transactionDateObj,
-                phoneNumber: phoneForStorage,
               } : {}),
             }
           };
@@ -319,6 +349,10 @@ export async function POST(request: NextRequest) {
           });
 
           await mpesaTransaction.save();
+
+          if (mpesaReceiptNumber) {
+            await Order.findByIdAndUpdate(order._id, { $set: receiptFields });
+          }
         }
       } else {
         // AMOUNT MISMATCH: Create unmatched transaction for manual review
@@ -342,11 +376,14 @@ export async function POST(request: NextRequest) {
 
           await mpesaTransaction.save();
 
-          // Update order basic payment info but keep payment status unchanged
+          // Keep payment status, but always store the receipt so staff can see it
           await Order.findByIdAndUpdate(order._id, {
             $set: {
               resultCode: resultCode,
               resultDescription: resultDesc,
+              mpesaReceiptNumber: mpesaReceiptNumber || order.mpesaReceiptNumber,
+              'mpesaPayment.mpesaReceiptNumber': mpesaReceiptNumber || order.mpesaPayment?.mpesaReceiptNumber,
+              'mpesaPayment.amountPaid': amountPaid,
               'mpesaPayment.resultCode': resultCode,
               'mpesaPayment.resultDescription': resultDesc,
               'mpesaPayment.paymentCompletedAt': new Date(),

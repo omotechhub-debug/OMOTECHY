@@ -103,15 +103,23 @@ export async function GET(
     }
 
     if (isStkSuccessCode(resultCode)) {
-      const amountPaid = Number(order.pendingMpesaPayment?.amount || order.totalAmount) || 0;
+      // stkpushquery does not return the M-Pesa receipt. Wait for the callback
+      // so the order gets the real transaction code. Only fall back after the
+      // prompt window so POS is not stuck if the callback never arrives.
+      if (promptStillOpen) {
+        return pendingPayload('M-Pesa reported success. Waiting for the confirmation callback...');
+      }
+      const paidAmount = Number(order.pendingMpesaPayment?.amount || order.totalAmount) || 0;
+      const orderTotal = Number(order.totalAmount) || 0;
+      const remaining = Math.max(0, orderTotal - paidAmount);
       await Order.findByIdAndUpdate(order._id, {
         $set: {
-          paymentStatus: 'paid',
+          paymentStatus: remaining === 0 ? 'paid' : 'partial',
           paymentMethod: 'mpesa_stk',
-          amountPaid,
-          remainingBalance: 0,
-          remainingAmount: 0,
-          status: order.status === 'pending' ? 'confirmed' : order.status,
+          amountPaid: paidAmount,
+          remainingBalance: remaining,
+          remainingAmount: remaining,
+          status: remaining === 0 && order.status === 'pending' ? 'confirmed' : order.status,
           resultCode: 0,
           resultDescription: resultDesc || 'The service request is processed successfully.',
           paymentCompletedAt: new Date(),

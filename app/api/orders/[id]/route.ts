@@ -165,8 +165,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       existingOrder.pickDropAmount !== updatedOrder.pickDropAmount
     );
 
-    // If amount changed, recalculate payment status
-    if (amountChanged) {
+    // If amount changed, recalculate from connected M-Pesa txs — unless POS is
+    // explicitly resetting this unpaid order to match a reduced cart.
+    const resettingUnpaid =
+      updateData.paymentStatus === 'unpaid' &&
+      (updateData.amountPaid === 0 || updateData.amountPaid === '0');
+    if (amountChanged && !resettingUnpaid) {
       console.log(`💰 Order amount changed for ${updatedOrder.orderNumber}, recalculating payment status...`);
       await recalculateOrderPaymentStatus(orderId);
       
