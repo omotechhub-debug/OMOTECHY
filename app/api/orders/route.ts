@@ -550,12 +550,6 @@ export async function POST(request: NextRequest) {
 
     await order.save();
 
-    if (order.paymentMethod === 'cash' && order.paymentStatus === 'paid') {
-      void import('@/lib/cash-sale-sms')
-        .then(({ sendCashSaleAdminSms }) => sendCashSaleAdminSms(order.toObject()))
-        .catch((error) => console.error('Cash sale admin SMS failed:', error));
-    }
-
     void upsertCustomerFromPromptedPhone({
       phone: order.customer?.phone,
       name: order.customer?.name,

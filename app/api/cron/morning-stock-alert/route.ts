@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendMorningStockAlert, kenyaHour } from '@/lib/stock-alert';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -14,11 +13,7 @@ function isCronAuthorized(request: NextRequest) {
 }
 
 async function handleCron() {
-  if (kenyaHour() < 8) {
-    return NextResponse.json({ success: true, sent: false, reason: 'before_8am' });
-  }
-  const result = await sendMorningStockAlert();
-  return NextResponse.json({ success: true, ...result });
+  return NextResponse.json({ success: true, sent: false, reason: 'disabled' });
 }
 
 export async function GET(request: NextRequest) {

@@ -2,16 +2,13 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import connectDB from '@/lib/mongodb';
 import Inventory from '@/lib/models/Inventory';
-import SmsSettings from '@/lib/models/SmsSettings';
 import StockAlertLink, { IStockAlertItem } from '@/lib/models/StockAlertLink';
 import { smsService } from '@/lib/sms';
-import { getSmsRuntimeConfig } from '@/lib/sms-config';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
 import { kenyaDateKey } from '@/lib/daily-business-report';
 import { renderSmsTemplate } from '@/lib/sms-templates';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
-const LINK_TTL_MS = 18 * 60 * 60 * 1000;
 const SESSION_COOKIE = 'stock_alert_session';
 const MAX_OTP_SENDS = 5;
 const MAX_OTP_ATTEMPTS = 5;
@@ -94,119 +91,16 @@ export async function getStockAlertItems(): Promise<IStockAlertItem[]> {
   });
 }
 
-export async function sendMorningStockAlert(options?: { force?: boolean }) {
-  const dateKey = kenyaDateKey();
-  const force = Boolean(options?.force);
-
-  await connectDB();
-  const settings = await SmsSettings.findOne({ key: 'txtlink' });
-  const phone = normalizeKenyaPhoneLocal(settings?.dailyReportPhone);
-  if (!settings || settings.dailyReportEnabled === false || !phone) {
-    return { sent: false, reason: 'not_configured', dateKey };
-  }
-
-  const runtime = await getSmsRuntimeConfig();
-  if (!runtime.configured || !runtime.enabled) {
-    return { sent: false, reason: 'sms_disabled', dateKey };
-  }
-
-  if (!force) {
-    const claimed = await SmsSettings.findOneAndUpdate(
-      {
-        key: 'txtlink',
-        $or: [
-          { lastStockAlertDate: { $exists: false } },
-          { lastStockAlertDate: null },
-          { lastStockAlertDate: '' },
-          { lastStockAlertDate: { $ne: dateKey } },
-        ],
-      },
-      { $set: { lastStockAlertDate: dateKey, lastStockAlertAt: new Date() } },
-      { new: false }
-    );
-    if (!claimed) {
-      return { sent: false, reason: 'already_sent', dateKey };
-    }
-  }
-
-  try {
-    const items = await getStockAlertItems();
-    const outCount = items.filter((item) => item.status === 'out_of_stock').length;
-    const lowCount = items.filter((item) => item.status === 'low_stock').length;
-
-    let link: string | undefined;
-    if (items.length > 0) {
-      const token = crypto.randomBytes(32).toString('base64url');
-      const tokenHash = hashAlertToken(token);
-      await StockAlertLink.create({
-        tokenHash,
-        phone,
-        dateKey,
-        expiresAt: new Date(Date.now() + LINK_TTL_MS),
-        items,
-      });
-      link = `${publicAppUrl()}/stock-alert/${token}`;
-    }
-
-    const message = await renderSmsTemplate('stock_alert', {
-      date: dateKey,
-      out_count: String(outCount),
-      low_count: String(lowCount),
-      link: link || 'All watched stock levels look fine.',
-    });
-    await smsService.sendSMS(phone, message);
-    if (force) {
-      await SmsSettings.updateOne(
-        { key: 'txtlink' },
-        { $set: { lastStockAlertAt: new Date() } }
-      );
-    }
-    return { sent: true, dateKey, phone, outCount, lowCount, hasLink: Boolean(link) };
-  } catch (error) {
-    if (!force) {
-      await SmsSettings.updateOne(
-        { key: 'txtlink', lastStockAlertDate: dateKey },
-        { $unset: { lastStockAlertDate: 1 } }
-      );
-    }
-    throw error;
-  }
+export async function sendMorningStockAlert(_options?: { force?: boolean }) {
+  return { sent: false, reason: 'disabled', dateKey: kenyaDateKey() };
 }
 
 export async function sendStockAlertIfMorningLogin() {
-  if (kenyaHour() < 8) {
-    return { sent: false, reason: 'before_8am' };
-  }
-  return sendMorningStockAlert();
+  return { sent: false, reason: 'disabled', dateKey: kenyaDateKey() };
 }
 
 export function startMorningStockAlertScheduler() {
-  const globalKey = '__omotechMorningStockAlertScheduler';
-  const globalState = globalThis as typeof globalThis & { [globalKey]?: boolean };
-  if (globalState[globalKey]) return;
-  globalState[globalKey] = true;
-
-  const run = async () => {
-    try {
-      if (kenyaHour() < 8) return;
-      const result = await sendMorningStockAlert();
-      console.log('Morning stock alert SMS:', result);
-    } catch (error) {
-      console.error('Morning stock alert SMS failed:', error);
-    }
-  };
-
-  const scheduleNext = () => {
-    const delay = Math.max(5000, nextKenyaEightAm().getTime() - Date.now() + 2000);
-    setTimeout(async () => {
-      await run();
-      scheduleNext();
-    }, delay);
-  };
-
-  void run();
-  scheduleNext();
-  console.log(`Morning stock alert scheduler started. Next run at ${nextKenyaEightAm().toISOString()}`);
+  return;
 }
 
 export async function findStockAlertByToken(token: string) {

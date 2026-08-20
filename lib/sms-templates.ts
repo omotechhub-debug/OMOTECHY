@@ -14,6 +14,19 @@ export type { SmsTemplateId };
 
 const TEMPLATE_IDS = SMS_TEMPLATE_DEFINITIONS.map((item) => item.id);
 
+const PREVIOUS_CASH_SALE_ADMIN_BODIES = [
+  `OMOTECH HUB COMPUTERS
+
+Cash sale
+
+Items: {{items}}
+Amount: {{amount}}
+Order No: #{{order_no}}
+Customer: {{customer}}
+Phone: {{phone}}
+Station: {{station}}`,
+];
+
 const PREVIOUS_PURCHASE_CONFIRMATION_BODIES = [
   `OMOTECH HUB COMPUTERS
 
@@ -38,6 +51,20 @@ Order No: #{{order_no}}
 Your purchase has been confirmed successfully.
 
 Thank you for choosing Omotech Hub Computers. We appreciate your business.`,
+  `OMOTECH HUB COMPUTERS
+
+Thank you for shopping with us.
+
+Purchase: {{items}}
+Amount: {{amount}}
+Order No: #{{order_no}}
+
+Your purchase has been confirmed successfully.
+
+For enquiries or online orders:
+Call/WhatsApp: 0740 802 704
+
+Thank you for choosing Omotech Hub Computers. We appreciate your business.`,
 ];
 
 function normalizeTemplateBody(value: string) {
@@ -56,6 +83,11 @@ export function sanitizeSmsTemplates(input: unknown): Record<SmsTemplateId, stri
         PREVIOUS_PURCHASE_CONFIRMATION_BODIES.some((old) => normalizeTemplateBody(old) === normalizeTemplateBody(body))
       ) {
         next[id] = DEFAULT_SMS_TEMPLATES.purchase_confirmation;
+      } else if (
+        id === 'cash_sale_admin' &&
+        PREVIOUS_CASH_SALE_ADMIN_BODIES.some((old) => normalizeTemplateBody(old) === normalizeTemplateBody(body))
+      ) {
+        next[id] = DEFAULT_SMS_TEMPLATES.cash_sale_admin;
       } else {
         next[id] = body;
       }

@@ -16,6 +16,8 @@ export interface ISmsSettings extends Document {
   lastDeficitAlertAt?: Date;
   lastPendingConfirmationsAlertDate?: string;
   lastPendingConfirmationsAlertAt?: Date;
+  lastCashSalesAlertDate?: string;
+  lastCashSalesAlertAt?: Date;
   templates?: Record<string, string>;
   createdAt: Date;
   updatedAt: Date;
@@ -85,6 +87,14 @@ const SmsSettingsSchema: Schema = new Schema({
     trim: true,
   },
   lastPendingConfirmationsAlertAt: {
+    type: Date,
+  },
+  lastCashSalesAlertDate: {
+    type: String,
+    default: '',
+    trim: true,
+  },
+  lastCashSalesAlertAt: {
     type: Date,
   },
   templates: {

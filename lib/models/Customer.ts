@@ -17,6 +17,8 @@ export interface ICustomer extends mongoose.Document {
   lastPaymentDate?: Date;
   lastPaymentAmount?: number;
   lastTransactionId?: string;
+  lastPurchaseConfirmationDate?: string;
+  lastPurchaseConfirmationAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -80,6 +82,14 @@ const customerSchema = new mongoose.Schema<ICustomer>({
   },
   lastTransactionId: {
     type: String,
+  },
+  lastPurchaseConfirmationDate: {
+    type: String,
+    trim: true,
+    default: '',
+  },
+  lastPurchaseConfirmationAt: {
+    type: Date,
   },
 }, {
   timestamps: true,

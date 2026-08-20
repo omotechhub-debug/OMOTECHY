@@ -41,7 +41,6 @@ export default function SMSAdminPage() {
   const [dailyReportPhone, setDailyReportPhone] = useState('');
   const [dailyReportEnabled, setDailyReportEnabled] = useState(true);
   const [sendingDailyReport, setSendingDailyReport] = useState(false);
-  const [sendingStockAlert, setSendingStockAlert] = useState(false);
   const [sendingDeficitAlert, setSendingDeficitAlert] = useState(false);
   const [sendingPendingAlert, setSendingPendingAlert] = useState(false);
   const [config, setConfig] = useState<SmsConfig | null>(null);
@@ -169,32 +168,6 @@ export default function SMSAdminPage() {
       });
     } finally {
       setSendingDailyReport(false);
-    }
-  };
-
-  const sendStockAlertNow = async () => {
-    setSendingStockAlert(true);
-    setStatusMessage(null);
-    try {
-      const response = await fetch('/api/admin/stock-alert', {
-        method: 'POST',
-        headers: authHeaders,
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || data.message || 'Failed to send stock alert SMS');
-      }
-      setStatusMessage({
-        type: 'success',
-        text: `Stock alert sent to ${data.phone}. Out of stock: ${data.outCount || 0}. Low stock: ${data.lowCount || 0}.`,
-      });
-    } catch (error) {
-      setStatusMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to send stock alert SMS',
-      });
-    } finally {
-      setSendingStockAlert(false);
     }
   };
 
@@ -455,15 +428,6 @@ export default function SMSAdminPage() {
                       >
                         {sendingDailyReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                         Send today’s report now
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={sendStockAlertNow}
-                        disabled={sendingStockAlert || !dailyReportPhone.trim()}
-                        className="flex items-center gap-2"
-                      >
-                        {sendingStockAlert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                        Send stock alert now
                       </Button>
                       <Button
                         variant="outline"

@@ -1,9 +1,11 @@
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
+import Customer from '@/lib/models/Customer';
 import { smsService } from '@/lib/sms';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
 import { applySmsTemplate, DEFAULT_SMS_TEMPLATES } from '@/lib/sms-template-defs';
 import { renderSmsTemplate } from '@/lib/sms-templates';
+import { kenyaDateKey, kenyaDayBounds } from '@/lib/daily-business-report';
 
 export function formatPurchaseItems(services: Array<{ serviceName?: string; name?: string; quantity?: number }> | undefined) {
   const parts = (services || []).map((service) => {
@@ -40,6 +42,77 @@ export function formatPurchaseConfirmationMessage(params: {
   return applySmsTemplate(DEFAULT_SMS_TEMPLATES.purchase_confirmation, purchaseVars(params));
 }
 
+async function alreadySentPurchaseSmsToday(phone: string, excludeOrderId: unknown) {
+  const todayKey = kenyaDateKey();
+  const { start, end } = kenyaDayBounds(todayKey);
+
+  const customer = await Customer.findOne({ phone }).select('lastPurchaseConfirmationDate').lean();
+  if (customer?.lastPurchaseConfirmationDate === todayKey) {
+    return true;
+  }
+
+  const otherToday = await Order.exists({
+    _id: { $ne: excludeOrderId },
+    paymentStatus: 'paid',
+    'customer.phone': phone,
+    purchaseConfirmationSmsSentAt: { $gte: start, $lte: end },
+  });
+  return Boolean(otherToday);
+}
+
+async function claimCustomerPurchaseSmsDay(phone: string, name?: string) {
+  const todayKey = kenyaDateKey();
+  const existing = await Customer.findOne({ phone }).select('_id lastPurchaseConfirmationDate');
+  if (existing) {
+    if (existing.lastPurchaseConfirmationDate === todayKey) {
+      return false;
+    }
+    const claimed = await Customer.findOneAndUpdate(
+      {
+        _id: existing._id,
+        $or: [
+          { lastPurchaseConfirmationDate: { $exists: false } },
+          { lastPurchaseConfirmationDate: null },
+          { lastPurchaseConfirmationDate: '' },
+          { lastPurchaseConfirmationDate: { $ne: todayKey } },
+        ],
+      },
+      { $set: { lastPurchaseConfirmationDate: todayKey, lastPurchaseConfirmationAt: new Date() } },
+      { new: false }
+    );
+    return Boolean(claimed);
+  }
+
+  try {
+    await Customer.create({
+      name: (name || '').trim() || 'Customer',
+      phone,
+      lastPurchaseConfirmationDate: todayKey,
+      lastPurchaseConfirmationAt: new Date(),
+    });
+    return true;
+  } catch {
+    const created = await Customer.findOne({ phone }).select('lastPurchaseConfirmationDate');
+    if (created?.lastPurchaseConfirmationDate === todayKey) {
+      return false;
+    }
+    const claimed = await Customer.findOneAndUpdate(
+      {
+        phone,
+        $or: [
+          { lastPurchaseConfirmationDate: { $exists: false } },
+          { lastPurchaseConfirmationDate: null },
+          { lastPurchaseConfirmationDate: '' },
+          { lastPurchaseConfirmationDate: { $ne: todayKey } },
+        ],
+      },
+      { $set: { lastPurchaseConfirmationDate: todayKey, lastPurchaseConfirmationAt: new Date() } },
+      { new: false }
+    );
+    return Boolean(claimed);
+  }
+}
+
 export async function sendPurchaseConfirmationIfNeeded(orderId: unknown) {
   if (!orderId) return { sent: false, reason: 'missing_order' };
 
@@ -68,6 +141,17 @@ export async function sendPurchaseConfirmationIfNeeded(orderId: unknown) {
     return { sent: false, reason: 'no_phone' };
   }
 
+  if (await alreadySentPurchaseSmsToday(phone, claimed._id)) {
+    console.log(`Purchase confirmation SMS skipped for ${claimed.orderNumber}: already sent to ${phone} today`);
+    return { sent: false, reason: 'already_sent_today' };
+  }
+
+  const claimedDay = await claimCustomerPurchaseSmsDay(phone, claimed.customer?.name);
+  if (!claimedDay) {
+    console.log(`Purchase confirmation SMS skipped for ${claimed.orderNumber}: already sent to ${phone} today`);
+    return { sent: false, reason: 'already_sent_today' };
+  }
+
   const message = await renderSmsTemplate(
     'purchase_confirmation',
     purchaseVars({
@@ -82,7 +166,12 @@ export async function sendPurchaseConfirmationIfNeeded(orderId: unknown) {
     console.log(`Purchase confirmation SMS sent for order ${claimed.orderNumber} to ${phone}`);
     return { sent: true };
   } catch (error) {
+    const todayKey = kenyaDateKey();
     await Order.updateOne({ _id: claimed._id }, { $unset: { purchaseConfirmationSmsSentAt: 1 } });
+    await Customer.updateOne(
+      { phone, lastPurchaseConfirmationDate: todayKey },
+      { $unset: { lastPurchaseConfirmationDate: 1, lastPurchaseConfirmationAt: 1 } }
+    );
     console.error(`Purchase confirmation SMS failed for order ${claimed.orderNumber}:`, error);
     return { sent: false, reason: 'sms_failed' };
   }

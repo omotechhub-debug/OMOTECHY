@@ -7,7 +7,8 @@ import { getSmsRuntimeConfig } from '@/lib/sms-config';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
 import { formatPurchaseItems } from '@/lib/purchase-confirmation-sms';
 import { kenyaDateKey } from '@/lib/daily-business-report';
-import { kenyaHour, publicAppUrl, sendStockAlertIfMorningLogin } from '@/lib/stock-alert';
+import { kenyaHour, publicAppUrl } from '@/lib/stock-alert';
+import { sendYesterdayCashSalesIfMorningLogin } from '@/lib/cash-sale-sms';
 import { applySmsTemplate, DEFAULT_SMS_TEMPLATES, ensureRequiredPlaceholders } from '@/lib/sms-template-defs';
 import { getSmsTemplates, renderSmsTemplate } from '@/lib/sms-templates';
 
@@ -254,7 +255,7 @@ export async function sendPendingConfirmationsIfEveningLogin(options?: { force?:
 
 export async function notifySuperadminOnLogin() {
   const results = {
-    stock: await sendStockAlertIfMorningLogin(),
+    cashSales: await sendYesterdayCashSalesIfMorningLogin(),
     deficit: await sendDeficitOrdersIfAfternoonLogin(),
     pendingConfirmations: await sendPendingConfirmationsIfEveningLogin(),
   };

@@ -30,12 +30,12 @@ export const SMS_TEMPLATE_DEFINITIONS: SmsTemplateDefinition[] = [
   {
     id: 'purchase_confirmation',
     name: 'Paid purchase confirmation',
-    description: 'Sent to the customer when a POS order is fully paid',
+    description: 'Sent to the customer once per day when a POS order is fully paid',
     recipient: 'Customer',
     fields: [
-      { key: 'items', label: 'Items / services', example: 'HP Laptop, Toner x2', required: true },
-      { key: 'amount', label: 'Amount', example: 'KSh 12,500', required: true },
-      { key: 'order_no', label: 'Order number', example: 'A1B2C3', required: true },
+      { key: 'items', label: 'Items / services', example: 'Bulk A4 Normal Paper', required: true },
+      { key: 'amount', label: 'Amount', example: 'KSh 5', required: true },
+      { key: 'order_no', label: 'Order number', example: 'ORD-805215-3334', required: true },
     ],
     defaultBody: `OMOTECH HUB COMPUTERS
 
@@ -47,14 +47,21 @@ Order No: #{{order_no}}
 
 Your purchase has been confirmed successfully.
 
-For enquiries or online orders:
-Call/WhatsApp: 0740 802 704
+We offer services including:
+• Laptop and desktop sales
+• Computer and laptop repairs
+• Electronics and accessories
+• Printing, photocopying, binding and lamination
+• Gas refilling, cylinder sales and delivery
+• Laundry and pickup/delivery
+• Student storage services
+For enquiries or online orders, call/WhatsApp: 0740 802 704.
 
 Thank you for choosing Omotech Hub Computers. We appreciate your business.`,
     sample: {
-      items: 'HP Laptop, Toner x2',
-      amount: 'KSh 12,500',
-      order_no: 'A1B2C3',
+      items: 'Bulk A4 Normal Paper',
+      amount: 'KSh 5',
+      order_no: 'ORD-805215-3334',
     },
   },
   {
@@ -134,7 +141,7 @@ End of day summary.`,
   {
     id: 'stock_alert',
     name: 'Morning stock alert',
-    description: 'Sent after 8:00 AM login if items are out or low',
+    description: 'Stopped. Low-stock SMS is no longer sent.',
     recipient: 'Superadmin',
     fields: [
       { key: 'date', label: 'Date', example: '2026-08-18' },
@@ -263,34 +270,29 @@ Call/WhatsApp: 0740 802 704`,
   },
   {
     id: 'cash_sale_admin',
-    name: 'Cash sale alert',
-    description: 'Sent to the superadmin number immediately when POS records a cash sale',
+    name: 'Yesterday cash sales',
+    description: 'Sent once after 9:00 AM login with all cash sales from the previous day (midnight to midnight)',
     recipient: 'Superadmin',
     fields: [
-      { key: 'items', label: 'Items / services', example: 'A4 Normal Printing', required: true },
-      { key: 'amount', label: 'Amount', example: 'KSh 10', required: true },
-      { key: 'order_no', label: 'Order number', example: 'A1B2C3', required: true },
-      { key: 'customer', label: 'Customer name', example: 'Jane Mwangi' },
-      { key: 'phone', label: 'Customer phone', example: '0796030992' },
-      { key: 'station', label: 'Station', example: 'Kutus Store' },
+      { key: 'date', label: 'Date', example: '19 Aug 2026', required: true },
+      { key: 'count', label: 'Number of cash sales', example: '18', required: true },
+      { key: 'total', label: 'Total cash collected', example: 'KSh 24,500', required: true },
+      { key: 'stations_list', label: 'Totals by station', example: 'Kutus Store: 12 sales · KSh 18,000' },
     ],
     defaultBody: `OMOTECH HUB COMPUTERS
 
-Cash sale
+Yesterday cash sales
+{{date}}
 
-Items: {{items}}
-Amount: {{amount}}
-Order No: #{{order_no}}
-Customer: {{customer}}
-Phone: {{phone}}
-Station: {{station}}`,
+Sales: {{count}}
+Total: {{total}}
+
+{{stations_list}}`,
     sample: {
-      items: 'A4 Normal Printing',
-      amount: 'KSh 10',
-      order_no: 'A1B2C3',
-      customer: 'Jane Mwangi',
-      phone: '0796030992',
-      station: 'Kutus Store',
+      date: '19 Aug 2026',
+      count: '18',
+      total: 'KSh 24,500',
+      stations_list: 'Kutus Store: 12 sales · KSh 18,000\nKerugoya: 6 sales · KSh 6,500',
     },
   },
 ];

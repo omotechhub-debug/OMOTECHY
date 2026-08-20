@@ -189,9 +189,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       existingOrder.paymentStatus !== 'paid';
 
     if (becameCashPaid && updatedOrder) {
-      void import('@/lib/cash-sale-sms')
-        .then(({ sendCashSaleAdminSms }) => sendCashSaleAdminSms(updatedOrder.toObject()))
-        .catch((error) => console.error('Cash sale admin SMS failed:', error));
       void import('@/lib/purchase-confirmation-sms')
         .then(({ sendPurchaseConfirmationIfNeeded }) => sendPurchaseConfirmationIfNeeded(updatedOrder._id))
         .catch((smsError) => console.error('Purchase confirmation SMS failed:', smsError));
