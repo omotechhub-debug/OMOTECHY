@@ -34,7 +34,7 @@ export const SMS_TEMPLATE_DEFINITIONS: SmsTemplateDefinition[] = [
     recipient: 'Customer',
     fields: [
       { key: 'items', label: 'Items / services', example: 'Bulk A4 Normal Paper', required: true },
-      { key: 'amount', label: 'Amount', example: 'KSh 5', required: true },
+      { key: 'amount', label: 'Amount', example: 'Ksh 5', required: true },
       { key: 'order_no', label: 'Order number', example: 'ORD-805215-3334', required: true },
     ],
     defaultBody: `OMOTECH HUB COMPUTERS
@@ -60,7 +60,7 @@ For enquiries or online orders, call/WhatsApp: 0740 802 704.
 Thank you for choosing Omotech Hub Computers. We appreciate your business.`,
     sample: {
       items: 'Bulk A4 Normal Paper',
-      amount: 'KSh 5',
+      amount: 'Ksh 5',
       order_no: 'ORD-805215-3334',
     },
   },

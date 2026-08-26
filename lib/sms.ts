@@ -22,6 +22,22 @@ interface SMSResponse {
   senderId?: string;
 }
 
+export type SmsTrafficType = 'transactional' | 'promotional';
+
+function sanitizeGsmSms(message: string) {
+  return String(message || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[‘’‛‹›]/g, "'")
+    .replace(/[“”„«»]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/×/g, 'x')
+    .replace(/KSh/g, 'Ksh')
+    .replace(/[^\x09\x0a\x0d\x20-\x7e•]/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 class SMSService {
   private bulkEndpointAvailable: boolean | null = null;
 
@@ -40,15 +56,22 @@ class SMSService {
     return formatted;
   }
 
-  async sendSMS(mobile: string, message: string): Promise<SMSResponse> {
+  async sendSMS(mobile: string, message: string, options?: { type?: SmsTrafficType }): Promise<SMSResponse> {
     const config = await getSmsRuntimeConfig();
     this.assertReady(config);
-    return this.sendOne(config.apiKey, config.senderIdName, this.formatPhone(mobile), message);
+    return this.sendOne(
+      config.apiKey,
+      config.senderIdName,
+      this.formatPhone(mobile),
+      message,
+      options?.type || 'transactional'
+    );
   }
 
-  async sendBulkSMS(recipients: string[], message: string): Promise<BulkSMSResult> {
+  async sendBulkSMS(recipients: string[], message: string, options?: { type?: SmsTrafficType }): Promise<BulkSMSResult> {
     const config = await getSmsRuntimeConfig();
     this.assertReady(config);
+    const type = options?.type || 'promotional';
 
     const uniquePhones = [...new Set(
       recipients
@@ -67,7 +90,7 @@ class SMSService {
       return { sent: 0, failed: 0, skipped, errors: ['No valid Kenyan phone numbers'] };
     }
 
-    const bulk = await this.tryBulkSend(config.apiKey, config.senderIdName, uniquePhones, message);
+    const bulk = await this.tryBulkSend(config.apiKey, config.senderIdName, uniquePhones, message, type);
     if (bulk) {
       return { ...bulk, skipped: skipped + (bulk.skipped || 0) };
     }
@@ -80,7 +103,7 @@ class SMSService {
     for (let i = 0; i < uniquePhones.length; i += concurrency) {
       const chunk = uniquePhones.slice(i, i + concurrency);
       const results = await Promise.allSettled(
-        chunk.map((phone) => this.sendOne(config.apiKey, config.senderIdName, phone, message))
+        chunk.map((phone) => this.sendOne(config.apiKey, config.senderIdName, phone, message, type))
       );
       for (let index = 0; index < results.length; index++) {
         const result = results[index];
@@ -112,10 +135,12 @@ class SMSService {
     apiKey: string,
     senderIdName: string,
     phones: string[],
-    message: string
+    message: string,
+    type: SmsTrafficType = 'promotional'
   ): Promise<BulkSMSResult | null> {
     if (this.bulkEndpointAvailable === false) return null;
 
+    const text = this.prepareMessage(message);
     const errors: string[] = [];
     let sent = 0;
     let failed = 0;
@@ -124,7 +149,8 @@ class SMSService {
     for (let i = 0; i < phones.length; i += chunkSize) {
       const chunk = phones.slice(i, i + chunkSize);
       const payload: Record<string, unknown> = {
-        messages: chunk.map((to) => ({ to, message })),
+        messages: chunk.map((to) => ({ to, message: text })),
+        type,
       };
       if (senderIdName) {
         payload.senderId = senderIdName;
@@ -181,12 +207,32 @@ class SMSService {
     return { sent, failed, skipped: 0, errors };
   }
 
-  private async sendOne(apiKey: string, senderIdName: string, phone: string, message: string): Promise<SMSResponse> {
+  private prepareMessage(message: string) {
+    const text = sanitizeGsmSms(message);
+    if (!text) {
+      throw new Error('SMS message is empty after formatting');
+    }
+    if (/\{\{\s*[a-z0-9_]+\s*\}\}/i.test(text)) {
+      throw new Error('SMS template was not filled. Refusing to send placeholders (msg mismatch).');
+    }
+    return text;
+  }
+
+  private async sendOne(
+    apiKey: string,
+    senderIdName: string,
+    phone: string,
+    message: string,
+    type: SmsTrafficType = 'transactional'
+  ): Promise<SMSResponse> {
+    const text = this.prepareMessage(message);
     const payload: Record<string, string> = {
       to: phone,
-      message,
+      message: text,
+      type,
     };
     if (senderIdName) {
+      payload.senderId = senderIdName;
       payload.senderIdName = senderIdName;
     }
 
@@ -206,9 +252,17 @@ class SMSService {
       data = {};
     }
 
-    if (!response.ok || data?.success === false || data?.error) {
-      const errorMessage = data?.error || data?.message || `TXTLINK SMS failed (${response.status})`;
-      console.error('TXTLINK SMS error:', { status: response.status, data });
+    const statusText = String(data?.status || data?.reason || data?.error || '').toLowerCase();
+    const looksRejected =
+      data?.success === false ||
+      Boolean(data?.error) ||
+      statusText.includes('fail') ||
+      statusText.includes('mismatch') ||
+      statusText.includes('reject');
+
+    if (!response.ok || looksRejected) {
+      const errorMessage = data?.error || data?.message || data?.reason || `TXTLINK SMS failed (${response.status})`;
+      console.error('TXTLINK SMS error:', { status: response.status, data, type, senderIdName });
       throw new Error(errorMessage);
     }
 

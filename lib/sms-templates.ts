@@ -65,10 +65,23 @@ For enquiries or online orders:
 Call/WhatsApp: 0740 802 704
 
 Thank you for choosing Omotech Hub Computers. We appreciate your business.`,
+  `OMOTECH HUB COMPUTERS
+Thank you for shopping with us.
+Purchase: {{items}}
+Amount: {{amount}}
+Order No: #{{order_no}}
+Your purchase has been confirmed successfully.
+Call/WhatsApp: 0740 802 704`,
 ];
 
 function normalizeTemplateBody(value: string) {
   return value.replace(/\r\n/g, '\n').trim();
+}
+
+function isStalePurchaseConfirmation(body: string) {
+  const normalized = normalizeTemplateBody(body);
+  if (!normalized) return true;
+  return PREVIOUS_PURCHASE_CONFIRMATION_BODIES.some((old) => normalizeTemplateBody(old) === normalized);
 }
 
 export function sanitizeSmsTemplates(input: unknown): Record<SmsTemplateId, string> {
@@ -78,10 +91,7 @@ export function sanitizeSmsTemplates(input: unknown): Record<SmsTemplateId, stri
     const value = source[id];
     if (typeof value === 'string' && value.trim()) {
       const body = value.slice(0, 1600);
-      if (
-        id === 'purchase_confirmation' &&
-        PREVIOUS_PURCHASE_CONFIRMATION_BODIES.some((old) => normalizeTemplateBody(old) === normalizeTemplateBody(body))
-      ) {
+      if (id === 'purchase_confirmation' && isStalePurchaseConfirmation(body)) {
         next[id] = DEFAULT_SMS_TEMPLATES.purchase_confirmation;
       } else if (
         id === 'cash_sale_admin' &&
@@ -99,11 +109,23 @@ export function sanitizeSmsTemplates(input: unknown): Record<SmsTemplateId, stri
 export async function getSmsTemplates(): Promise<Record<SmsTemplateId, string>> {
   await connectDB();
   const doc = await SmsSettings.findOne({ key: 'txtlink' }).lean() as { templates?: Record<string, string> } | null;
-  return sanitizeSmsTemplates(doc?.templates);
+  const templates = sanitizeSmsTemplates(doc?.templates);
+  const storedPurchase = String(doc?.templates?.purchase_confirmation || '').trim();
+  if (storedPurchase && isStalePurchaseConfirmation(storedPurchase)) {
+    await SmsSettings.updateOne(
+      { key: 'txtlink' },
+      { $set: { 'templates.purchase_confirmation': templates.purchase_confirmation } }
+    );
+  }
+  return templates;
 }
 
 export async function renderSmsTemplate(id: SmsTemplateId, vars: Record<string, string | number | undefined>) {
   const templates = await getSmsTemplates();
   const body = ensureRequiredPlaceholders(id, templates[id] || DEFAULT_SMS_TEMPLATES[id]);
-  return applySmsTemplate(body, vars) || DEFAULT_SMS_TEMPLATES[id];
+  const filled = applySmsTemplate(body, vars);
+  if (filled && !/\{\{\s*[a-z0-9_]+\s*\}\}/i.test(filled)) {
+    return filled;
+  }
+  return applySmsTemplate(DEFAULT_SMS_TEMPLATES[id], vars);
 }

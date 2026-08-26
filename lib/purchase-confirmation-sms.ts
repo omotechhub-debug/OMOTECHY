@@ -9,15 +9,15 @@ import { kenyaDateKey, kenyaDayBounds } from '@/lib/daily-business-report';
 
 export function formatPurchaseItems(services: Array<{ serviceName?: string; name?: string; quantity?: number }> | undefined) {
   const parts = (services || []).map((service) => {
-    const name = (service.serviceName || service.name || '').trim();
+    const name = (service.serviceName || service.name || '').trim().replace(/\s+/g, ' ');
     if (!name) return '';
     const quantity = Number(service.quantity) || 1;
     return quantity > 1 ? `${name} x${quantity}` : name;
   }).filter(Boolean);
 
   if (parts.length === 0) return 'Item/Service';
-  if (parts.length <= 3) return parts.join(', ');
-  return `${parts.slice(0, 2).join(', ')} + ${parts.length - 2} more`;
+  const joined = parts.length <= 3 ? parts.join(', ') : `${parts.slice(0, 2).join(', ')} + ${parts.length - 2} more`;
+  return joined.length > 80 ? `${joined.slice(0, 77).trim()}...` : joined;
 }
 
 function purchaseVars(params: {
@@ -29,7 +29,7 @@ function purchaseVars(params: {
   const amount = Number(params.amount) || 0;
   return {
     items: params.items,
-    amount: `KSh ${amount.toLocaleString('en-KE')}`,
+    amount: `Ksh ${amount.toLocaleString('en-US')}`,
     order_no: orderNo,
   };
 }
@@ -161,8 +161,14 @@ export async function sendPurchaseConfirmationIfNeeded(orderId: unknown) {
     })
   );
 
+  if (!message || /\{\{\s*[a-z0-9_]+\s*\}\}/i.test(message)) {
+    await Order.updateOne({ _id: claimed._id }, { $unset: { purchaseConfirmationSmsSentAt: 1 } });
+    console.error(`Purchase confirmation SMS skipped for ${claimed.orderNumber}: template was not filled`);
+    return { sent: false, reason: 'template_unfilled' };
+  }
+
   try {
-    await smsService.sendSMS(phone, message);
+    await smsService.sendSMS(phone, message, { type: 'transactional' });
     console.log(`Purchase confirmation SMS sent for order ${claimed.orderNumber} to ${phone}`);
     return { sent: true };
   } catch (error) {

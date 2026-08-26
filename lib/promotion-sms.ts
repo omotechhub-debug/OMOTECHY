@@ -129,7 +129,7 @@ export async function sendPromotionToYearClients(promotion: {
   }
 
   const message = await renderSmsTemplate('promotion', promotionVars(promotion));
-  const result = await smsService.sendBulkSMS(phones, message);
+  const result = await smsService.sendBulkSMS(phones, message, { type: 'promotional' });
 
   return {
     ...result,

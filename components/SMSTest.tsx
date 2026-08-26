@@ -65,13 +65,22 @@ export default function SMSTest() {
 Thank you for shopping with us.
 
 Purchase: Laptop Service
-Amount: KSh 1,500
+Amount: Ksh 1,500
 Order No: #TEST123
 
 Your purchase has been confirmed successfully.
 
-Thank you for choosing Omotech Hub Computers.
-We appreciate your business.`);
+We offer services including:
+• Laptop and desktop sales
+• Computer and laptop repairs
+• Electronics and accessories
+• Printing, photocopying, binding and lamination
+• Gas refilling, cylinder sales and delivery
+• Laundry and pickup/delivery
+• Student storage services
+For enquiries or online orders, call/WhatsApp: 0740 802 704.
+
+Thank you for choosing Omotech Hub Computers. We appreciate your business.`);
   };
 
   return (
