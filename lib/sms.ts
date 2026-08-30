@@ -150,10 +150,8 @@ class SMSService {
       const chunk = phones.slice(i, i + chunkSize);
       const payload: Record<string, unknown> = {
         messages: chunk.map((to) => ({ to, message: text })),
-        type,
       };
       if (senderIdName) {
-        payload.senderId = senderIdName;
         payload.senderIdName = senderIdName;
       }
 
@@ -229,10 +227,8 @@ class SMSService {
     const payload: Record<string, string> = {
       to: phone,
       message: text,
-      type,
     };
     if (senderIdName) {
-      payload.senderId = senderIdName;
       payload.senderIdName = senderIdName;
     }
 
@@ -252,17 +248,9 @@ class SMSService {
       data = {};
     }
 
-    const statusText = String(data?.status || data?.reason || data?.error || '').toLowerCase();
-    const looksRejected =
-      data?.success === false ||
-      Boolean(data?.error) ||
-      statusText.includes('fail') ||
-      statusText.includes('mismatch') ||
-      statusText.includes('reject');
-
-    if (!response.ok || looksRejected) {
+    if (!response.ok || data?.success === false || (typeof data?.error === 'string' && data.error)) {
       const errorMessage = data?.error || data?.message || data?.reason || `TXTLINK SMS failed (${response.status})`;
-      console.error('TXTLINK SMS error:', { status: response.status, data, type, senderIdName });
+      console.error('TXTLINK SMS error:', { status: response.status, data, senderIdName });
       throw new Error(errorMessage);
     }
 

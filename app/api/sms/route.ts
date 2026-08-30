@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       }
       const result = await sendPurchaseConfirmationIfNeeded(orderId);
       return NextResponse.json({
-        success: result.sent || result.reason === 'already_sent_or_unpaid',
+        success: result.sent || result.reason === 'already_sent',
         sent: result.sent,
         reason: result.reason,
         message: result.sent ? 'Purchase confirmation SMS sent' : 'SMS not sent',

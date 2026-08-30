@@ -1,11 +1,9 @@
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/Order';
-import Customer from '@/lib/models/Customer';
 import { smsService } from '@/lib/sms';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
 import { applySmsTemplate, DEFAULT_SMS_TEMPLATES } from '@/lib/sms-template-defs';
 import { renderSmsTemplate } from '@/lib/sms-templates';
-import { kenyaDateKey, kenyaDayBounds } from '@/lib/daily-business-report';
 
 export function formatPurchaseItems(services: Array<{ serviceName?: string; name?: string; quantity?: number }> | undefined) {
   const parts = (services || []).map((service) => {
@@ -16,8 +14,8 @@ export function formatPurchaseItems(services: Array<{ serviceName?: string; name
   }).filter(Boolean);
 
   if (parts.length === 0) return 'Item/Service';
-  const joined = parts.length <= 3 ? parts.join(', ') : `${parts.slice(0, 2).join(', ')} + ${parts.length - 2} more`;
-  return joined.length > 80 ? `${joined.slice(0, 77).trim()}...` : joined;
+  if (parts.length <= 3) return parts.join(', ');
+  return `${parts.slice(0, 2).join(', ')} + ${parts.length - 2} more`;
 }
 
 function purchaseVars(params: {
@@ -34,6 +32,10 @@ function purchaseVars(params: {
   };
 }
 
+function hasUnfilledPlaceholders(message: string) {
+  return /\{\{\s*[a-z0-9_]+\s*\}\}/i.test(message || '');
+}
+
 export function formatPurchaseConfirmationMessage(params: {
   items: string;
   amount: number;
@@ -42,143 +44,61 @@ export function formatPurchaseConfirmationMessage(params: {
   return applySmsTemplate(DEFAULT_SMS_TEMPLATES.purchase_confirmation, purchaseVars(params));
 }
 
-async function alreadySentPurchaseSmsToday(phone: string, excludeOrderId: unknown) {
-  const todayKey = kenyaDateKey();
-  const { start, end } = kenyaDayBounds(todayKey);
-
-  const customer = await Customer.findOne({ phone }).select('lastPurchaseConfirmationDate').lean();
-  if (customer?.lastPurchaseConfirmationDate === todayKey) {
-    return true;
-  }
-
-  const otherToday = await Order.exists({
-    _id: { $ne: excludeOrderId },
-    paymentStatus: 'paid',
-    'customer.phone': phone,
-    purchaseConfirmationSmsSentAt: { $gte: start, $lte: end },
-  });
-  return Boolean(otherToday);
-}
-
-async function claimCustomerPurchaseSmsDay(phone: string, name?: string) {
-  const todayKey = kenyaDateKey();
-  const existing = await Customer.findOne({ phone }).select('_id lastPurchaseConfirmationDate');
-  if (existing) {
-    if (existing.lastPurchaseConfirmationDate === todayKey) {
-      return false;
-    }
-    const claimed = await Customer.findOneAndUpdate(
-      {
-        _id: existing._id,
-        $or: [
-          { lastPurchaseConfirmationDate: { $exists: false } },
-          { lastPurchaseConfirmationDate: null },
-          { lastPurchaseConfirmationDate: '' },
-          { lastPurchaseConfirmationDate: { $ne: todayKey } },
-        ],
-      },
-      { $set: { lastPurchaseConfirmationDate: todayKey, lastPurchaseConfirmationAt: new Date() } },
-      { new: false }
-    );
-    return Boolean(claimed);
-  }
-
-  try {
-    await Customer.create({
-      name: (name || '').trim() || 'Customer',
-      phone,
-      lastPurchaseConfirmationDate: todayKey,
-      lastPurchaseConfirmationAt: new Date(),
-    });
-    return true;
-  } catch {
-    const created = await Customer.findOne({ phone }).select('lastPurchaseConfirmationDate');
-    if (created?.lastPurchaseConfirmationDate === todayKey) {
-      return false;
-    }
-    const claimed = await Customer.findOneAndUpdate(
-      {
-        phone,
-        $or: [
-          { lastPurchaseConfirmationDate: { $exists: false } },
-          { lastPurchaseConfirmationDate: null },
-          { lastPurchaseConfirmationDate: '' },
-          { lastPurchaseConfirmationDate: { $ne: todayKey } },
-        ],
-      },
-      { $set: { lastPurchaseConfirmationDate: todayKey, lastPurchaseConfirmationAt: new Date() } },
-      { new: false }
-    );
-    return Boolean(claimed);
-  }
-}
-
 export async function sendPurchaseConfirmationIfNeeded(orderId: unknown) {
   if (!orderId) return { sent: false, reason: 'missing_order' };
 
   await connectDB();
 
-  const claimed = await Order.findOneAndUpdate(
-    {
-      _id: orderId,
-      paymentStatus: 'paid',
-      $or: [
-        { purchaseConfirmationSmsSentAt: { $exists: false } },
-        { purchaseConfirmationSmsSentAt: null },
-      ],
-    },
-    { $set: { purchaseConfirmationSmsSentAt: new Date() } },
-    { new: false }
-  );
-
-  if (!claimed) {
-    return { sent: false, reason: 'already_sent_or_unpaid' };
+  const order = await Order.findById(orderId);
+  if (!order) {
+    return { sent: false, reason: 'missing_order' };
+  }
+  if (order.paymentStatus !== 'paid') {
+    return { sent: false, reason: 'unpaid' };
+  }
+  if (order.purchaseConfirmationSmsSentAt) {
+    return { sent: false, reason: 'already_sent' };
   }
 
-  const phone = normalizeKenyaPhoneLocal(claimed.customer?.phone);
+  const phone = normalizeKenyaPhoneLocal(order.customer?.phone);
   if (!phone) {
-    await Order.updateOne({ _id: claimed._id }, { $unset: { purchaseConfirmationSmsSentAt: 1 } });
     return { sent: false, reason: 'no_phone' };
   }
 
-  if (await alreadySentPurchaseSmsToday(phone, claimed._id)) {
-    console.log(`Purchase confirmation SMS skipped for ${claimed.orderNumber}: already sent to ${phone} today`);
-    return { sent: false, reason: 'already_sent_today' };
+  const vars = purchaseVars({
+    items: formatPurchaseItems(order.services),
+    amount: order.totalAmount || order.amountPaid || 0,
+    orderNumber: order.orderNumber,
+  });
+
+  let message = '';
+  try {
+    message = await renderSmsTemplate('purchase_confirmation', vars);
+  } catch (error) {
+    console.error(`Purchase confirmation template render failed for ${order.orderNumber}:`, error);
   }
 
-  const claimedDay = await claimCustomerPurchaseSmsDay(phone, claimed.customer?.name);
-  if (!claimedDay) {
-    console.log(`Purchase confirmation SMS skipped for ${claimed.orderNumber}: already sent to ${phone} today`);
-    return { sent: false, reason: 'already_sent_today' };
+  if (!message || hasUnfilledPlaceholders(message)) {
+    message = formatPurchaseConfirmationMessage({
+      items: vars.items,
+      amount: order.totalAmount || order.amountPaid || 0,
+      orderNumber: order.orderNumber,
+    });
   }
 
-  const message = await renderSmsTemplate(
-    'purchase_confirmation',
-    purchaseVars({
-      items: formatPurchaseItems(claimed.services),
-      amount: claimed.totalAmount || claimed.amountPaid || 0,
-      orderNumber: claimed.orderNumber,
-    })
-  );
-
-  if (!message || /\{\{\s*[a-z0-9_]+\s*\}\}/i.test(message)) {
-    await Order.updateOne({ _id: claimed._id }, { $unset: { purchaseConfirmationSmsSentAt: 1 } });
-    console.error(`Purchase confirmation SMS skipped for ${claimed.orderNumber}: template was not filled`);
+  if (!message || hasUnfilledPlaceholders(message)) {
+    console.error(`Purchase confirmation SMS skipped for ${order.orderNumber}: template was not filled`);
     return { sent: false, reason: 'template_unfilled' };
   }
 
   try {
-    await smsService.sendSMS(phone, message, { type: 'transactional' });
-    console.log(`Purchase confirmation SMS sent for order ${claimed.orderNumber} to ${phone}`);
+    await smsService.sendSMS(phone, message);
+    order.purchaseConfirmationSmsSentAt = new Date();
+    await order.save();
+    console.log(`Purchase confirmation SMS sent for order ${order.orderNumber} to ${phone}`);
     return { sent: true };
   } catch (error) {
-    const todayKey = kenyaDateKey();
-    await Order.updateOne({ _id: claimed._id }, { $unset: { purchaseConfirmationSmsSentAt: 1 } });
-    await Customer.updateOne(
-      { phone, lastPurchaseConfirmationDate: todayKey },
-      { $unset: { lastPurchaseConfirmationDate: 1, lastPurchaseConfirmationAt: 1 } }
-    );
-    console.error(`Purchase confirmation SMS failed for order ${claimed.orderNumber}:`, error);
+    console.error(`Purchase confirmation SMS failed for order ${order.orderNumber}:`, error);
     return { sent: false, reason: 'sms_failed' };
   }
 }

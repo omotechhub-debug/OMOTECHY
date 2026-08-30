@@ -30,7 +30,7 @@ export const SMS_TEMPLATE_DEFINITIONS: SmsTemplateDefinition[] = [
   {
     id: 'purchase_confirmation',
     name: 'Paid purchase confirmation',
-    description: 'Sent to the customer once per day when a POS order is fully paid',
+    description: 'Sent to the customer when a POS order is fully paid',
     recipient: 'Customer',
     fields: [
       { key: 'items', label: 'Items / services', example: 'Bulk A4 Normal Paper', required: true },
