@@ -27,12 +27,13 @@ export type SmsTrafficType = 'transactional' | 'promotional';
 function sanitizeGsmSms(message: string) {
   return String(message || '')
     .replace(/\u00a0/g, ' ')
+    .replace(/[•●▪▸·]/g, '-')
     .replace(/[‘’‛‹›]/g, "'")
     .replace(/[“”„«»]/g, '"')
     .replace(/[–—]/g, '-')
     .replace(/×/g, 'x')
     .replace(/KSh/g, 'Ksh')
-    .replace(/[^\x09\x0a\x0d\x20-\x7e•]/g, '')
+    .replace(/[^\x09\x0a\x0d\x20-\x7e]/g, '')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -227,6 +228,7 @@ class SMSService {
     const payload: Record<string, string> = {
       to: phone,
       message: text,
+      msgType: 'text',
     };
     if (senderIdName) {
       payload.senderIdName = senderIdName;

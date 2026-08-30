@@ -72,6 +72,27 @@ Amount: {{amount}}
 Order No: #{{order_no}}
 Your purchase has been confirmed successfully.
 Call/WhatsApp: 0740 802 704`,
+  `OMOTECH HUB COMPUTERS
+
+Thank you for shopping with us.
+
+Purchase: {{items}}
+Amount: {{amount}}
+Order No: #{{order_no}}
+
+Your purchase has been confirmed successfully.
+
+We offer services including:
+• Laptop and desktop sales
+• Computer and laptop repairs
+• Electronics and accessories
+• Printing, photocopying, binding and lamination
+• Gas refilling, cylinder sales and delivery
+• Laundry and pickup/delivery
+• Student storage services
+For enquiries or online orders, call/WhatsApp: 0740 802 704.
+
+Thank you for choosing Omotech Hub Computers. We appreciate your business.`,
 ];
 
 function normalizeTemplateBody(value: string) {
@@ -81,6 +102,7 @@ function normalizeTemplateBody(value: string) {
 function isStalePurchaseConfirmation(body: string) {
   const normalized = normalizeTemplateBody(body);
   if (!normalized) return true;
+  if (/[•●]/.test(normalized)) return true;
   return PREVIOUS_PURCHASE_CONFIRMATION_BODIES.some((old) => normalizeTemplateBody(old) === normalized);
 }
 

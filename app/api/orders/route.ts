@@ -7,7 +7,6 @@ import InventoryMovement from '@/lib/models/InventoryMovement';
 import User from '@/lib/models/User';
 import Station from '@/lib/models/Station';
 import { getTokenFromRequest, verifyToken } from '@/lib/auth';
-import { smsService } from '@/lib/sms';
 import Promotion from '@/lib/models/Promotion';
 import { applyLockedInPromotion, updatePromotionStatuses } from '@/lib/promotion-utils';
 import { normalizeKenyaPhoneLocal } from '@/lib/phone-utils';
@@ -563,12 +562,6 @@ export async function POST(request: NextRequest) {
     void import('@/lib/purchase-confirmation-sms')
       .then(({ sendPurchaseConfirmationIfNeeded }) => sendPurchaseConfirmationIfNeeded(order._id))
       .catch((smsError) => console.error('Purchase confirmation SMS failed:', smsError));
-
-    if (!(order.paymentMethod === 'cash' && order.paymentStatus === 'paid')) {
-      void smsService.sendAdminNewOrderNotification(order).catch((adminSmsError) => {
-        console.error('Admin SMS sending failed:', adminSmsError);
-      });
-    }
 
     return NextResponse.json({
       success: true,
