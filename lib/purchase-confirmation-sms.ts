@@ -49,19 +49,26 @@ export async function sendPurchaseConfirmationIfNeeded(orderId: unknown) {
 
   await connectDB();
 
-  const order = await Order.findById(orderId);
+  const order = await Order.findOneAndUpdate(
+    {
+      _id: orderId,
+      paymentStatus: 'paid',
+      $or: [
+        { purchaseConfirmationSmsSentAt: { $exists: false } },
+        { purchaseConfirmationSmsSentAt: null },
+      ],
+    },
+    { $set: { purchaseConfirmationSmsSentAt: new Date() } },
+    { new: false }
+  );
+
   if (!order) {
-    return { sent: false, reason: 'missing_order' };
-  }
-  if (order.paymentStatus !== 'paid') {
-    return { sent: false, reason: 'unpaid' };
-  }
-  if (order.purchaseConfirmationSmsSentAt) {
-    return { sent: false, reason: 'already_sent' };
+    return { sent: false, reason: 'already_sent_or_unpaid' };
   }
 
   const phone = normalizeKenyaPhoneLocal(order.customer?.phone);
   if (!phone) {
+    await Order.updateOne({ _id: order._id }, { $unset: { purchaseConfirmationSmsSentAt: 1 } });
     return { sent: false, reason: 'no_phone' };
   }
 
@@ -87,17 +94,17 @@ export async function sendPurchaseConfirmationIfNeeded(orderId: unknown) {
   }
 
   if (!message || hasUnfilledPlaceholders(message)) {
+    await Order.updateOne({ _id: order._id }, { $unset: { purchaseConfirmationSmsSentAt: 1 } });
     console.error(`Purchase confirmation SMS skipped for ${order.orderNumber}: template was not filled`);
     return { sent: false, reason: 'template_unfilled' };
   }
 
   try {
     await smsService.sendSMS(phone, message);
-    order.purchaseConfirmationSmsSentAt = new Date();
-    await order.save();
     console.log(`Purchase confirmation SMS sent for order ${order.orderNumber} to ${phone}`);
     return { sent: true };
   } catch (error) {
+    await Order.updateOne({ _id: order._id }, { $unset: { purchaseConfirmationSmsSentAt: 1 } });
     console.error(`Purchase confirmation SMS failed for order ${order.orderNumber}:`, error);
     return { sent: false, reason: 'sms_failed' };
   }

@@ -1794,15 +1794,6 @@ Need help? Call us at +254 757 883 799`;
             console.log('Previous payment status:', previousPaymentStatus);
             console.log('Is editing:', isEditing);
             
-        // Send purchase confirmation only after the order is paid (cash paid now, or after M-Pesa)
-        if (!isEditing && customerInfo.paymentStatus === 'paid' && data.order?._id) {
-          await fetch('/api/sms', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'purchase_confirmation', orderId: data.order._id }),
-          });
-        }
-            
             // Send status update SMS if status changed
             if (isEditing) {
               console.log('Checking payment status change...');
